@@ -45,6 +45,21 @@ The current visual reference is [the account dashboard mockup](ui-mockups/README
 10. Use ASCII-safe symbols by default. Do not require a particular terminal font.
 11. Future screens should import shared tokens from `theme` rather than adding
     one-off RGB values.
+12. Keep one scrollbar track plus one breathing cell in every account and
+    details pane, including narrow and compact layouts. The track uses `border`;
+    the thumb uses `primary-strong` when focused and `muted` otherwise.
+13. Use `primary-strong` for the border of the focused pane. This focus cue is
+    independent of the scrollbar position and remains visible at the top.
+14. On wide layouts, keep footer shortcuts and status notices in separate
+    columns with a full-height muted `│` separator. Wrap within each column,
+    and keep a shortcut token with its label when a line break is required.
+15. In stacked narrow and compact footers, keep shortcut rows left-aligned and
+    right-align the status/notice row so it reads as a distinct outcome.
+16. Give each scrollable details section a consistent trailing breathing row
+    and horizontal separator, including the final section when no content
+    follows it.
+17. Render label/value details as aligned columns with a muted `│` divider and
+    a one-cell value inset; keep the divider stable as labels vary in length.
 
 ## Interaction language
 
@@ -58,3 +73,13 @@ The current visual reference is [the account dashboard mockup](ui-mockups/README
 - `Enter` means continue or submit.
 - `Esc` cancels or closes the current modal. From the main account screen it opens quit confirmation.
 - `q` opens quit confirmation from the main account screen; `Enter`/`y` confirms and `Esc`/`n` cancels.
+- `Tab`/`Shift+Tab` switches focus between the account list and details pane.
+- In the account list, `j`/`k`, arrows, `Home`, `End`, and `PageUp`/`PageDown`
+  select rows; the selected row is kept visible.
+- In the details pane, those keys scroll visual rows. Mouse-wheel scrolling
+  focuses and scrolls the pane beneath the pointer.
+- The footer must expose `[Tab] focus` and `[Wheel] scroll`. Wide layouts may
+  name the active pane; narrow and compact layouts may shorten or wrap labels,
+  but must preserve the focus and wheel affordances.
+- Scrollbar thumbs are not draggable in v1. Required content is clipped only by
+  a scroll offset, never removed from the logical pane model.
