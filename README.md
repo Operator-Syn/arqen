@@ -50,6 +50,8 @@ Then:
 2. Open the displayed URL in a browser.
 3. Choose the Google account and approve only the permissions you want to apply.
 4. Arqen captures the loopback redirect and completes the login automatically.
+   The completion page attempts to close its browser tab; if the browser blocks
+   script-initiated tab closing, it explains that the tab can be closed safely.
 5. If the loopback listener cannot start, the TUI provides the legacy manual
    redirect-input fallback.
 
