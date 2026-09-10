@@ -86,6 +86,13 @@ expected_tools="$(printf '%s\n' \
 
 bash "$runtime_dir/run.sh" cli list_projects >/dev/null
 bash "$runtime_dir/run.sh" cli index_status --project "$project" >/dev/null
+cargo_coverage=""
+if ! cargo_coverage="$(bash "$runtime_dir/run.sh" cli check_index_coverage \
+    --project "$project" --paths Cargo.toml)"; then
+    fail "Cargo.toml index coverage query failed."
+fi
+grep -Fq '"status":"no_recorded_issue"' <<<"$cargo_coverage" \
+    || fail "Cargo.toml index coverage is not clean: $cargo_coverage"
 bash "$runtime_dir/run.sh" cli get_architecture --project "$project" --aspects overview >/dev/null
 bash "$runtime_dir/run.sh" cli search_graph --project "$project" --name-pattern '.*main.*' --limit 5 >/dev/null
 bash "$runtime_dir/run.sh" cli search_code --project "$project" --pattern 'fn main' --limit 5 >/dev/null
