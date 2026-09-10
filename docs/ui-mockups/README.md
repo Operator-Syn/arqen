@@ -68,6 +68,16 @@ equivalent keyboard paths. Clicking the selected account's connection badge
 opens disconnect confirmation, starts reconnect login, or opens cleanup recovery
 according to the recorded state.
 
+When automatic callback handling is available, `[o]` starts an Arqen-owned
+browser process with an isolated temporary profile and opens Google's
+authorization URL in a separate window. After the callback is received, Arqen
+terminates that owned process and removes the callback query from the visible
+completion page. If no dedicated browser can be started, the normal browser
+launcher remains available with a manual-close fallback. The optional
+`LOGIN_HELPER_ENABLED` toggle in `src/main.rs` enables the local user-gesture
+popup helper instead. The temporary profile is not the user's normal browser
+profile and is removed when the flow ends.
+
 `Tab`/`Shift+Tab` switches between the account and details panes. In the
 focused pane, `Home`, `End`, `PageUp`/`PageDown`, arrows, and `j`/`k` move the
 selection or visual-row offset. A mouse wheel focuses and scrolls the pane under
