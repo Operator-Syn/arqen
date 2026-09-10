@@ -4,7 +4,7 @@ mod dialogs;
 pub(crate) mod modal;
 pub(crate) mod theme;
 
-use crate::Screen;
+use crate::{PaneFocus, Screen};
 use arqen::{Account, ConnectionState};
 use ratatui::{
     Frame,
@@ -21,6 +21,7 @@ pub(crate) enum MouseTarget {
     Disconnect,
     Login,
     ConnectionBadge,
+    Focus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +29,12 @@ pub(crate) enum UiMode {
     Wide,
     Narrow,
     Compact,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InteractionContext {
+    pub(crate) pane_focus: PaneFocus,
+    pub(crate) accounts_scroll: usize,
 }
 
 pub(crate) fn content_padding(width: u16) -> u16 {
@@ -43,10 +50,14 @@ struct Areas {
     mode: UiMode,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw(
     frame: &mut Frame<'_>,
     accounts: &[Account],
     selected: usize,
+    pane_focus: PaneFocus,
+    accounts_scroll: &mut usize,
+    details_scroll: &mut usize,
     screen: &Screen,
     notice: Option<&str>,
 ) {
@@ -59,11 +70,33 @@ pub(crate) fn draw(
     let selected_state = accounts
         .get(selected)
         .map(|account| account.connection_state);
-    let areas = layout(area, accounts.len(), selected_state, notice);
+    let areas = layout(area, accounts.len(), selected_state, pane_focus, notice);
     chrome::render_header(frame, areas.header, accounts, areas.mode);
-    accounts::render_account_list(frame, areas.accounts, accounts, selected, areas.mode);
-    accounts::render_account_details(frame, areas.details, accounts.get(selected), areas.mode);
-    chrome::render_footer(frame, areas.footer, notice, areas.mode, selected_state);
+    accounts::render_account_list(
+        frame,
+        areas.accounts,
+        accounts,
+        selected,
+        areas.mode,
+        pane_focus == PaneFocus::Accounts,
+        accounts_scroll,
+    );
+    accounts::render_account_details(
+        frame,
+        areas.details,
+        accounts.get(selected),
+        areas.mode,
+        pane_focus == PaneFocus::Details,
+        details_scroll,
+    );
+    chrome::render_footer(
+        frame,
+        areas.footer,
+        notice,
+        areas.mode,
+        selected_state,
+        pane_focus,
+    );
 
     match screen {
         Screen::Accounts => {}
@@ -102,6 +135,7 @@ pub(crate) fn draw(
     }
 }
 
+#[cfg(test)]
 pub(crate) fn mouse_target(
     area: Rect,
     accounts: &[Account],
@@ -110,32 +144,72 @@ pub(crate) fn mouse_target(
     row: u16,
     notice: Option<&str>,
 ) -> Option<MouseTarget> {
+    mouse_target_with_focus(
+        area,
+        accounts,
+        selected,
+        column,
+        row,
+        InteractionContext {
+            pane_focus: PaneFocus::Accounts,
+            accounts_scroll: 0,
+        },
+        notice,
+    )
+}
+
+pub(crate) fn mouse_target_with_focus(
+    area: Rect,
+    accounts: &[Account],
+    selected: usize,
+    column: u16,
+    row: u16,
+    context: InteractionContext,
+    notice: Option<&str>,
+) -> Option<MouseTarget> {
     let selected_state = accounts
         .get(selected)
         .map(|account| account.connection_state);
-    let areas = layout(area, accounts.len(), selected_state, notice);
-    accounts::mouse_target(areas.accounts, accounts.len(), column, row, areas.mode)
-        .or_else(|| {
-            chrome::reauthenticate_target(areas.footer, areas.mode, selected_state, column, row)
-                .then_some(MouseTarget::Reauthenticate)
-        })
-        .or_else(|| {
-            chrome::disconnect_target(areas.footer, areas.mode, selected_state, column, row)
-                .then_some(MouseTarget::Disconnect)
-        })
-        .or_else(|| {
-            chrome::login_target(areas.footer, areas.mode, selected_state, column, row)
-                .then_some(MouseTarget::Login)
-        })
-        .or_else(|| {
-            (selected_state.is_some()
-                && accounts::connection_badge_target(areas.details, areas.mode, column, row))
-            .then_some(MouseTarget::ConnectionBadge)
-        })
-        .or_else(|| {
-            (accounts.is_empty() && contains(areas.details, column, row))
-                .then_some(MouseTarget::AddAccount)
-        })
+    let areas = layout(
+        area,
+        accounts.len(),
+        selected_state,
+        context.pane_focus,
+        notice,
+    );
+    accounts::mouse_target_with_scroll(
+        areas.accounts,
+        accounts.len(),
+        column,
+        row,
+        areas.mode,
+        context.accounts_scroll,
+    )
+    .or_else(|| {
+        chrome::reauthenticate_target(areas.footer, areas.mode, selected_state, column, row)
+            .then_some(MouseTarget::Reauthenticate)
+    })
+    .or_else(|| {
+        chrome::disconnect_target(areas.footer, areas.mode, selected_state, column, row)
+            .then_some(MouseTarget::Disconnect)
+    })
+    .or_else(|| {
+        chrome::login_target(areas.footer, areas.mode, selected_state, column, row)
+            .then_some(MouseTarget::Login)
+    })
+    .or_else(|| {
+        chrome::focus_target(areas.footer, areas.mode, selected_state, column, row)
+            .then_some(MouseTarget::Focus)
+    })
+    .or_else(|| {
+        (selected_state.is_some()
+            && accounts::connection_badge_target(areas.details, areas.mode, column, row))
+        .then_some(MouseTarget::ConnectionBadge)
+    })
+    .or_else(|| {
+        (accounts.is_empty() && contains(areas.details, column, row))
+            .then_some(MouseTarget::AddAccount)
+    })
 }
 
 pub(crate) fn modal_action(
@@ -173,6 +247,48 @@ pub(crate) fn modal_action(
     modal::Modal::hit_test(area, &spec, column, row)
 }
 
+pub(crate) fn pane_at_with_notice(
+    area: Rect,
+    accounts: &[Account],
+    selected: usize,
+    column: u16,
+    row: u16,
+    notice: Option<&str>,
+) -> Option<PaneFocus> {
+    let selected_state = accounts
+        .get(selected)
+        .map(|account| account.connection_state);
+    let areas = layout(
+        area,
+        accounts.len(),
+        selected_state,
+        PaneFocus::Accounts,
+        notice,
+    );
+    if contains(areas.accounts, column, row) {
+        Some(PaneFocus::Accounts)
+    } else if contains(areas.details, column, row) {
+        Some(PaneFocus::Details)
+    } else {
+        None
+    }
+}
+
+pub(crate) fn pane_viewport(
+    area: Rect,
+    account_count: usize,
+    selected_state: Option<ConnectionState>,
+    pane: PaneFocus,
+) -> usize {
+    let areas = layout(area, account_count, selected_state, pane, None);
+    match pane {
+        PaneFocus::Accounts => {
+            accounts::list_viewport_rows(areas.accounts, account_count, areas.mode)
+        }
+        PaneFocus::Details => accounts::details_viewport_rows(areas.details, areas.mode),
+    }
+}
+
 fn contains(area: Rect, column: u16, row: u16) -> bool {
     column >= area.x
         && column < area.x.saturating_add(area.width)
@@ -182,8 +298,9 @@ fn contains(area: Rect, column: u16, row: u16) -> bool {
 
 fn layout(
     area: Rect,
-    account_count: usize,
+    _account_count: usize,
     selected_state: Option<ConnectionState>,
+    pane_focus: PaneFocus,
     notice: Option<&str>,
 ) -> Areas {
     let inset = proportional_inset(area);
@@ -202,6 +319,7 @@ fn layout(
             notice,
             mode,
             selected_state,
+            pane_focus,
         )),
     ])
     .split(content);
@@ -214,8 +332,8 @@ fn layout(
         .split(vertical[1])
     } else {
         Layout::vertical([
-            Constraint::Percentage(if account_count == 0 { 34 } else { 38 }),
-            Constraint::Percentage(2),
+            Constraint::Percentage(38),
+            Constraint::Length(0),
             Constraint::Fill(1),
         ])
         .split(vertical[1])
@@ -249,10 +367,17 @@ fn ui_mode(area: Rect) -> UiMode {
 
 #[cfg(test)]
 mod tests {
-    use super::{MouseTarget, UiMode, draw, layout, mouse_target};
+    use super::{
+        InteractionContext, MouseTarget, PaneFocus, UiMode, draw, layout, mouse_target,
+        mouse_target_with_focus, pane_at_with_notice, theme,
+    };
     use crate::Screen;
     use arqen::{Account, ConnectionState};
-    use ratatui::{Terminal, backend::TestBackend, layout::Rect};
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        layout::{Constraint, Layout, Rect},
+    };
 
     fn account(name: &str, email: &str) -> Account {
         Account {
@@ -272,10 +397,45 @@ mod tests {
     }
 
     fn rendered(width: u16, height: u16, screen: Screen, accounts: &[Account]) -> String {
+        rendered_at(width, height, screen, accounts, 0)
+    }
+
+    fn rendered_at(
+        width: u16,
+        height: u16,
+        screen: Screen,
+        accounts: &[Account],
+        details_scroll: usize,
+    ) -> String {
+        rendered_state(width, height, screen, accounts, 0, 0, details_scroll)
+    }
+
+    fn rendered_state(
+        width: u16,
+        height: u16,
+        screen: Screen,
+        accounts: &[Account],
+        selected: usize,
+        accounts_scroll: usize,
+        details_scroll: usize,
+    ) -> String {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
+        let mut accounts_scroll = accounts_scroll;
+        let mut details_scroll = details_scroll;
         terminal
-            .draw(|frame| draw(frame, accounts, 0, &screen, None))
+            .draw(|frame| {
+                draw(
+                    frame,
+                    accounts,
+                    selected,
+                    PaneFocus::Accounts,
+                    &mut accounts_scroll,
+                    &mut details_scroll,
+                    &screen,
+                    None,
+                )
+            })
             .unwrap();
         terminal
             .backend()
@@ -286,11 +446,33 @@ mod tests {
             .collect()
     }
 
+    fn line_containing(output: &str, width: u16, text: &str) -> String {
+        output
+            .chars()
+            .collect::<Vec<_>>()
+            .chunks(usize::from(width))
+            .map(|line| line.iter().collect::<String>())
+            .find(|line| line.contains(text))
+            .unwrap_or_else(|| panic!("rendered output does not contain {text:?}: {output}"))
+    }
+
+    fn text_column(line: &str, text: &str) -> usize {
+        line.find(text)
+            .unwrap_or_else(|| panic!("rendered line does not contain {text:?}: {line:?}"))
+    }
+
     #[test]
     fn renders_wide_and_narrow_account_states() {
         let accounts = vec![account("Alex Morgan", "alex@example.com")];
         let wide = rendered(120, 32, Screen::Accounts, &accounts);
+        let wide_bottom = rendered_at(120, 32, Screen::Accounts, &accounts, usize::MAX);
+        let wide_scroll_frames: Vec<String> = (0..32)
+            .map(|offset| rendered_at(120, 32, Screen::Accounts, &accounts, offset))
+            .collect();
         let narrow = rendered(80, 24, Screen::Accounts, &accounts);
+        let narrow_scroll_frames: Vec<String> = (0..32)
+            .map(|offset| rendered_at(80, 24, Screen::Accounts, &accounts, offset))
+            .collect();
         let _medium = rendered(100, 24, Screen::Accounts, &accounts);
         let _compact = rendered(60, 18, Screen::Accounts, &accounts);
         let _tiny = rendered(36, 12, Screen::Accounts, &accounts);
@@ -298,11 +480,247 @@ mod tests {
         assert!(!wide.contains("Manage multiple Google accounts"));
         assert!(wide.contains("Connection details"));
         assert!(wide.contains("alex@example.com"));
-        assert!(wide.contains("Gmail read-only"));
+        assert!(wide.contains("│  Google"));
+        assert!(wide.contains(&format!(
+            "Provider{}│  Google",
+            " ".repeat("Keyring reference".chars().count() - "Provider".chars().count() + 2)
+        )));
+        assert!(wide.contains("Keyring reference  │  "));
         assert!(wide.contains("Granted scopes"));
+        assert!(
+            wide_scroll_frames
+                .iter()
+                .any(|frame| frame.contains("Gmail read-only"))
+        );
+        assert!(
+            wide_scroll_frames
+                .iter()
+                .any(|frame| frame.contains("https://www.googleapis.com/auth/gmail.readonly"))
+        );
+        assert!(wide_bottom.contains("Status"));
+        assert!(wide_bottom.contains(&format!(
+            "Account ID{}│  ",
+            " ".repeat("Keyring reference".chars().count() - "Account ID".chars().count() + 2)
+        )));
         assert!(wide.contains("[r] reauth"));
+        assert!(wide.contains("[q]\u{00a0}quit"));
         assert!(narrow.contains("Selected account"));
         assert!(narrow.contains("alex@example.com"));
+        assert!(narrow.contains("Connection details"), "{narrow}");
+        assert!(narrow.contains("CONNECTED"), "{narrow}");
+        assert!(
+            narrow_scroll_frames
+                .iter()
+                .any(|frame| frame.contains("Additional information"))
+        );
+        assert!(
+            narrow_scroll_frames
+                .iter()
+                .any(|frame| frame.contains("Gmail"))
+        );
+        assert!(
+            narrow_scroll_frames
+                .iter()
+                .any(|frame| frame.contains("gmail.readonly"))
+        );
+    }
+
+    #[test]
+    fn detail_section_headings_align_with_table_rows() {
+        let accounts = vec![account("Alex Morgan", "alex@example.com")];
+        let top = rendered(120, 32, Screen::Accounts, &accounts);
+        let bottom = rendered_at(120, 32, Screen::Accounts, &accounts, usize::MAX);
+
+        assert_eq!(
+            text_column(
+                &line_containing(&top, 120, "Connection details"),
+                "Connection details"
+            ),
+            text_column(&line_containing(&top, 120, "Provider"), "Provider")
+        );
+        assert_eq!(
+            text_column(
+                &line_containing(&bottom, 120, "Additional information"),
+                "Additional information"
+            ),
+            text_column(&line_containing(&bottom, 120, "Account ID"), "Account ID")
+        );
+    }
+
+    #[test]
+    fn renders_persistent_scrollbars_and_reaches_compact_list_rows() {
+        let accounts: Vec<Account> = (0..12)
+            .map(|index| {
+                account(
+                    &format!("Account {index}"),
+                    &format!("user-{index}@example.com"),
+                )
+            })
+            .collect();
+        let output = rendered_state(
+            60,
+            18,
+            Screen::Accounts,
+            &accounts,
+            accounts.len() - 1,
+            usize::MAX,
+            usize::MAX,
+        );
+        assert!(output.contains("│"));
+        assert!(output.contains("█"), "{output}");
+        assert!(output.contains("user-11@example.com"));
+        assert!(output.contains("[Wheel]"));
+        assert!(output.contains("scroll"));
+        assert!(output.contains("[Tab]"));
+
+        let details_focused =
+            rendered_state(120, 32, Screen::Accounts, &accounts[..1], 0, 0, usize::MAX);
+        assert!(details_focused.contains("Additional information"));
+    }
+
+    #[test]
+    fn focus_border_and_scroll_hit_testing_follow_the_active_pane() {
+        let area = Rect::new(0, 0, 120, 32);
+        let accounts = vec![account("First", "first@example.com")];
+        let areas = layout(
+            area,
+            accounts.len(),
+            Some(ConnectionState::Connected),
+            PaneFocus::Details,
+            None,
+        );
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut accounts_scroll = 0;
+        let mut details_scroll = 0;
+        terminal
+            .draw(|frame| {
+                draw(
+                    frame,
+                    &accounts,
+                    0,
+                    PaneFocus::Details,
+                    &mut accounts_scroll,
+                    &mut details_scroll,
+                    &Screen::Accounts,
+                    None,
+                )
+            })
+            .unwrap();
+        assert_eq!(
+            terminal
+                .backend()
+                .buffer()
+                .cell((areas.details.x, areas.details.y))
+                .expect("details border cell")
+                .fg,
+            theme::PRIMARY_STRONG
+        );
+        let footer_padding = super::content_padding(areas.footer.width);
+        let footer_inner = Rect {
+            x: areas.footer.x.saturating_add(1 + footer_padding),
+            y: areas.footer.y.saturating_add(1),
+            width: areas
+                .footer
+                .width
+                .saturating_sub(2 + footer_padding.saturating_mul(2)),
+            height: areas.footer.height.saturating_sub(2),
+        };
+        let footer_columns = Layout::horizontal([
+            Constraint::Percentage(60),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .split(footer_inner);
+        assert_eq!(
+            terminal
+                .backend()
+                .buffer()
+                .cell((footer_columns[1].x, footer_columns[1].y))
+                .expect("footer separator cell")
+                .symbol(),
+            "│"
+        );
+        assert_eq!(
+            pane_at_with_notice(
+                area,
+                &accounts,
+                0,
+                areas.accounts.x + 1,
+                areas.accounts.y + 1,
+                None,
+            ),
+            Some(PaneFocus::Accounts)
+        );
+        assert_eq!(
+            pane_at_with_notice(
+                area,
+                &accounts,
+                0,
+                areas.details.x + 1,
+                areas.details.y + 1,
+                None,
+            ),
+            Some(PaneFocus::Details)
+        );
+    }
+
+    #[test]
+    fn mouse_account_hit_testing_accounts_for_scroll_offset() {
+        let area = Rect::new(0, 0, 120, 32);
+        let accounts = vec![
+            account("First", "first@example.com"),
+            account("Second", "second@example.com"),
+            account("Third", "third@example.com"),
+        ];
+        let areas = layout(
+            area,
+            accounts.len(),
+            Some(ConnectionState::Connected),
+            PaneFocus::Accounts,
+            None,
+        );
+        assert_eq!(
+            mouse_target_with_focus(
+                area,
+                &accounts,
+                0,
+                areas.accounts.x + 2,
+                areas.accounts.y + 4,
+                InteractionContext {
+                    pane_focus: PaneFocus::Accounts,
+                    accounts_scroll: 1,
+                },
+                None,
+            ),
+            Some(MouseTarget::Account(1))
+        );
+    }
+
+    #[test]
+    fn scrollbar_offsets_clamp_when_rendered_at_both_ends() {
+        let area = Rect::new(0, 0, 80, 24);
+        let accounts = vec![account("First", "first@example.com")];
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut accounts_scroll = usize::MAX;
+        let mut details_scroll = usize::MAX;
+        terminal
+            .draw(|frame| {
+                draw(
+                    frame,
+                    &accounts,
+                    0,
+                    PaneFocus::Details,
+                    &mut accounts_scroll,
+                    &mut details_scroll,
+                    &Screen::Accounts,
+                    None,
+                )
+            })
+            .unwrap();
+        assert!(accounts_scroll < usize::MAX);
+        assert!(details_scroll < usize::MAX);
     }
 
     #[test]
@@ -323,6 +741,21 @@ mod tests {
         unknown.granted_scopes = Some(vec!["https://example.test/future".into()]);
         let unknown_output = rendered(180, 40, Screen::Accounts, &[unknown]);
         assert!(unknown_output.contains("https://example.test/future"));
+
+        let mut canonical_identity = account("Canonical", "canonical@example.com");
+        canonical_identity.granted_scopes = Some(vec![
+            "https://www.googleapis.com/auth/userinfo.email".into(),
+            "https://www.googleapis.com/auth/userinfo.profile".into(),
+        ]);
+        let canonical_output = rendered(180, 40, Screen::Accounts, &[canonical_identity]);
+        assert!(
+            canonical_output
+                .contains("Email address — https://www.googleapis.com/auth/userinfo.email")
+        );
+        assert!(
+            canonical_output
+                .contains("Basic profile — https://www.googleapis.com/auth/userinfo.profile")
+        );
 
         let mut disconnected = account("Disconnected", "disconnected@example.com");
         disconnected.connection_state = ConnectionState::Disconnected;
@@ -425,7 +858,13 @@ mod tests {
             account("First", "first@example.com"),
             account("Second", "second@example.com"),
         ];
-        let areas = layout(area, 2, Some(ConnectionState::Connected), None);
+        let areas = layout(
+            area,
+            2,
+            Some(ConnectionState::Connected),
+            PaneFocus::Accounts,
+            None,
+        );
         assert_eq!(
             mouse_target(
                 area,
@@ -486,6 +925,17 @@ mod tests {
                 area,
                 &accounts,
                 0,
+                areas.footer.x + 1 + 37,
+                areas.footer.y + 1,
+                None,
+            ),
+            Some(MouseTarget::Focus)
+        );
+        assert_eq!(
+            mouse_target(
+                area,
+                &accounts,
+                0,
                 areas.details.x + areas.details.width.saturating_sub(5),
                 areas.details.y + 4,
                 None,
@@ -500,7 +950,13 @@ mod tests {
             account("Second", "second@example.com"),
             account("Third", "third@example.com"),
         ];
-        let compact_areas = layout(compact, 3, Some(ConnectionState::Connected), None);
+        let compact_areas = layout(
+            compact,
+            3,
+            Some(ConnectionState::Connected),
+            PaneFocus::Accounts,
+            None,
+        );
         assert_eq!(compact_areas.mode, UiMode::Compact);
         assert_eq!(
             mouse_target(
@@ -514,19 +970,23 @@ mod tests {
             Some(MouseTarget::Account(0))
         );
         assert_eq!(
-            mouse_target(
+            mouse_target_with_focus(
                 compact,
                 &compact_accounts,
                 0,
                 compact_areas.accounts.x + 1,
-                compact_areas.accounts.y + 6,
+                compact_areas.accounts.y + 4,
+                InteractionContext {
+                    pane_focus: PaneFocus::Accounts,
+                    accounts_scroll: 2,
+                },
                 None,
             ),
             Some(MouseTarget::AddAccount)
         );
 
         let empty = Rect::new(0, 0, 80, 24);
-        let empty_areas = layout(empty, 0, None, None);
+        let empty_areas = layout(empty, 0, None, PaneFocus::Accounts, None);
         assert_eq!(
             mouse_target(
                 empty,
@@ -557,6 +1017,7 @@ mod tests {
             Rect::new(0, 0, 120, 32),
             3,
             Some(ConnectionState::Connected),
+            PaneFocus::Accounts,
             None,
         );
         assert_eq!(wide.mode, UiMode::Wide);
@@ -568,6 +1029,7 @@ mod tests {
             Rect::new(0, 0, 80, 24),
             3,
             Some(ConnectionState::Connected),
+            PaneFocus::Accounts,
             None,
         );
         assert_eq!(narrow.mode, UiMode::Narrow);
@@ -578,6 +1040,7 @@ mod tests {
             Rect::new(0, 0, 60, 18),
             3,
             Some(ConnectionState::Connected),
+            PaneFocus::Accounts,
             None,
         );
         assert_eq!(compact.mode, UiMode::Compact);
