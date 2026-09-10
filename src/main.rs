@@ -26,6 +26,12 @@ enum LoginIntent {
     Reconnect { subject: String },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PaneFocus {
+    Accounts,
+    Details,
+}
+
 fn database_path() -> Result<std::path::PathBuf> {
     let base = env::var_os("XDG_DATA_HOME")
         .map(std::path::PathBuf::from)
@@ -101,6 +107,9 @@ struct App {
     store: AccountStore,
     accounts: Vec<Account>,
     selected: usize,
+    pane_focus: PaneFocus,
+    accounts_scroll: usize,
+    details_scroll: usize,
     screen: Screen,
     notice: Option<String>,
     clipboard: Option<arboard::Clipboard>,
@@ -113,6 +122,9 @@ impl App {
             store,
             accounts,
             selected: 0,
+            pane_focus: PaneFocus::Accounts,
+            accounts_scroll: 0,
+            details_scroll: 0,
             screen: Screen::Accounts,
             notice: None,
             clipboard: None,
@@ -127,7 +139,84 @@ impl App {
     fn reload_accounts(&mut self) -> Result<()> {
         self.accounts = self.store.list_accounts()?;
         self.selected = self.selected.min(self.accounts.len().saturating_sub(1));
+        self.details_scroll = 0;
         Ok(())
+    }
+
+    fn select_account(&mut self, selected: usize) {
+        let selected = selected.min(self.accounts.len().saturating_sub(1));
+        if selected != self.selected {
+            self.details_scroll = 0;
+        }
+        self.selected = selected;
+    }
+
+    fn viewport_rows(&self) -> usize {
+        let Ok((width, height)) = crossterm::terminal::size() else {
+            return 5;
+        };
+        ui::pane_viewport(
+            ratatui::layout::Rect::new(0, 0, width, height),
+            self.accounts.len(),
+            self.accounts
+                .get(self.selected)
+                .map(|account| account.connection_state),
+            self.pane_focus,
+        )
+    }
+
+    fn move_selection(&mut self, delta: isize) {
+        if self.accounts.is_empty() {
+            return;
+        }
+        let selected = if delta.is_negative() {
+            self.selected.saturating_sub(delta.unsigned_abs())
+        } else {
+            self.selected
+                .saturating_add(delta as usize)
+                .min(self.accounts.len().saturating_sub(1))
+        };
+        self.select_account(selected);
+    }
+
+    fn scroll_details(&mut self, delta: isize) {
+        if delta.is_negative() {
+            self.details_scroll = self.details_scroll.saturating_sub(delta.unsigned_abs());
+        } else {
+            self.details_scroll = self.details_scroll.saturating_add(delta as usize);
+        }
+    }
+
+    fn move_page(&mut self, forward: bool) {
+        let amount = self.viewport_rows().max(1);
+        match self.pane_focus {
+            PaneFocus::Accounts => self.move_selection(if forward {
+                amount as isize
+            } else {
+                -(amount as isize)
+            }),
+            PaneFocus::Details => self.scroll_details(if forward {
+                amount as isize
+            } else {
+                -(amount as isize)
+            }),
+        }
+    }
+
+    fn move_home(&mut self) {
+        match self.pane_focus {
+            PaneFocus::Accounts => self.select_account(0),
+            PaneFocus::Details => self.details_scroll = 0,
+        }
+    }
+
+    fn move_end(&mut self) {
+        match self.pane_focus {
+            PaneFocus::Accounts => {
+                self.select_account(self.accounts.len().saturating_sub(1));
+            }
+            PaneFocus::Details => self.details_scroll = usize::MAX,
+        }
     }
 
     fn start_login(&mut self, intent: LoginIntent) {
@@ -317,6 +406,18 @@ impl App {
     fn handle_key(&mut self, key: KeyEvent) {
         match &mut self.screen {
             Screen::Accounts => match key.code {
+                KeyCode::Tab => {
+                    self.pane_focus = match self.pane_focus {
+                        PaneFocus::Accounts => PaneFocus::Details,
+                        PaneFocus::Details => PaneFocus::Accounts,
+                    };
+                }
+                KeyCode::BackTab => {
+                    self.pane_focus = match self.pane_focus {
+                        PaneFocus::Accounts => PaneFocus::Details,
+                        PaneFocus::Details => PaneFocus::Accounts,
+                    };
+                }
                 KeyCode::Char('a') => self.start_login(LoginIntent::Add),
                 KeyCode::Char('d') => {
                     let retry = self.accounts.get(self.selected).is_some_and(|account| {
@@ -348,12 +449,18 @@ impl App {
                         self.start_login(LoginIntent::Reauthenticate { subject });
                     }
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
-                    self.selected = self.selected.saturating_sub(1);
-                }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    self.selected = (self.selected + 1).min(self.accounts.len().saturating_sub(1));
-                }
+                KeyCode::Up | KeyCode::Char('k') => match self.pane_focus {
+                    PaneFocus::Accounts => self.move_selection(-1),
+                    PaneFocus::Details => self.scroll_details(-1),
+                },
+                KeyCode::Down | KeyCode::Char('j') => match self.pane_focus {
+                    PaneFocus::Accounts => self.move_selection(1),
+                    PaneFocus::Details => self.scroll_details(1),
+                },
+                KeyCode::PageUp => self.move_page(false),
+                KeyCode::PageDown => self.move_page(true),
+                KeyCode::Home => self.move_home(),
+                KeyCode::End => self.move_end(),
                 KeyCode::Enter => {
                     if let Some(account) = self.accounts.get(self.selected) {
                         self.notice = Some(format!(
@@ -639,7 +746,7 @@ fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
     }
 
     if let Screen::Accounts = &app.screen {
-        match ui::mouse_target(
+        if let Some(focus) = ui::pane_at_with_notice(
             area,
             &app.accounts,
             app.selected,
@@ -647,8 +754,23 @@ fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
             row,
             app.notice.as_deref(),
         ) {
+            app.pane_focus = focus;
+        }
+        match ui::mouse_target_with_focus(
+            area,
+            &app.accounts,
+            app.selected,
+            column,
+            row,
+            ui::InteractionContext {
+                pane_focus: app.pane_focus,
+                accounts_scroll: app.accounts_scroll,
+            },
+            app.notice.as_deref(),
+        ) {
             Some(ui::MouseTarget::Account(index)) => {
-                app.selected = index;
+                app.pane_focus = PaneFocus::Accounts;
+                app.select_account(index);
                 app.notice = Some(format!(
                     "Selected {}",
                     app.accounts[index]
@@ -689,6 +811,7 @@ fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
                 }
             }
             Some(ui::MouseTarget::ConnectionBadge) => {
+                app.pane_focus = PaneFocus::Details;
                 let state = app
                     .accounts
                     .get(app.selected)
@@ -707,6 +830,12 @@ fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
                     }
                     None => {}
                 }
+            }
+            Some(ui::MouseTarget::Focus) => {
+                app.pane_focus = match app.pane_focus {
+                    PaneFocus::Accounts => PaneFocus::Details,
+                    PaneFocus::Details => PaneFocus::Accounts,
+                };
             }
             None => {}
         }
@@ -738,6 +867,9 @@ fn run_tui(stdout: &mut io::Stdout, mut app: App) -> Result<()> {
                 frame,
                 &app.accounts,
                 app.selected,
+                app.pane_focus,
+                &mut app.accounts_scroll,
+                &mut app.details_scroll,
                 &app.screen,
                 app.notice.as_deref(),
             )
@@ -783,24 +915,88 @@ fn handle_event(event: Event, app: &mut App) -> bool {
             }
             app.handle_key(key);
         }
-        Event::Mouse(mouse)
-            if mouse.kind == MouseEventKind::Down(MouseButton::Left)
-                && handle_mouse(app, mouse.column, mouse.row) =>
-        {
-            return true;
-        }
+        Event::Mouse(mouse) => match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left)
+                if handle_mouse(app, mouse.column, mouse.row) =>
+            {
+                return true;
+            }
+            MouseEventKind::ScrollUp => handle_scroll_mouse(app, mouse.column, mouse.row, false),
+            MouseEventKind::ScrollDown => handle_scroll_mouse(app, mouse.column, mouse.row, true),
+            MouseEventKind::Moved => handle_mouse_move(app, mouse.column, mouse.row),
+            _ => {}
+        },
         _ => {}
     }
     false
+}
+
+fn handle_scroll_mouse(app: &mut App, column: u16, row: u16, forward: bool) {
+    if !matches!(app.screen, Screen::Accounts) {
+        return;
+    }
+    let Ok((width, height)) = crossterm::terminal::size() else {
+        return;
+    };
+    let area = ratatui::layout::Rect::new(0, 0, width, height);
+    handle_scroll_mouse_at(app, area, column, row, forward);
+}
+
+fn handle_scroll_mouse_at(
+    app: &mut App,
+    area: ratatui::layout::Rect,
+    column: u16,
+    row: u16,
+    forward: bool,
+) {
+    if !matches!(app.screen, Screen::Accounts) {
+        return;
+    }
+    let Some(focus) = ui::pane_at_with_notice(
+        area,
+        &app.accounts,
+        app.selected,
+        column,
+        row,
+        app.notice.as_deref(),
+    ) else {
+        return;
+    };
+    app.pane_focus = focus;
+    match focus {
+        PaneFocus::Accounts => app.move_selection(if forward { 3 } else { -3 }),
+        PaneFocus::Details => app.scroll_details(if forward { 3 } else { -3 }),
+    }
+}
+
+fn handle_mouse_move(app: &mut App, column: u16, row: u16) {
+    if !matches!(app.screen, Screen::Accounts) {
+        return;
+    }
+    let Ok((width, height)) = crossterm::terminal::size() else {
+        return;
+    };
+    let area = ratatui::layout::Rect::new(0, 0, width, height);
+    if let Some(focus) = ui::pane_at_with_notice(
+        area,
+        &app.accounts,
+        app.selected,
+        column,
+        row,
+        app.notice.as_deref(),
+    ) {
+        app.pane_focus = focus;
+    }
 }
 
 mod ui;
 
 #[cfg(test)]
 mod tests {
-    use super::{App, LoginIntent, Screen, handle_event};
+    use super::{App, LoginIntent, PaneFocus, Screen, handle_event, handle_scroll_mouse_at};
     use arqen::{Account, AccountStore, ConnectionState};
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::layout::Rect;
 
     fn app_with_accounts() -> App {
         let store = AccountStore::in_memory().unwrap();
@@ -838,6 +1034,53 @@ mod tests {
         assert_eq!(app.selected, 1);
         app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
         assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn pane_focus_routes_navigation_and_resets_details_on_selection_change() {
+        let mut app = app_with_accounts();
+        assert_eq!(app.pane_focus, PaneFocus::Accounts);
+
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.pane_focus, PaneFocus::Details);
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(app.details_scroll, 1);
+        app.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE));
+        assert!(app.details_scroll > 1);
+        app.handle_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE));
+        assert!(app.details_scroll < 6);
+        app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(app.details_scroll, 0);
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(app.details_scroll, usize::MAX);
+
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+        assert_eq!(app.pane_focus, PaneFocus::Accounts);
+        app.details_scroll = 4;
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(app.selected, 1);
+        assert_eq!(app.details_scroll, 0);
+
+        app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(app.selected, 1);
+        app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn mouse_wheel_focuses_and_scrolls_the_pane_under_the_pointer() {
+        let mut app = app_with_accounts();
+        let area = Rect::new(0, 0, 120, 32);
+
+        handle_scroll_mouse_at(&mut app, area, 2, 8, true);
+        assert_eq!(app.pane_focus, PaneFocus::Accounts);
+        assert_eq!(app.selected, 1);
+
+        app.selected = 0;
+        app.details_scroll = 0;
+        handle_scroll_mouse_at(&mut app, area, 70, 8, true);
+        assert_eq!(app.pane_focus, PaneFocus::Details);
+        assert_eq!(app.details_scroll, 3);
     }
 
     #[test]
