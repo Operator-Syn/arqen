@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "command": "bash",
+      "args": [
+        "-lc",
+        "set -euo pipefail; root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || { echo \"MCP launcher must run inside the target Git repository.\" >&2; exit 1; }; exec bash \"$root/.codex/mcp/codebase-memory/run.sh\""
+      ]
+    }
+  }
+}
