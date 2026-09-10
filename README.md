@@ -10,9 +10,17 @@ metadata and credentials later.
 - Multiple accounts are supported.
 - Re-authentication upserts by Google's stable `sub`/subject identifier.
 - Press `a` in the TUI to start Google login.
+- Press `d` with a connected account selected to confirm Google logout. Arqen
+  revokes that grant and removes the local refresh token while keeping the
+  identity card for reconnecting.
+- Press `l` with a disconnected account selected to reconnect it through the
+  same Google login flow used for adding an account.
+- Press `r` with an account selected to reauthenticate it and refresh its
+  recorded Google grant.
 - Login displays a Google authorization URL, captures the Google loopback
   redirect automatically, exchanges the authorization code, stores the refresh token in the OS keyring,
-  and saves only account metadata plus a key reference in SQLite.
+  and saves account metadata, a key reference, and the exact granted scope set
+  returned by Google in SQLite.
 - Press `q` or `Esc` to exit.
 
 The database is created at `$XDG_DATA_HOME/arqen/accounts.sqlite3`, or
@@ -45,16 +53,33 @@ Then:
 5. If the loopback listener cannot start, the TUI provides the legacy manual
    redirect-input fallback.
 
-The initial scope includes OpenID profile/email identity and Gmail read-only
-access because the configured Google project enables Gmail integration. The
-TUI itself is not coupled to Hermes or any particular agent.
+The authorization request uses Arqen's configured OpenID profile/email identity
+and Gmail read-only policy. The TUI does not assume those permissions were
+approved: it displays the exact scope set returned by Google's token exchange.
+Accounts created before scope tracking show their scope state as unverified until
+they are reauthenticated. Arqen records the last confirmed grant and does not
+perform a live revocation check. The details view shows friendly labels with
+canonical scope strings, including unknown provider scopes. The TUI itself is
+not coupled to Hermes or any particular agent.
+
+Connected, disconnected, and indeterminate connection states are persisted with
+each identity. Disconnecting revokes the selected Google refresh token through
+Google's OAuth revocation endpoint and removes the matching OS-keyring entry.
+The identity and its last-confirmed scopes remain locally so the account can be
+reconnected. If provider revocation or local cleanup cannot be completed, Arqen
+shows an indeterminate state and offers retry or same-subject login recovery.
 
 ## Security boundary
 
 SQLite stores account metadata and a keyring reference. It does not store OAuth
 access or refresh tokens. Refresh tokens are stored using the `keyring` crate,
-which uses the Linux Secret Service backend where available. Access tokens are
-held only during the login exchange.
+which uses the persistent Linux Secret Service backend (with the keyutils cache)
+in the flake development environment. Access tokens are held only during the
+login exchange.
+
+Older development builds used keyring's in-memory mock when no backend feature
+was configured. Those tokens were never persisted and cannot be recovered;
+affected account cards must be reauthenticated once after upgrading.
 
 New logins use Arqen's keyring namespace. Existing SQLite rows retain their
 legacy keyring references so previously stored credentials are not deleted or
