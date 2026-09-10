@@ -2,13 +2,22 @@ use super::{UiMode, theme};
 use arqen::{Account, ConnectionState};
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::Rect,
     prelude::{Alignment, Line, Span, Style},
-    widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph, Wrap},
+    widgets::{
+        Block, Borders, List, ListItem, ListState, Padding, Paragraph, Scrollbar,
+        ScrollbarOrientation, ScrollbarState, Wrap,
+    },
 };
 
 const GMAIL_READONLY_SCOPE: &str = "https://www.googleapis.com/auth/gmail.readonly";
+const EMAIL_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.email";
+const PROFILE_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.profile";
 const CONNECTION_BADGE_WIDTH: u16 = 21;
+const SCROLLBAR_TRACK_WIDTH: u16 = 1;
+const SCROLLBAR_PADDING: u16 = 1;
+const SCROLLBAR_RESERVED_WIDTH: u16 = SCROLLBAR_TRACK_WIDTH + SCROLLBAR_PADDING;
+const DETAIL_COLUMN_GAP: usize = 2;
 
 fn status_presentation(
     state: ConnectionState,
@@ -59,8 +68,8 @@ pub(crate) fn scope_summary(account: &Account) -> String {
 fn friendly_scope(scope: &str) -> Option<&'static str> {
     match scope {
         "openid" => Some("OpenID identity"),
-        "email" => Some("Email address"),
-        "profile" => Some("Basic profile"),
+        "email" | EMAIL_SCOPE => Some("Email address"),
+        "profile" | PROFILE_SCOPE => Some("Basic profile"),
         GMAIL_READONLY_SCOPE => Some("Gmail read-only"),
         _ => None,
     }
@@ -132,10 +141,12 @@ pub(crate) fn render_account_list(
     accounts: &[Account],
     selected: usize,
     mode: UiMode,
+    focused: bool,
+    scroll_offset: &mut usize,
 ) {
     let row_height = row_height(area, accounts.len(), mode);
     let list_inset = super::content_padding(area.width).saturating_add(1).min(3);
-    let list_top = if mode == UiMode::Compact || accounts.is_empty() {
+    let list_top = if mode != UiMode::Wide || accounts.is_empty() {
         2
     } else {
         3
@@ -144,7 +155,7 @@ pub(crate) fn render_account_list(
         .width
         .saturating_sub(2)
         .saturating_sub(list_inset.saturating_mul(2))
-        .saturating_sub(2);
+        .saturating_sub(2 + SCROLLBAR_RESERVED_WIDTH);
     let mut items: Vec<ListItem<'_>> = accounts
         .iter()
         .enumerate()
@@ -225,7 +236,8 @@ pub(crate) fn render_account_list(
             ))]
         }));
     } else {
-        items.push(ListItem::new(Line::from(vec![
+        let add_padding = if row_height >= 4 { 2 } else { 1 };
+        let add_line = Line::from(vec![
             Span::styled(
                 "+  ",
                 Style::default()
@@ -233,12 +245,22 @@ pub(crate) fn render_account_list(
                     .add_modifier(ratatui::style::Modifier::BOLD),
             ),
             Span::styled("Add another account", Style::default().fg(theme::PRIMARY)),
-        ])));
+            Span::raw(" ".repeat(add_padding)),
+        ]);
+        items.push(ListItem::new(vec![
+            Line::from(""),
+            add_line,
+            Line::from(""),
+        ]));
     }
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::BORDER))
+        .border_style(Style::default().fg(if focused {
+            theme::PRIMARY_STRONG
+        } else {
+            theme::BORDER
+        }))
         .style(Style::default().bg(theme::SURFACE));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -277,6 +299,19 @@ pub(crate) fn render_account_list(
         width: inner.width.saturating_sub(list_inset.saturating_mul(2)),
         height: inner.height.saturating_sub(list_top),
     };
+    let scrollbar_area = Rect {
+        x: list_area
+            .x
+            .saturating_add(list_area.width.saturating_sub(SCROLLBAR_TRACK_WIDTH)),
+        y: list_area.y,
+        width: SCROLLBAR_TRACK_WIDTH.min(list_area.width),
+        height: list_area.height,
+    };
+    let list_content_area = Rect {
+        width: list_area.width.saturating_sub(SCROLLBAR_RESERVED_WIDTH),
+        ..list_area
+    };
+    let item_count = items.len();
     let list = List::new(items)
         .block(Block::default().padding(Padding::horizontal(1)))
         .highlight_style(Style::default().bg(theme::SELECTION))
@@ -287,7 +322,56 @@ pub(crate) fn render_account_list(
     } else {
         Some(selected.min(accounts.len() - 1))
     });
-    frame.render_stateful_widget(list, list_area, &mut state);
+    *state.offset_mut() = (*scroll_offset).min(item_count.saturating_sub(1));
+    frame.render_stateful_widget(list, list_content_area, &mut state);
+    *scroll_offset = state.offset();
+    render_scrollbar(
+        frame,
+        scrollbar_area,
+        item_count,
+        list_viewport_rows(area, accounts.len(), mode),
+        *scroll_offset,
+        focused,
+    );
+}
+
+pub(crate) fn list_viewport_rows(area: Rect, count: usize, mode: UiMode) -> usize {
+    let inner_height = area.height.saturating_sub(2);
+    let list_top = if mode != UiMode::Wide || count == 0 {
+        2
+    } else {
+        3
+    };
+    let list_height = inner_height.saturating_sub(list_top);
+    usize::from(list_height / row_height(area, count, mode).max(1)).max(1)
+}
+
+fn render_scrollbar(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    content_length: usize,
+    viewport_length: usize,
+    position: usize,
+    focused: bool,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some("│"))
+        .thumb_symbol("█")
+        .track_style(Style::default().fg(theme::BORDER))
+        .thumb_style(Style::default().fg(if focused {
+            theme::PRIMARY_STRONG
+        } else {
+            theme::MUTED
+        }));
+    let mut state = ScrollbarState::new(content_length.max(1))
+        .position(position.min(content_length.saturating_sub(1)))
+        .viewport_content_length(viewport_length.max(1));
+    frame.render_stateful_widget(scrollbar, area, &mut state);
 }
 
 pub(crate) fn render_account_details(
@@ -295,11 +379,27 @@ pub(crate) fn render_account_details(
     area: Rect,
     account: Option<&Account>,
     mode: UiMode,
+    focused: bool,
+    details_scroll: &mut usize,
 ) {
     let Some(account) = account else {
-        let block = panel("", theme::BORDER, area.width);
+        let block = panel(
+            "",
+            if focused {
+                theme::PRIMARY_STRONG
+            } else {
+                theme::BORDER
+            },
+            area.width,
+        );
         let inner = block.inner(area);
         let content = detail_content(inner, area.width);
+        let empty_body = Rect {
+            y: content.y.saturating_add(2),
+            width: content.width.saturating_sub(SCROLLBAR_RESERVED_WIDTH),
+            height: content.height.saturating_sub(2),
+            ..content
+        };
         frame.render_widget(block, area);
         render_panel_header(frame, inner);
         frame.render_widget(
@@ -345,22 +445,42 @@ pub(crate) fn render_account_details(
             })
             .alignment(Alignment::Center)
             .block(Block::default().style(Style::default().bg(theme::SURFACE))),
+            Rect { ..empty_body },
+        );
+        render_scrollbar(
+            frame,
             Rect {
-                y: content.y.saturating_add(2),
-                height: content.height.saturating_sub(2),
-                ..content
+                x: empty_body
+                    .x
+                    .saturating_add(empty_body.width)
+                    .saturating_add(SCROLLBAR_PADDING),
+                y: empty_body.y,
+                width: SCROLLBAR_TRACK_WIDTH,
+                height: empty_body.height,
             },
+            usize::from(empty_body.height.max(1)),
+            usize::from(empty_body.height.max(1)),
+            0,
+            focused,
         );
         return;
     };
 
-    let block = panel("", theme::BORDER, area.width);
+    let block = panel(
+        "",
+        if focused {
+            theme::PRIMARY_STRONG
+        } else {
+            theme::BORDER
+        },
+        area.width,
+    );
     let inner = block.inner(area);
     let content = detail_content(inner, area.width);
     frame.render_widget(block, area);
     render_panel_header(frame, inner);
     let panel_header_height = 2;
-    let identity_height = if mode == UiMode::Compact { 3 } else { 4 };
+    let identity_height = identity_height(mode);
     let header_area = Rect {
         y: content.y.saturating_add(panel_header_height),
         height: identity_height.min(content.height.saturating_sub(panel_header_height)),
@@ -401,36 +521,167 @@ pub(crate) fn render_account_details(
     );
 
     let gmail_access = match account.connection_state {
-        ConnectionState::Disconnected => {
-            detail_line_colored("Gmail access", "Unavailable (revoked)", theme::WARNING)
-        }
-        ConnectionState::Indeterminate => {
-            detail_line_colored("Gmail access", "Unknown", theme::DANGER)
-        }
+        ConnectionState::Disconnected => ("Gmail access", "Unavailable (revoked)", theme::WARNING),
+        ConnectionState::Indeterminate => ("Gmail access", "Unknown", theme::DANGER),
         ConnectionState::Connected => match account.granted_scopes.as_deref() {
-            None => detail_line_colored("Gmail access", "Unverified", theme::WARNING),
+            None => ("Gmail access", "Unverified", theme::WARNING),
             Some(scopes) if scopes.iter().any(|scope| scope == GMAIL_READONLY_SCOPE) => {
-                detail_line_colored("Gmail access", "Granted", theme::SUCCESS)
+                ("Gmail access", "Granted", theme::SUCCESS)
             }
-            Some(_) => detail_line_colored("Gmail access", "Not granted", theme::WARNING),
+            Some(_) => ("Gmail access", "Not granted", theme::WARNING),
         },
     };
     let scope_evidence = if account.granted_scopes.is_some() {
-        detail_line_colored("Scope evidence", "Confirmed", theme::SUCCESS)
+        ("Scope evidence", "Confirmed", theme::SUCCESS)
     } else {
-        detail_line_colored("Scope evidence", "Unverified", theme::WARNING)
+        ("Scope evidence", "Unverified", theme::WARNING)
     };
     let details = vec![
-        detail_line("Provider", "Google"),
+        ("Provider", "Google", theme::TEXT),
         gmail_access,
         scope_evidence,
-        credential_line(account.connection_state),
-        detail_line(
+        (
+            "Credential",
+            match account.connection_state {
+                ConnectionState::Connected => "Protected (in OS keyring)",
+                ConnectionState::Disconnected => "Not stored",
+                ConnectionState::Indeterminate => "Cleanup incomplete",
+            },
+            match account.connection_state {
+                ConnectionState::Connected => theme::SUCCESS,
+                ConnectionState::Disconnected => theme::WARNING,
+                ConnectionState::Indeterminate => theme::DANGER,
+            },
+        ),
+        (
             "Keyring reference",
             account.token_key.as_deref().unwrap_or("Unavailable"),
+            theme::TEXT,
         ),
     ];
-    let body = Rect {
+    let detail_label_width = details
+        .iter()
+        .map(|(label, _, _)| label.chars().count())
+        .max()
+        .unwrap_or(0);
+    let body = details_body_area(area, mode);
+    let granted_scope_lines = scope_lines(account);
+    let granted_scope_height = scope_block_height(&granted_scope_lines, body.width);
+    let mut connection_lines = if mode == UiMode::Wide {
+        vec![separator(body.width), Line::from("")]
+    } else {
+        Vec::new()
+    };
+    connection_lines.push(section_heading("Connection details"));
+    connection_lines.push(Line::from(""));
+    for (label, value, color) in details {
+        connection_lines.push(detail_line_styled(label, value, color, detail_label_width));
+    }
+    connection_lines.push(Line::from(""));
+    connection_lines.push(separator(body.width));
+    let mut additional_lines = vec![
+        separator(body.width),
+        section_heading("Additional information"),
+        Line::from(""),
+    ];
+    let additional_rows = [
+        ("Account ID", account.id.as_str(), theme::TEXT),
+        ("Type", "Personal", theme::TEXT),
+        (
+            "Status",
+            status_label(account.connection_state),
+            status_color(account.connection_state),
+        ),
+    ];
+    let additional_label_width = additional_rows
+        .iter()
+        .map(|(label, _, _)| label.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(detail_label_width);
+    for (label, value, color) in additional_rows {
+        additional_lines.push(detail_line_styled(
+            label,
+            value,
+            color,
+            additional_label_width,
+        ));
+    }
+    additional_lines.push(Line::from(""));
+    additional_lines.push(separator(body.width));
+    let connection_height = connection_lines.len() as u16;
+    let scope_heading_start = connection_height;
+    let scope_heading_height = 2;
+    let scope_start = scope_heading_start.saturating_add(scope_heading_height);
+    let additional_start = scope_start
+        .saturating_add(granted_scope_height)
+        .saturating_add(1);
+    let total_height = additional_start.saturating_add(additional_lines.len() as u16);
+    *details_scroll = (*details_scroll).min(usize::from(total_height.saturating_sub(body.height)));
+    render_scrolled_section(
+        frame,
+        body,
+        *details_scroll,
+        0,
+        connection_height,
+        Paragraph::new(connection_lines),
+    );
+    render_scrolled_section(
+        frame,
+        body,
+        *details_scroll,
+        scope_heading_start,
+        scope_heading_height,
+        Paragraph::new(vec![
+            section_heading(scope_heading(account)),
+            Line::from(""),
+        ]),
+    );
+    render_scrolled_scope(
+        frame,
+        body,
+        *details_scroll,
+        scope_start,
+        granted_scope_height,
+        &granted_scope_lines,
+    );
+    render_scrolled_section(
+        frame,
+        body,
+        *details_scroll,
+        additional_start,
+        additional_lines.len() as u16,
+        Paragraph::new(additional_lines),
+    );
+    render_scrollbar(
+        frame,
+        Rect {
+            x: body
+                .x
+                .saturating_add(body.width)
+                .saturating_add(SCROLLBAR_PADDING),
+            y: body.y,
+            width: SCROLLBAR_TRACK_WIDTH,
+            height: body.height,
+        },
+        usize::from(total_height.max(1)),
+        usize::from(body.height.max(1)),
+        *details_scroll,
+        focused,
+    );
+}
+
+pub(crate) fn details_viewport_rows(area: Rect, mode: UiMode) -> usize {
+    usize::from(details_body_area(area, mode).height.max(1))
+}
+
+fn details_body_area(area: Rect, mode: UiMode) -> Rect {
+    let block = panel("", theme::BORDER, area.width);
+    let inner = block.inner(area);
+    let content = detail_content(inner, area.width);
+    let panel_header_height = 2;
+    let identity_height = identity_height(mode);
+    Rect {
         y: content
             .y
             .saturating_add(panel_header_height)
@@ -439,116 +690,87 @@ pub(crate) fn render_account_details(
             .height
             .saturating_sub(panel_header_height)
             .saturating_sub(identity_height),
+        width: content.width.saturating_sub(SCROLLBAR_RESERVED_WIDTH),
         ..content
-    };
-    let granted_scope_lines = scope_lines(account);
-    let granted_scope_height = scope_block_height(&granted_scope_lines, content.width);
-    let base_connection_height = u16::try_from(details.len())
-        .unwrap_or(u16::MAX)
-        .saturating_add(3);
-    let connection_padding = if body.height
-        >= base_connection_height
-            .saturating_add(1)
-            .saturating_add(granted_scope_height)
-            .saturating_add(2)
-    {
-        1
-    } else {
-        0
-    };
-    let mut connection_lines = vec![separator(content.width)];
-    if connection_padding == 1 {
-        connection_lines.push(Line::from(""));
-    }
-    connection_lines.push(Line::from(Span::styled(
-        "Connection details",
-        Style::default()
-            .fg(theme::PRIMARY)
-            .add_modifier(ratatui::style::Modifier::BOLD),
-    )));
-    for line in details {
-        connection_lines.push(line);
-    }
-    if connection_padding == 1 {
-        connection_lines.push(Line::from(""));
-    }
-    connection_lines.push(separator(content.width));
-    let additional = mode != UiMode::Compact
-        && body.height
-            >= (connection_lines.len() as u16)
-                .saturating_add(1)
-                .saturating_add(granted_scope_height)
-                .saturating_add(1)
-                .saturating_add(5);
-    let sections = Layout::vertical([
-        Constraint::Length(connection_lines.len() as u16),
-        Constraint::Length(1),
-        Constraint::Length(granted_scope_height),
-        Constraint::Length(if additional { 1 } else { 0 }),
-        Constraint::Min(if additional { 5 } else { 0 }),
-    ])
-    .split(body);
-    frame.render_widget(Paragraph::new(connection_lines), sections[0]);
-    frame.render_widget(
-        Paragraph::new(scope_heading(account)).style(
-            Style::default()
-                .fg(theme::PRIMARY)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        ),
-        sections[1],
-    );
-    frame.render_widget(
-        Paragraph::new(granted_scope_lines)
-            .wrap(Wrap { trim: true })
-            .style(Style::default().fg(theme::TEXT))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme::BORDER))
-                    .padding(Padding::horizontal(1)),
-            ),
-        sections[2],
-    );
-    if additional {
-        let mut additional_lines = vec![
-            separator(sections[4].width),
-            Line::from(Span::styled(
-                "Additional information",
-                Style::default()
-                    .fg(theme::PRIMARY)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            )),
-        ];
-        for line in [
-            detail_line("Account ID", &account.id),
-            detail_line("Type", "Personal"),
-            detail_line_colored(
-                "Status",
-                status_label(account.connection_state),
-                status_color(account.connection_state),
-            ),
-        ] {
-            if mode == UiMode::Wide {
-                additional_lines.push(Line::from(""));
-            }
-            additional_lines.push(line);
-        }
-        frame.render_widget(Paragraph::new(additional_lines), sections[4]);
     }
 }
 
-fn credential_line(state: ConnectionState) -> Line<'static> {
-    match state {
-        ConnectionState::Connected => {
-            detail_line_colored("Credential", "Protected (in OS keyring)", theme::SUCCESS)
-        }
-        ConnectionState::Disconnected => {
-            detail_line_colored("Credential", "Not stored", theme::WARNING)
-        }
-        ConnectionState::Indeterminate => {
-            detail_line_colored("Credential", "Cleanup incomplete", theme::DANGER)
-        }
+fn render_scrolled_section<'a>(
+    frame: &mut Frame<'_>,
+    viewport: Rect,
+    scroll: usize,
+    start: u16,
+    height: u16,
+    widget: Paragraph<'a>,
+) {
+    let Some((visible_area, local_scroll, _)) = visible_section(viewport, scroll, start, height)
+    else {
+        return;
+    };
+    frame.render_widget(widget.scroll((local_scroll, 0)), visible_area);
+}
+
+fn render_scrolled_scope(
+    frame: &mut Frame<'_>,
+    viewport: Rect,
+    scroll: usize,
+    start: u16,
+    height: u16,
+    lines: &[Line<'static>],
+) {
+    let Some((visible_area, local_scroll, fully_visible)) =
+        visible_section(viewport, scroll, start, height)
+    else {
+        return;
+    };
+    let mut paragraph = Paragraph::new(lines.to_vec())
+        .wrap(Wrap { trim: true })
+        .style(Style::default().fg(theme::TEXT));
+    let paragraph_scroll = if fully_visible {
+        local_scroll
+    } else {
+        local_scroll.saturating_sub(1)
+    };
+    if fully_visible {
+        paragraph = paragraph.block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme::BORDER))
+                .padding(Padding::horizontal(1)),
+        );
+    } else {
+        paragraph = paragraph.block(Block::default().padding(Padding::horizontal(2)));
     }
+    frame.render_widget(paragraph.scroll((paragraph_scroll, 0)), visible_area);
+}
+
+fn visible_section(
+    viewport: Rect,
+    scroll: usize,
+    start: u16,
+    height: u16,
+) -> Option<(Rect, u16, bool)> {
+    let viewport_start = scroll as u16;
+    let viewport_end = viewport_start.saturating_add(viewport.height);
+    let section_end = start.saturating_add(height);
+    let visible_start = start.max(viewport_start);
+    let visible_end = section_end.min(viewport_end);
+    if visible_start >= visible_end {
+        return None;
+    }
+    let visible_area = Rect {
+        x: viewport.x,
+        y: viewport
+            .y
+            .saturating_add(visible_start.saturating_sub(viewport_start)),
+        width: viewport.width,
+        height: visible_end.saturating_sub(visible_start),
+    };
+    Some((
+        visible_area,
+        visible_start.saturating_sub(start),
+        visible_start == start && visible_end == section_end,
+    ))
 }
 
 fn status_color(state: ConnectionState) -> ratatui::style::Color {
@@ -560,7 +782,7 @@ fn connection_badge_area(area: Rect, mode: UiMode) -> Rect {
     let inner = block.inner(area);
     let content = detail_content(inner, area.width);
     let panel_header_height = 2;
-    let identity_height = if mode == UiMode::Compact { 3 } else { 4 };
+    let identity_height = identity_height(mode);
     let header_area = Rect {
         y: content.y.saturating_add(panel_header_height),
         height: identity_height.min(content.height.saturating_sub(panel_header_height)),
@@ -609,6 +831,10 @@ fn detail_content(inner: Rect, width: u16) -> Rect {
     }
 }
 
+fn identity_height(mode: UiMode) -> u16 {
+    if mode == UiMode::Wide { 4 } else { 3 }
+}
+
 fn render_panel_header(frame: &mut Frame<'_>, inner: Rect) {
     let header = Rect {
         height: 2.min(inner.height),
@@ -632,17 +858,35 @@ fn render_panel_header(frame: &mut Frame<'_>, inner: Rect) {
     );
 }
 
-fn detail_line(label: &str, value: &str) -> Line<'static> {
+fn detail_line_styled(
+    label: &str,
+    value: &str,
+    color: ratatui::style::Color,
+    label_width: usize,
+) -> Line<'static> {
+    let label_column = format!(" {label:<label_width$}");
     Line::from(vec![
-        Span::styled(format!(" {label:<16}: "), Style::default().fg(theme::MUTED)),
-        Span::styled(value.to_string(), Style::default().fg(theme::TEXT)),
+        Span::styled(
+            format!("{label_column}{}", " ".repeat(DETAIL_COLUMN_GAP)),
+            Style::default().fg(theme::MUTED),
+        ),
+        Span::styled(
+            format!("│{}", " ".repeat(DETAIL_COLUMN_GAP)),
+            Style::default().fg(theme::BORDER),
+        ),
+        Span::styled(value.to_string(), Style::default().fg(color)),
     ])
 }
 
-fn detail_line_colored(label: &str, value: &str, color: ratatui::style::Color) -> Line<'static> {
+fn section_heading(text: &str) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!(" {label:<16}: "), Style::default().fg(theme::MUTED)),
-        Span::styled(value.to_string(), Style::default().fg(color)),
+        Span::raw(" "),
+        Span::styled(
+            text.to_owned(),
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
     ])
 }
 
@@ -653,12 +897,13 @@ fn separator(width: u16) -> Line<'static> {
     ))
 }
 
-pub(crate) fn mouse_target(
+pub(crate) fn mouse_target_with_scroll(
     area: Rect,
     count: usize,
     column: u16,
     row: u16,
     mode: UiMode,
+    scroll_offset: usize,
 ) -> Option<super::MouseTarget> {
     if column < area.x
         || column >= area.x.saturating_add(area.width)
@@ -670,7 +915,7 @@ pub(crate) fn mouse_target(
     if count == 0 {
         return Some(super::MouseTarget::AddAccount);
     }
-    let list_top = if mode == UiMode::Compact { 2 } else { 3 };
+    let list_top = if mode != UiMode::Wide { 2 } else { 3 };
     let row_start = area.y.saturating_add(1).saturating_add(list_top);
     if column <= area.x
         || column >= area.x.saturating_add(area.width.saturating_sub(1))
@@ -680,15 +925,11 @@ pub(crate) fn mouse_target(
     }
     let row_height = row_height(area, count, mode);
     let offset = row.saturating_sub(row_start);
-    let index = usize::from(offset / row_height);
+    let local_index = usize::from(offset / row_height);
+    let index = scroll_offset.saturating_add(local_index);
     if index < count {
         Some(super::MouseTarget::Account(index))
-    } else if index == count
-        && offset
-            == u16::try_from(count)
-                .unwrap_or(u16::MAX)
-                .saturating_mul(row_height)
-    {
+    } else if index == count {
         Some(super::MouseTarget::AddAccount)
     } else {
         None
