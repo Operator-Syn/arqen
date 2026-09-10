@@ -17,6 +17,7 @@ serde_json = "1"
 sha2 = "0.10"
 url = "2"
 uuid = { version = "1", features = ["v4"] }
+libc = "0.2"
 
 [dependencies.keyring]
 version = "3"
