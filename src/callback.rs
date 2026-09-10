@@ -128,7 +128,7 @@ fn write_response(stream: &mut TcpStream, body: &str) -> Result<()> {
 
 fn callback_page(success: bool) -> &'static str {
     if success {
-        "<!doctype html><meta charset=utf-8><title>Arqen login complete</title><script>window.close();</script><body><h1>Login complete</h1><p>You may close this tab.</p></body>"
+        "<!doctype html><meta charset=utf-8><title>Arqen login complete</title><script>const closeTab=()=>{try{window.open('', '_self')}catch(_){}try{window.close()}catch(_){} };window.addEventListener('load',closeTab,{once:true});closeTab();setTimeout(closeTab,100);</script><body><h1>Login complete</h1><p>This tab should close automatically. If it remains open, you can close it and return to Arqen.</p></body>"
     } else {
         "<!doctype html><meta charset=utf-8><title>Arqen login error</title><body><h1>Arqen could not complete login</h1><p>You may close this tab and return to Arqen.</p></body>"
     }
@@ -141,7 +141,9 @@ mod tests {
     #[test]
     fn callback_pages_include_close_fallback() {
         let page = callback_page(true);
+        assert!(page.contains("window.open('', '_self')"));
         assert!(page.contains("window.close()"));
-        assert!(page.contains("You may close this tab"));
+        assert!(page.contains("This tab should close automatically"));
+        assert!(page.contains("If it remains open"));
     }
 }
