@@ -21,6 +21,8 @@
             rustfmt
             clippy
             rust-analyzer
+            pkg-config
+            dbus
           ];
 
           RUST_BACKTRACE = "1";
