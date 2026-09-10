@@ -46,7 +46,17 @@ Clipboard writes retain a long-lived owner and can fall back to `wl-copy`,
 ## Responsive behavior
 
 Wide terminals use a sidebar and detail panel. Narrow terminals stack the list
-above the detail panel. Content must wrap rather than hide required actions.
+above the detail panel. Both panes retain a one-cell vertical scrollbar track
+with one breathing cell before it, plus a visible thumb at every size. Content
+must wrap or scroll rather than hide required actions, scope strings, or
+additional account information.
+
+The account list scrolls by account row and includes the add-account row in its
+content length. The selected row is auto-visible. The details pane keeps the
+identity header and connection badge fixed while its lower visual rows scroll;
+wrapped scope strings count as multiple rows. A focused pane uses the stronger
+primary border, while an unfocused scrollbar thumb is muted. Scrollbar thumbs
+are visual affordances only in v1 and are not draggable.
 
 ## Interaction labels
 
@@ -57,3 +67,19 @@ confirmation; `Enter`/`y` confirms and `Esc`/`n` cancels. Mouse actions have
 equivalent keyboard paths. Clicking the selected account's connection badge
 opens disconnect confirmation, starts reconnect login, or opens cleanup recovery
 according to the recorded state.
+
+`Tab`/`Shift+Tab` switches between the account and details panes. In the
+focused pane, `Home`, `End`, `PageUp`/`PageDown`, arrows, and `j`/`k` move the
+selection or visual-row offset. A mouse wheel focuses and scrolls the pane under
+the pointer. The footer exposes `[Tab] focus` and `[Wheel] scroll`; active-pane
+names are shown when the layout has room, while compact layouts use shorter
+labels. Scroll offsets reset when the selected account changes and are not
+persisted. On wide layouts, the footer keeps shortcut actions and status
+notices in separate columns with a full-height muted separator so the two
+information streams remain visually distinct when either column wraps. In
+stacked narrow and compact footers, shortcuts stay left-aligned while the
+status notice is right-aligned. Scrollable detail sections retain a breathing
+row and closing horizontal separator, including the final Additional
+information section. Label/value detail rows use a stable muted vertical
+divider so values read as a separate column even when labels have different
+lengths.
