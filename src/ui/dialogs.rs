@@ -156,6 +156,7 @@ pub(crate) fn authorization_spec(
     reauthenticate: bool,
     reconnect: bool,
 ) -> ModalSpec {
+    let login_helper_enabled = crate::LOGIN_HELPER_ENABLED && !manual_fallback;
     let title = if reconnect {
         "Reconnect Google account"
     } else if reauthenticate {
@@ -166,11 +167,29 @@ pub(crate) fn authorization_spec(
     let body = if compact {
         Text::from(vec![
             Line::from(if reconnect {
-                "Open the URL to reconnect this account."
+                if manual_fallback {
+                    "Open the URL to reconnect this account."
+                } else if login_helper_enabled {
+                    "Open the login helper to reconnect this account."
+                } else {
+                    "Open the Google sign-in URL to reconnect this account."
+                }
             } else if reauthenticate {
-                "Open the URL to refresh this account's grant."
+                if manual_fallback {
+                    "Open the URL to refresh this account's grant."
+                } else if login_helper_enabled {
+                    "Open the login helper to refresh this account's grant."
+                } else {
+                    "Open the Google sign-in URL to refresh this account's grant."
+                }
             } else {
-                "Open the URL and approve access."
+                if manual_fallback {
+                    "Open the URL and approve access."
+                } else if login_helper_enabled {
+                    "Open the login helper and approve access."
+                } else {
+                    "Open the Google sign-in URL and approve access."
+                }
             }),
             Line::from(Span::styled(
                 url.to_owned(),
@@ -179,7 +198,13 @@ pub(crate) fn authorization_spec(
         ])
     } else {
         Text::from(vec![
-            Line::from("Open this authorization URL in your browser:"),
+            Line::from(if manual_fallback {
+                "Open this authorization URL in your browser:"
+            } else if login_helper_enabled {
+                "Use [o] to open the login helper, or [c] to copy this URL:"
+            } else {
+                "Use [o] to open a dedicated Google sign-in window, or [c] to copy this URL:"
+            }),
             Line::from(Span::styled(
                 url.to_owned(),
                 ratatui::style::Style::default().fg(super::theme::PRIMARY),
