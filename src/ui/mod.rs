@@ -787,6 +787,21 @@ mod tests {
             &[],
         );
         assert!(auth.contains("Connect Google account"));
+        let callback = crate::callback::CallbackServer::start().expect("callback server");
+        let automatic_auth = rendered(
+            120,
+            32,
+            Screen::Authorization {
+                oauth: None,
+                url: "https://accounts.google.com/example".into(),
+                callback: Some(callback),
+                intent: crate::LoginIntent::Add,
+            },
+            &[],
+        );
+        assert!(automatic_auth.contains("Google sign-in"));
+        assert!(!automatic_auth.contains("login helper"));
+        assert!(automatic_auth.contains("https://accounts.google.com/example"));
         let reauth = rendered(
             100,
             30,
