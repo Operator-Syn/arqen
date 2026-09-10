@@ -14,10 +14,12 @@ identity, local-session status, and connected-account count.
 
 - Header: product identity, local-session status, and connected-account count.
 - Account list: keyboard/mouse-selectable identities with one highlighted row.
-- Selected account: email identity, connected state, provider, access scope, and
-  keyring-protected credential reference.
+- Selected account: email identity, connected/disconnected/indeterminate state, provider, confirmed or
+  unverified scope evidence, exact granted scopes, and keyring-protected
+  credential reference or cleanup status.
 - Footer: the same actions are available through keyboard controls and matching
-  mouse targets.
+  mouse targets, including disconnect, reconnect, and reauthentication for the
+  selected account.
 - Dialogs: authorization, redirect entry, and error states reuse the same dark
   surface and focused border treatment.
 
@@ -48,8 +50,10 @@ above the detail panel. Content must wrap rather than hide required actions.
 
 ## Interaction labels
 
-`a` adds an account, `j`/`k` or the arrow keys select an account, `Enter`
+`a` adds an account, `d` disconnects or retries cleanup for the selected account, `l` reconnects a disconnected account, `r` reauthenticates the selected account, `j`/`k` or the arrow keys select an account, `Enter`
 inspects or continues, `c` copies an authorization URL, `o` opens it and
 starts automatic callback handling, and `Esc` cancels the current modal. From the account screen, `q` opens quit
 confirmation; `Enter`/`y` confirms and `Esc`/`n` cancels. Mouse actions have
-equivalent keyboard paths.
+equivalent keyboard paths. Clicking the selected account's connection badge
+opens disconnect confirmation, starts reconnect login, or opens cleanup recovery
+according to the recorded state.
