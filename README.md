@@ -47,13 +47,23 @@ cargo run
 Then:
 
 1. Press `a`.
-2. Open the displayed URL in a browser.
+2. Press `o` to open a dedicated Google login window, or press `c` to copy the
+   authorization URL.
 3. Choose the Google account and approve only the permissions you want to apply.
-4. Arqen captures the loopback redirect and completes the login automatically.
-   The completion page attempts to close its browser tab; if the browser blocks
-   script-initiated tab closing, it explains that the tab can be closed safely.
-5. If the loopback listener cannot start, the TUI provides the legacy manual
+4. Arqen captures the loopback redirect, completes the login automatically, and
+   terminates the dedicated browser process it started for this flow.
+5. If the dedicated browser cannot be started, Arqen falls back to the normal
+   browser launcher; close that browser window manually after login if needed.
+6. If the loopback listener cannot start, the TUI provides the legacy manual
    redirect-input fallback.
+
+The `LOGIN_HELPER_ENABLED` toggle in `src/main.rs` is disabled by default. Set it
+to `true` to use the optional local user-gesture popup helper instead of the
+TUI-owned browser process.
+
+The owned browser uses a temporary, user-only profile rather than the user's
+normal browser profile. It does not reuse existing browser sessions, and Arqen
+removes the temporary profile when the login flow ends.
 
 The authorization request uses Arqen's configured OpenID profile/email identity
 and Gmail read-only policy. The TUI does not assume those permissions were
