@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use arqen::{
-    Account, AccountStore,
-    auth::{GoogleOAuth, parse_callback, token_key},
+    Account, AccountStore, ConnectionState,
+    auth::{GoogleOAuth, parse_callback, revoke_google_account, token_key},
 };
 use crossterm::{
     event::{
@@ -18,6 +18,13 @@ mod callback;
 
 const APP_DATA_DIRECTORY: &str = "arqen";
 const LEGACY_DATA_DIRECTORY: &str = "google-account-tui";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LoginIntent {
+    Add,
+    Reauthenticate { subject: String },
+    Reconnect { subject: String },
+}
 
 fn database_path() -> Result<std::path::PathBuf> {
     let base = env::var_os("XDG_DATA_HOME")
@@ -74,13 +81,20 @@ pub(crate) enum Screen {
         oauth: Option<GoogleOAuth>,
         url: String,
         callback: Option<callback::CallbackServer>,
+        intent: LoginIntent,
     },
     Redirect {
         oauth: Option<GoogleOAuth>,
         input: String,
+        intent: LoginIntent,
     },
     Error(String),
     ConfirmQuit,
+    ConfirmDisconnect {
+        subject: String,
+        email: String,
+        retry: bool,
+    },
 }
 
 struct App {
@@ -110,7 +124,13 @@ impl App {
         self.screen = Screen::Error(format!("{context}\n\n{error}"));
     }
 
-    fn start_login(&mut self) {
+    fn reload_accounts(&mut self) -> Result<()> {
+        self.accounts = self.store.list_accounts()?;
+        self.selected = self.selected.min(self.accounts.len().saturating_sub(1));
+        Ok(())
+    }
+
+    fn start_login(&mut self, intent: LoginIntent) {
         let result = (|| -> Result<Screen> {
             let callback = callback::CallbackServer::start().ok();
             let mut oauth = GoogleOAuth::from_file(client_secret_path()?)
@@ -125,6 +145,7 @@ impl App {
                 oauth: Some(oauth),
                 url,
                 callback,
+                intent,
             })
         })();
         self.screen = match result {
@@ -136,17 +157,29 @@ impl App {
         };
     }
 
-    fn finish_login(&mut self, oauth: &mut GoogleOAuth, input: &str) {
+    fn finish_login(&mut self, oauth: &mut GoogleOAuth, input: &str, intent: &LoginIntent) {
         let result = (|| -> Result<Account> {
-            let profile = oauth
-                .finish(parse_callback(input).context("parse pasted Google redirect URL")?)
+            let expected_subject = match intent {
+                LoginIntent::Add => None,
+                LoginIntent::Reauthenticate { subject } | LoginIntent::Reconnect { subject } => {
+                    Some(subject.as_str())
+                }
+            };
+            let login = oauth
+                .finish(
+                    parse_callback(input).context("parse pasted Google redirect URL")?,
+                    expected_subject,
+                )
                 .context("complete Google login")?;
+            let profile = login.profile;
             let account = Account {
                 id: uuid::Uuid::new_v4().to_string(),
                 subject: profile.sub.clone(),
                 email: profile.email,
                 display_name: profile.name,
                 token_key: Some(token_key(&profile.sub)),
+                granted_scopes: Some(login.granted_scopes),
+                connection_state: ConnectionState::Connected,
             };
             self.store
                 .upsert_google_account(&account)
@@ -155,24 +188,91 @@ impl App {
         })();
         match result {
             Ok(account) => self.complete_login(account),
-            Err(error) => self.show_error("Login failed", format_args!("{error:#}")),
+            Err(error) => self.show_error(
+                login_error_context(intent),
+                friendly_login_error(intent, &error),
+            ),
         }
     }
 
     fn complete_login(&mut self, _account: Account) {
-        match self.store.list_accounts() {
-            Ok(accounts) => self.accounts = accounts,
+        match self.reload_accounts() {
+            Ok(()) => {}
             Err(error) => {
                 self.show_error("Account connected, but refreshing accounts failed", error);
                 return;
             }
         }
-        self.selected = self.selected.min(self.accounts.len().saturating_sub(1));
         self.notice = Some("Google account connected successfully.".into());
         // This is the single success boundary for both automatic and manual
         // callback flows; replacing the screen guarantees the modal is gone
         // on the next frame.
         self.screen = Screen::Accounts;
+    }
+
+    fn confirm_disconnect(&mut self, retry: bool) {
+        let Some(account) = self.accounts.get(self.selected) else {
+            return;
+        };
+        let allowed = if retry {
+            account.connection_state == ConnectionState::Indeterminate
+        } else {
+            account.connection_state == ConnectionState::Connected
+        };
+        if !allowed {
+            return;
+        }
+        self.notice = None;
+        self.screen = Screen::ConfirmDisconnect {
+            subject: account.subject.clone(),
+            email: account.email.clone(),
+            retry,
+        };
+    }
+
+    fn disconnect_account(&mut self, subject: &str) {
+        let token_key = self
+            .accounts
+            .iter()
+            .find(|account| account.subject == subject)
+            .and_then(|account| account.token_key.clone());
+        let result = (|| -> Result<()> {
+            // Persist the safe state before touching provider or keyring state.
+            // If the process stops after this point, the next run will not claim
+            // that the credential is usable.
+            self.store
+                .set_connection_state(subject, ConnectionState::Indeterminate)
+                .context("mark account connection state as indeterminate")?;
+            revoke_google_account(token_key.as_deref(), subject)
+                .context("revoke and remove Google credentials")?;
+            self.store
+                .set_connection_state(subject, ConnectionState::Disconnected)
+                .context("save disconnected account state")?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => match self.reload_accounts() {
+                Ok(()) => {
+                    self.notice = Some("Google account disconnected successfully.".into());
+                    self.screen = Screen::Accounts;
+                }
+                Err(error) => self.show_error(
+                    "Account disconnected, but refreshing accounts failed",
+                    error,
+                ),
+            },
+            Err(error) => {
+                let refresh_error = self.reload_accounts().err();
+                if let Some(refresh_error) = refresh_error {
+                    self.show_error(
+                        "Unable to disconnect account and refresh its state",
+                        format_args!("{error:#}\n\n{refresh_error:#}"),
+                    );
+                } else {
+                    self.show_error("Unable to disconnect account", format_args!("{error:#}"));
+                }
+            }
+        }
     }
 
     fn poll_callback(&mut self) {
@@ -191,12 +291,18 @@ impl App {
         };
         let Some(target) = target else { return };
         let screen = std::mem::replace(&mut self.screen, Screen::Accounts);
-        let (mut oauth, redirect_uri, callback) = match screen {
+        let (mut oauth, redirect_uri, callback, intent) = match screen {
             Screen::Authorization {
                 mut oauth,
                 callback: Some(callback),
+                intent,
                 ..
-            } => (oauth.take(), callback.redirect_uri().to_owned(), callback),
+            } => (
+                oauth.take(),
+                callback.redirect_uri().to_owned(),
+                callback,
+                intent,
+            ),
             _ => return,
         };
         drop(callback);
@@ -205,13 +311,43 @@ impl App {
             self.show_error("Unable to finish login", "authorization state is missing");
             return;
         };
-        self.finish_login(&mut oauth, &input);
+        self.finish_login(&mut oauth, &input, &intent);
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
         match &mut self.screen {
             Screen::Accounts => match key.code {
-                KeyCode::Char('a') => self.start_login(),
+                KeyCode::Char('a') => self.start_login(LoginIntent::Add),
+                KeyCode::Char('d') => {
+                    let retry = self.accounts.get(self.selected).is_some_and(|account| {
+                        account.connection_state == ConnectionState::Indeterminate
+                    });
+                    self.confirm_disconnect(retry);
+                }
+                KeyCode::Char('l') => {
+                    let subject = self
+                        .accounts
+                        .get(self.selected)
+                        .filter(|account| {
+                            matches!(
+                                account.connection_state,
+                                ConnectionState::Disconnected | ConnectionState::Indeterminate
+                            )
+                        })
+                        .map(|account| account.subject.clone());
+                    if let Some(subject) = subject {
+                        self.start_login(LoginIntent::Reconnect { subject });
+                    }
+                }
+                KeyCode::Char('r') => {
+                    let subject = self
+                        .accounts
+                        .get(self.selected)
+                        .map(|account| account.subject.clone());
+                    if let Some(subject) = subject {
+                        self.start_login(LoginIntent::Reauthenticate { subject });
+                    }
+                }
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.selected = self.selected.saturating_sub(1);
                 }
@@ -234,6 +370,7 @@ impl App {
                 oauth,
                 url,
                 callback,
+                intent,
             } => match key.code {
                 KeyCode::Char('c') => {
                     let result = copy_to_clipboard(&mut self.clipboard, url);
@@ -277,20 +414,26 @@ impl App {
                     self.screen = Screen::Redirect {
                         oauth: Some(oauth),
                         input: String::new(),
+                        intent: intent.clone(),
                     };
                     self.notice = Some(format!("Open this URL in your browser:\n{url}"));
                 }
                 KeyCode::Esc => self.screen = Screen::Accounts,
                 _ => {}
             },
-            Screen::Redirect { oauth, input } => match key.code {
+            Screen::Redirect {
+                oauth,
+                input,
+                intent,
+            } => match key.code {
                 KeyCode::Enter => {
                     let input = std::mem::take(input);
+                    let login_intent = intent.clone();
                     let Some(mut oauth) = oauth.take() else {
                         self.show_error("Unable to finish login", "authorization state is missing");
                         return;
                     };
-                    self.finish_login(&mut oauth, &input);
+                    self.finish_login(&mut oauth, &input, &login_intent);
                 }
                 KeyCode::Esc => self.screen = Screen::Accounts,
                 KeyCode::Backspace => {
@@ -306,8 +449,43 @@ impl App {
                     self.screen = Screen::Accounts;
                 }
             }
+            Screen::ConfirmDisconnect { subject, .. } => match key.code {
+                KeyCode::Enter | KeyCode::Char('y') => {
+                    let subject = subject.clone();
+                    self.disconnect_account(&subject);
+                }
+                KeyCode::Esc | KeyCode::Char('n') => {
+                    self.screen = Screen::Accounts;
+                    self.notice = Some("Disconnect cancelled.".into());
+                }
+                _ => {}
+            },
             Screen::ConfirmQuit => {}
         }
+    }
+}
+
+fn login_error_context(intent: &LoginIntent) -> &'static str {
+    match intent {
+        LoginIntent::Add => "Login failed",
+        LoginIntent::Reauthenticate { .. } => "Reauthentication not completed",
+        LoginIntent::Reconnect { .. } => "Reconnection not completed",
+    }
+}
+
+fn friendly_login_error(intent: &LoginIntent, error: &anyhow::Error) -> String {
+    let detail = format!("{error:#}");
+    if !detail.contains(arqen::auth::SUBJECT_MISMATCH_MESSAGE) {
+        return detail;
+    }
+    match intent {
+        LoginIntent::Reauthenticate { .. } => {
+            "Google returned a different account than the one selected for reauthentication.\n\nNo account data or credentials were changed. Close this message and sign in with the same Google account to try again.".into()
+        }
+        LoginIntent::Reconnect { .. } => {
+            "Google returned a different account than the one on this card.\n\nNo account data or credentials were changed. Close this message and sign in with the card's Google account to reconnect it.".into()
+        }
+        LoginIntent::Add => detail,
     }
 }
 
@@ -432,7 +610,15 @@ fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
         {
             use ui::modal::ModalActionId;
             if matches!(action, ModalActionId::Confirm) {
-                return true;
+                match &app.screen {
+                    Screen::ConfirmQuit => return true,
+                    Screen::ConfirmDisconnect { subject, .. } => {
+                        let subject = subject.clone();
+                        app.disconnect_account(&subject);
+                    }
+                    _ => {}
+                }
+                return false;
             }
             if matches!(app.screen, Screen::ConfirmQuit) && matches!(action, ModalActionId::Cancel)
             {
@@ -453,7 +639,14 @@ fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
     }
 
     if let Screen::Accounts = &app.screen {
-        match ui::mouse_target(area, app.accounts.len(), column, row, app.notice.as_deref()) {
+        match ui::mouse_target(
+            area,
+            &app.accounts,
+            app.selected,
+            column,
+            row,
+            app.notice.as_deref(),
+        ) {
             Some(ui::MouseTarget::Account(index)) => {
                 app.selected = index;
                 app.notice = Some(format!(
@@ -464,7 +657,57 @@ fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
                         .unwrap_or("Unnamed account")
                 ));
             }
-            Some(ui::MouseTarget::AddAccount) => app.start_login(),
+            Some(ui::MouseTarget::AddAccount) => app.start_login(LoginIntent::Add),
+            Some(ui::MouseTarget::Reauthenticate) => {
+                let subject = app
+                    .accounts
+                    .get(app.selected)
+                    .map(|account| account.subject.clone());
+                if let Some(subject) = subject {
+                    app.start_login(LoginIntent::Reauthenticate { subject });
+                }
+            }
+            Some(ui::MouseTarget::Disconnect) => {
+                let retry = app.accounts.get(app.selected).is_some_and(|account| {
+                    account.connection_state == ConnectionState::Indeterminate
+                });
+                app.confirm_disconnect(retry);
+            }
+            Some(ui::MouseTarget::Login) => {
+                let subject = app
+                    .accounts
+                    .get(app.selected)
+                    .filter(|account| {
+                        matches!(
+                            account.connection_state,
+                            ConnectionState::Disconnected | ConnectionState::Indeterminate
+                        )
+                    })
+                    .map(|account| account.subject.clone());
+                if let Some(subject) = subject {
+                    app.start_login(LoginIntent::Reconnect { subject });
+                }
+            }
+            Some(ui::MouseTarget::ConnectionBadge) => {
+                let state = app
+                    .accounts
+                    .get(app.selected)
+                    .map(|account| account.connection_state);
+                match state {
+                    Some(ConnectionState::Connected) => app.confirm_disconnect(false),
+                    Some(ConnectionState::Indeterminate) => app.confirm_disconnect(true),
+                    Some(ConnectionState::Disconnected) => {
+                        if let Some(subject) = app
+                            .accounts
+                            .get(app.selected)
+                            .map(|account| account.subject.clone())
+                        {
+                            app.start_login(LoginIntent::Reconnect { subject });
+                        }
+                    }
+                    None => {}
+                }
+            }
             None => {}
         }
     }
@@ -515,7 +758,10 @@ fn handle_event(event: Event, app: &mut App) -> bool {
         Event::Key(key) => {
             if key.code == KeyCode::Char('c')
                 && key.modifiers.contains(KeyModifiers::CONTROL)
-                && !matches!(app.screen, Screen::ConfirmQuit)
+                && !matches!(
+                    app.screen,
+                    Screen::ConfirmQuit | Screen::ConfirmDisconnect { .. }
+                )
             {
                 app.screen = Screen::ConfirmQuit;
                 app.notice = None;
@@ -552,8 +798,8 @@ mod ui;
 
 #[cfg(test)]
 mod tests {
-    use super::{App, Screen, handle_event};
-    use arqen::{Account, AccountStore};
+    use super::{App, LoginIntent, Screen, handle_event};
+    use arqen::{Account, AccountStore, ConnectionState};
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
     fn app_with_accounts() -> App {
@@ -565,6 +811,8 @@ mod tests {
                 email: "first@example.com".into(),
                 display_name: Some("First Account".into()),
                 token_key: Some("google/first".into()),
+                granted_scopes: None,
+                connection_state: ConnectionState::Connected,
             })
             .unwrap();
         store
@@ -574,6 +822,8 @@ mod tests {
                 email: "second@example.com".into(),
                 display_name: Some("Second Account".into()),
                 token_key: Some("google/second".into()),
+                granted_scopes: None,
+                connection_state: ConnectionState::Connected,
             })
             .unwrap();
         App::new(store).unwrap()
@@ -598,6 +848,37 @@ mod tests {
         app.screen = Screen::Error("test error".into());
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(matches!(app.screen, Screen::Accounts));
+    }
+
+    #[test]
+    fn disconnect_requires_confirmation_and_cancel_preserves_connection() {
+        let mut app = app_with_accounts();
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+        assert!(matches!(
+            app.screen,
+            Screen::ConfirmDisconnect {
+                retry: false,
+                ref subject,
+                ..
+            } if subject == "subject-first"
+        ));
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(matches!(app.screen, Screen::Accounts));
+        assert_eq!(app.accounts[0].connection_state, ConnectionState::Connected);
+    }
+
+    #[test]
+    fn indeterminate_disconnect_offers_retry_confirmation() {
+        let mut app = app_with_accounts();
+        app.store
+            .set_connection_state("subject-first", ConnectionState::Indeterminate)
+            .unwrap();
+        app.reload_accounts().unwrap();
+        app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
+        assert!(matches!(
+            app.screen,
+            Screen::ConfirmDisconnect { retry: true, .. }
+        ));
     }
 
     #[test]
@@ -635,6 +916,23 @@ mod tests {
     }
 
     #[test]
+    fn subject_mismatch_login_error_explains_recovery_without_internal_context() {
+        let error = anyhow::anyhow!(
+            "complete Google login: {}",
+            arqen::auth::SUBJECT_MISMATCH_MESSAGE
+        );
+        let message = super::friendly_login_error(
+            &LoginIntent::Reauthenticate {
+                subject: "selected-subject".into(),
+            },
+            &error,
+        );
+        assert!(message.contains("different account"));
+        assert!(message.contains("No account data or credentials were changed"));
+        assert!(!message.contains("complete Google login"));
+    }
+
+    #[test]
     fn successful_completion_replaces_any_login_screen() {
         let mut app = app_with_accounts();
         app.screen = Screen::Error("stale login modal".into());
@@ -644,6 +942,8 @@ mod tests {
             email: "completed@example.com".into(),
             display_name: Some("Completed".into()),
             token_key: Some("keyring:arqen:subject-completed".into()),
+            granted_scopes: Some(vec!["openid".into()]),
+            connection_state: ConnectionState::Connected,
         };
         app.store.upsert_google_account(&account).unwrap();
         app.complete_login(account);
@@ -667,6 +967,7 @@ mod tests {
             oauth: None,
             url: "https://accounts.google.com".into(),
             callback: None,
+            intent: LoginIntent::Add,
         };
         assert!(!handle_event(
             Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
