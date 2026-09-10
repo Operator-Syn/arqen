@@ -69,6 +69,31 @@ The identity and its last-confirmed scopes remain locally so the account can be
 reconnected. If provider revocation or local cleanup cannot be completed, Arqen
 shows an indeterminate state and offers retry or same-subject login recovery.
 
+## Pane navigation and scrolling
+
+The account list and selected-account details are independent, focusable panes.
+Both panes reserve a persistent scrollbar track and thumb so a narrow terminal
+still signals that more content is available; the thumb is visual only and is
+not draggable in this version.
+
+- `Tab` or `Shift+Tab` switches focus between the accounts and details panes.
+- In the accounts pane, `j`/`k`, the arrow keys, `Home`, `End`, and
+  `PageUp`/`PageDown` move the selected account. The selected row stays visible.
+- In the details pane, the same keys scroll visual rows. Long and unknown scope
+  strings, connection details, and additional information remain reachable.
+- Mouse-wheel events scroll the pane under the pointer and focus it. Clicking an
+  account row selects it; clicking the details badge keeps the existing
+  disconnect/reconnect behavior.
+- The footer exposes `[Tab] focus` and `[Wheel] scroll`. On wide layouts it
+  also names the currently focused pane; compact layouts shorten labels to keep
+  both panes visible. Wide footers separate shortcuts from status notices with
+  a full-height vertical divider and wrap each column independently. Stacked
+  narrow/compact footers keep shortcuts left-aligned and right-align the
+  status notice.
+
+Scroll offsets are runtime UI state. Selecting another account resets the
+details pane to its top; no scroll position or scrollbar state is persisted.
+
 ## Security boundary
 
 SQLite stores account metadata and a keyring reference. It does not store OAuth
@@ -129,7 +154,22 @@ other checkouts.
 The complete 15-tool server surface is available. Indexing, project deletion,
 ADR updates, and trace ingestion mutate only the private graph state and require
 approval in the project Codex configuration. They cannot write to the source
-mount. No HTTP graph UI or port is enabled.
+mount. Index coverage is best-effort: a `parse_partial` entry means the file was
+indexed with the listed ranges potentially missing, while `not_indexed` entries
+are deliberate exclusions. `Cargo.toml` is expected to report
+`no_recorded_issue` after a fresh index; use direct source inspection for any
+flagged path rather than treating graph absence as proof.
+
+The graph UI setting is persisted in the ignored runtime state, not in the
+committed MCP registration. In this checkout, `config list` currently reports
+`ui_enabled=true` and `ui_port=9749`, so the server starts a loopback UI inside
+the network-isolated container. `run.sh` does not publish a Docker port, so this
+launcher does not make that UI reachable from the host. Check the local state
+with:
+
+```bash
+bash .codex/mcp/codebase-memory/run.sh config list
+```
 
 Verify the built image, stdio protocol, tool list, representative queries, and
 repository boundary with:
@@ -138,6 +178,7 @@ repository boundary with:
 bash .codex/mcp/codebase-memory/test.sh
 bash .codex/mcp/codebase-memory/run.sh cli list_projects
 bash .codex/mcp/codebase-memory/run.sh cli index_status --project workspace-project
+bash .codex/mcp/codebase-memory/run.sh cli check_index_coverage --project workspace-project --paths Cargo.toml
 ```
 
 A successful build proves the pinned image can be produced. The focused test
