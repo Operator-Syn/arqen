@@ -68,7 +68,14 @@ The current visual reference is [the account dashboard mockup](ui-mockups/README
 - `l` starts the add-account login flow for a disconnected or indeterminate account.
 - `r` reauthenticates the selected account and refreshes its recorded scope grant.
 - `c` copies a visible authorization URL.
-- `o` opens a visible authorization URL in the default browser.
+- `o` opens Google sign-in in a dedicated browser process with an isolated
+  temporary profile when automatic callback handling is available. Arqen owns
+  and terminates that process after the callback; if it cannot create the
+  dedicated process, it falls back to the normal browser launcher. The
+  temporary profile is removed when the flow ends and does not reuse the
+  user's normal browser session.
+- The optional `LOGIN_HELPER_ENABLED` code toggle in `src/main.rs` enables the
+  local user-gesture popup helper instead of the TUI-owned browser process.
 - Clicking the authorization panel opens its URL when mouse support is enabled.
 - `Enter` means continue or submit.
 - `Esc` cancels or closes the current modal. From the main account screen it opens quit confirmation.
