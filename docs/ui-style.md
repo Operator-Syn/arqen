@@ -1,0 +1,57 @@
+# UI style guide
+
+## Direction
+
+The interface follows a compact terminal-dashboard aesthetic: a near-black
+canvas, thin cool-gray borders, dense information panels, and one deliberate
+identity accent. Pastel blue is used for focus, actions, and Google identity;
+it is not used as a large page background. This keeps the app readable and
+visually calm in transparent or dark terminal windows.
+
+## Color tokens
+
+| Token | Hex | Use |
+|---|---:|---|
+| `background` | `#05080C` | Near-black terminal canvas |
+| `surface` | `#090E15` | Tables, cards, modal panels |
+| `surface-raised` | `#121D2B` | Selected or emphasized areas |
+| `primary` | `#9DD9F7` | Pastel-blue labels, links, actions |
+| `primary-strong` | `#6FBEE7` | Focus and active borders |
+| `text` | `#DEEBF4` | Primary readable content |
+| `muted` | `#8495A3` | Supporting information |
+| `border` | `#4A5B6C` | Restrained structural boundaries |
+| `success` | `#A5E0C2` | Connected/healthy confirmation |
+| `warning` | `#F4D29B` | Caution and recoverable issues |
+| `danger` | `#F3A9B8` | Errors and destructive actions |
+
+The canonical Rust definitions live in `src/ui/theme.rs`.
+
+The current visual reference is [the account dashboard mockup](ui-mockups/README.md).
+
+## Composition rules
+
+1. Start with a dark canvas and let borders define structure; do not fill every
+   region with a bright color.
+2. Use pastel blue as the single primary accent. Reserve green, yellow, and pink
+   for semantic status only.
+3. Keep panels compact and information-dense. Avoid oversized empty rectangles.
+4. Establish hierarchy with a title band, a status band, content panels, and a
+   small action footer.
+5. Give empty states an explanation and one obvious next action.
+6. Keep borders thin and quiet; active dialogs may use `primary-strong`.
+7. Keep `text` for essential content and `muted` for secondary information.
+8. Label actions consistently with `[ a ]`, `[ c ]`, `[ o ]`, and `[Enter]`.
+9. Every mouse action must have a keyboard equivalent.
+10. Use ASCII-safe symbols by default. Do not require a particular terminal font.
+11. Future screens should import shared tokens from `theme` rather than adding
+    one-off RGB values.
+
+## Interaction language
+
+- `a` means add/connect an account.
+- `c` copies a visible authorization URL.
+- `o` opens a visible authorization URL in the default browser.
+- Clicking the authorization panel opens its URL when mouse support is enabled.
+- `Enter` means continue or submit.
+- `Esc` cancels or closes the current modal. From the main account screen it opens quit confirmation.
+- `q` opens quit confirmation from the main account screen; `Enter`/`y` confirms and `Esc`/`n` cancels.
