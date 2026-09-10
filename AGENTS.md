@@ -42,6 +42,27 @@ Run focused checks first, then expand to the affected package or full checks as
 needed. `cargo run` starts an interactive terminal application and should not
 be used as an automated login test.
 
+### Repository code knowledge MCP
+
+This checkout provides a project-scoped `codebase-memory-mcp` server through
+`.mcp.json` and `.codex/config.toml`. When the MCP tools are available (usually
+named `mcp__codebase_memory_mcp__...`), use them for non-trivial structural
+discovery before broad text search:
+
+- Start with `list_projects` and `index_status` for the current project.
+- Use `search_graph`, `trace_path`, `get_architecture`, and `get_code_snippet`
+  for symbol, call-path, architecture, and impact questions.
+- Use `check_index_coverage` for every cited path and before negative or
+  exhaustive claims; inspect flagged source ranges directly.
+- Treat direct source as authoritative when graph coverage is partial or
+  stale. Use normal file edits, Cargo commands, and tests for implementation and
+  verification; the MCP does not replace those tools.
+
+Do not force MCP calls for trivial single-file lookups. If the tools are not
+available, continue with direct source inspection and report that the project
+MCP was not loaded. Setup and verification details are documented in the
+[`README.md`](README.md#repository-code-knowledge-base).
+
 ### Editor setup
 
 - Install `rust-lang.rust-analyzer` for Rust completion, diagnostics,
