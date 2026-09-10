@@ -1,0 +1,8 @@
+{
+  "name": "@arqen/codebase-memory-runtime",
+  "private": true,
+  "version": "0.0.0",
+  "dependencies": {
+    "codebase-memory-mcp": "0.10.8"
+  }
+}
