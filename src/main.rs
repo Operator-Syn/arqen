@@ -12,18 +12,76 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::backend::CrosstermBackend;
-use std::{env, fs, io, io::Write, process::Stdio};
+use std::{
+    env,
+    ffi::{OsStr, OsString},
+    fs, io,
+    io::Write,
+    path::{Path, PathBuf},
+    process::{Child, Stdio},
+    time::{Duration, Instant},
+};
 
 mod callback;
 
 const APP_DATA_DIRECTORY: &str = "arqen";
 const LEGACY_DATA_DIRECTORY: &str = "google-account-tui";
+// Use an Arqen-owned browser process by default so the TUI can terminate the
+// isolated login window after the callback. Set this to true to use the local
+// user-gesture launcher and its script-created popup instead.
+pub(crate) const LOGIN_HELPER_ENABLED: bool = false;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LoginIntent {
     Add,
     Reauthenticate { subject: String },
     Reconnect { subject: String },
+}
+
+struct OwnedBrowser {
+    child: Child,
+    profile_dir: PathBuf,
+    #[cfg(unix)]
+    process_group: libc::pid_t,
+}
+
+impl Drop for OwnedBrowser {
+    fn drop(&mut self) {
+        self.terminate();
+        let _ = fs::remove_dir_all(&self.profile_dir);
+    }
+}
+
+impl OwnedBrowser {
+    #[cfg(unix)]
+    fn terminate(&mut self) {
+        let process_group = -self.process_group;
+        // The browser may daemonize its visible window away from the direct
+        // child, so terminate the isolated process group rather than only the
+        // launcher PID. The group was created exclusively for this session.
+        unsafe {
+            libc::kill(process_group, libc::SIGTERM);
+        }
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while Instant::now() < deadline {
+            if self.child.try_wait().ok().flatten().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        unsafe {
+            libc::kill(process_group, libc::SIGKILL);
+        }
+        let _ = self.child.wait();
+    }
+
+    #[cfg(not(unix))]
+    fn terminate(&mut self) {
+        if self.child.try_wait().ok().flatten().is_none() {
+            let _ = self.child.kill();
+        }
+        let _ = self.child.wait();
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,6 +169,7 @@ struct App {
     accounts_scroll: usize,
     details_scroll: usize,
     screen: Screen,
+    browser: Option<OwnedBrowser>,
     notice: Option<String>,
     clipboard: Option<arboard::Clipboard>,
 }
@@ -126,14 +185,20 @@ impl App {
             accounts_scroll: 0,
             details_scroll: 0,
             screen: Screen::Accounts,
+            browser: None,
             notice: None,
             clipboard: None,
         })
     }
 
     fn show_error(&mut self, context: &str, error: impl std::fmt::Display) {
+        self.stop_browser();
         self.notice = None;
         self.screen = Screen::Error(format!("{context}\n\n{error}"));
+    }
+
+    fn stop_browser(&mut self) {
+        self.browser.take();
     }
 
     fn reload_accounts(&mut self) -> Result<()> {
@@ -220,6 +285,7 @@ impl App {
     }
 
     fn start_login(&mut self, intent: LoginIntent) {
+        self.stop_browser();
         let result = (|| -> Result<Screen> {
             let callback = callback::CallbackServer::start().ok();
             let mut oauth = GoogleOAuth::from_file(client_secret_path()?)
@@ -230,6 +296,11 @@ impl App {
             let url = oauth
                 .authorization_url()
                 .context("create Google authorization URL")?;
+            if LOGIN_HELPER_ENABLED && let Some(callback) = callback.as_ref() {
+                callback
+                    .set_authorization_url(&url)
+                    .context("prepare the Google login helper")?;
+            }
             Ok(Screen::Authorization {
                 oauth: Some(oauth),
                 url,
@@ -275,6 +346,7 @@ impl App {
                 .context("save Google account metadata in SQLite")?;
             Ok(account)
         })();
+        self.stop_browser();
         match result {
             Ok(account) => self.complete_login(account),
             Err(error) => self.show_error(
@@ -493,21 +565,47 @@ impl App {
                     });
                 }
                 KeyCode::Char('o') => {
-                    let result = open_in_browser(url);
-                    self.notice = Some(match result {
-                        Ok(()) => "Browser opened; switch to it if it did not come forward.".into(),
+                    let using_helper = LOGIN_HELPER_ENABLED && callback.is_some();
+                    let browser_url = browser_target(callback.as_ref(), url);
+                    self.browser.take();
+                    let result = launch_browser(&browser_url);
+                    match result {
+                        Ok(browser) => {
+                            let owned = browser.is_some();
+                            self.browser = browser;
+                            self.notice = Some(if using_helper {
+                                "Login helper opened in your browser; click Continue to Google there."
+                                    .into()
+                            } else if owned {
+                                "Dedicated Google login window opened; Arqen will close it after login completes."
+                                    .into()
+                            } else {
+                                "Google sign-in opened in your browser; complete sign-in there, then return to Arqen."
+                                    .into()
+                            });
+                        }
                         Err(error) => {
                             self.show_error(
-                                "Could not open authorization URL",
+                                if using_helper {
+                                    "Could not open login helper"
+                                } else {
+                                    "Could not open authorization URL"
+                                },
                                 format_args!("{error:#}"),
                             );
-                            return;
                         }
-                    });
+                    }
                 }
                 KeyCode::Enter => {
                     if callback.is_some() {
-                        self.notice = Some("Press [o] to open the authorization URL.".into());
+                        self.notice = Some(
+                            if LOGIN_HELPER_ENABLED {
+                                "Press [o] to open the login helper."
+                            } else {
+                                "Press [o] to open Google sign-in, or [c] to copy the URL."
+                            }
+                            .into(),
+                        );
                         return;
                     }
                     let Some(oauth) = oauth.take() else {
@@ -525,7 +623,10 @@ impl App {
                     };
                     self.notice = Some(format!("Open this URL in your browser:\n{url}"));
                 }
-                KeyCode::Esc => self.screen = Screen::Accounts,
+                KeyCode::Esc => {
+                    self.stop_browser();
+                    self.screen = Screen::Accounts;
+                }
                 _ => {}
             },
             Screen::Redirect {
@@ -542,7 +643,10 @@ impl App {
                     };
                     self.finish_login(&mut oauth, &input, &login_intent);
                 }
-                KeyCode::Esc => self.screen = Screen::Accounts,
+                KeyCode::Esc => {
+                    self.stop_browser();
+                    self.screen = Screen::Accounts;
+                }
                 KeyCode::Backspace => {
                     input.pop();
                 }
@@ -569,6 +673,24 @@ impl App {
             },
             Screen::ConfirmQuit => {}
         }
+    }
+}
+
+fn browser_target(callback: Option<&callback::CallbackServer>, authorization_url: &str) -> String {
+    browser_target_with_mode(LOGIN_HELPER_ENABLED, callback, authorization_url)
+}
+
+fn browser_target_with_mode(
+    login_helper_enabled: bool,
+    callback: Option<&callback::CallbackServer>,
+    authorization_url: &str,
+) -> String {
+    if login_helper_enabled {
+        callback
+            .map(|callback| callback.launcher_uri().to_owned())
+            .unwrap_or_else(|| authorization_url.to_owned())
+    } else {
+        authorization_url.to_owned()
     }
 }
 
@@ -668,21 +790,7 @@ fn copy_with_fallback(text: &str, primary_error: anyhow::Error) -> Result<()> {
 }
 
 fn open_in_browser(url: &str) -> Result<()> {
-    let mut candidates: Vec<(std::ffi::OsString, Vec<std::ffi::OsString>)> = Vec::new();
-    // Prefer the explicitly configured browser so the URL is forwarded to its
-    // running instance, then use desktop URL handlers as fallbacks.
-    if let Some(browser) = env::var_os("BROWSER") {
-        candidates.push((browser, vec![url.into()]));
-    }
-    candidates.push(("gio".into(), vec!["open".into(), url.into()]));
-    candidates.push(("xdg-open".into(), vec![url.into()]));
-    // Direct browser fallbacks request a new tab where supported, which gives
-    // window managers a stronger opportunity to activate the browser window.
-    for browser in ["brave", "google-chrome-stable", "google-chrome", "chromium"] {
-        candidates.push((browser.into(), vec!["--new-tab".into(), url.into()]));
-    }
-    candidates.push(("firefox".into(), vec![url.into()]));
-
+    let candidates = browser_candidates(url, env::var_os("BROWSER"));
     let mut failures = Vec::new();
     for (program, args) in candidates {
         let result = std::process::Command::new(&program)
@@ -703,6 +811,180 @@ fn open_in_browser(url: &str) -> Result<()> {
         )
     } else {
         anyhow::bail!("no browser launcher was configured")
+    }
+}
+
+fn launch_browser(url: &str) -> Result<Option<OwnedBrowser>> {
+    // A unique profile is what makes terminating the child safe: Chromium and
+    // Firefox cannot route this login into the user's normal browser process.
+    let profile_dir = match create_browser_profile() {
+        Ok(path) => path,
+        Err(profile_error) => {
+            open_in_browser(url).with_context(|| {
+                format!(
+                    "create an isolated browser profile ({profile_error:#}); browser fallback also failed"
+                )
+            })?;
+            return Ok(None);
+        }
+    };
+    let mut failures = Vec::new();
+    for (program, _) in browser_candidates(url, env::var_os("BROWSER")) {
+        let Some(args) = owned_browser_arguments(&program, url, &profile_dir) else {
+            continue;
+        };
+        let mut command = std::process::Command::new(&program);
+        command
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        let result = command.spawn();
+        match result {
+            Ok(child) => {
+                #[cfg(unix)]
+                let process_group = child.id() as libc::pid_t;
+                return Ok(Some(OwnedBrowser {
+                    child,
+                    profile_dir,
+                    #[cfg(unix)]
+                    process_group,
+                }));
+            }
+            Err(error) => failures.push(format!("{}: {error}", program.to_string_lossy())),
+        }
+    }
+
+    let _ = fs::remove_dir_all(&profile_dir);
+    open_in_browser(url).with_context(|| {
+        if failures.is_empty() {
+            "no isolated browser launcher was available; browser fallback also failed".to_owned()
+        } else {
+            format!(
+                "isolated browser launchers were unavailable ({}); browser fallback also failed",
+                failures.join("; ")
+            )
+        }
+    })?;
+    Ok(None)
+}
+
+fn create_browser_profile() -> Result<PathBuf> {
+    let base = env::temp_dir();
+    for _ in 0..8 {
+        let path = base.join(format!("arqen-oauth-{}", uuid::Uuid::new_v4().simple()));
+        match fs::create_dir(&path) {
+            Ok(()) => {
+                if let Err(error) = secure_browser_profile(&path) {
+                    let _ = fs::remove_dir_all(&path);
+                    return Err(error);
+                }
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("create temporary browser profile at {}", path.display())
+                });
+            }
+        }
+    }
+    anyhow::bail!("could not allocate a unique temporary browser profile")
+}
+
+fn secure_browser_profile(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("restrict temporary browser profile at {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn browser_candidates(
+    url: &str,
+    configured_browser: Option<std::ffi::OsString>,
+) -> Vec<(std::ffi::OsString, Vec<std::ffi::OsString>)> {
+    let mut candidates: Vec<(std::ffi::OsString, Vec<std::ffi::OsString>)> = Vec::new();
+    // Prefer the explicitly configured browser. Known browser launchers get a
+    // new-window request so the external link is visible and active instead of
+    // being silently forwarded to a background tab.
+    if let Some(browser) = configured_browser {
+        candidates.push((browser.clone(), browser_arguments(&browser, url)));
+    }
+    // Direct browser fallbacks also request a new window so the browser can
+    // activate its window. Desktop URL handlers are retained below as
+    // portable fallbacks, but may hand the URL to an existing browser without
+    // bringing it to the front.
+    for browser in ["brave", "google-chrome-stable", "google-chrome", "chromium"] {
+        candidates.push((browser.into(), vec!["--new-window".into(), url.into()]));
+    }
+    candidates.push(("firefox".into(), vec!["--new-window".into(), url.into()]));
+    candidates.push(("gio".into(), vec!["open".into(), url.into()]));
+    candidates.push(("xdg-open".into(), vec![url.into()]));
+    candidates
+}
+
+fn browser_arguments(program: &std::ffi::OsStr, url: &str) -> Vec<std::ffi::OsString> {
+    if browser_kind(program).is_some() {
+        vec!["--new-window".into(), url.into()]
+    } else {
+        vec![url.into()]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowserKind {
+    Chromium,
+    Firefox,
+}
+
+fn browser_kind(program: &OsStr) -> Option<BrowserKind> {
+    let name = Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if name.contains("firefox") {
+        Some(BrowserKind::Firefox)
+    } else if name.contains("brave") || name.contains("chrome") || name.contains("chromium") {
+        Some(BrowserKind::Chromium)
+    } else {
+        None
+    }
+}
+
+fn owned_browser_arguments(
+    program: &OsStr,
+    url: &str,
+    profile_dir: &Path,
+) -> Option<Vec<OsString>> {
+    match browser_kind(program)? {
+        BrowserKind::Chromium => {
+            let mut profile = OsString::from("--user-data-dir=");
+            profile.push(profile_dir.as_os_str());
+            Some(vec![
+                profile,
+                "--no-first-run".into(),
+                "--no-default-browser-check".into(),
+                "--disable-sync".into(),
+                "--new-window".into(),
+                url.into(),
+            ])
+        }
+        BrowserKind::Firefox => Some(vec![
+            "--no-remote".into(),
+            "--profile".into(),
+            profile_dir.as_os_str().to_owned(),
+            "--new-window".into(),
+            url.into(),
+        ]),
     }
 }
 
@@ -997,6 +1279,10 @@ mod tests {
     use arqen::{Account, AccountStore, ConnectionState};
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use ratatui::layout::Rect;
+    use std::{
+        ffi::{OsStr, OsString},
+        path::Path,
+    };
 
     fn app_with_accounts() -> App {
         let store = AccountStore::in_memory().unwrap();
@@ -1173,6 +1459,118 @@ mod tests {
         assert!(message.contains("different account"));
         assert!(message.contains("No account data or credentials were changed"));
         assert!(!message.contains("complete Google login"));
+    }
+
+    #[test]
+    fn browser_target_defaults_to_the_direct_authorization_url() {
+        let callback = crate::callback::CallbackServer::start().expect("callback server");
+        let direct_url = "https://accounts.google.com/o/oauth2/v2/auth?state=test";
+        let launcher_url = super::browser_target(Some(&callback), direct_url);
+        assert_eq!(launcher_url, direct_url);
+        assert_eq!(super::browser_target(None, direct_url), direct_url);
+    }
+
+    #[test]
+    fn browser_target_can_restore_the_local_launcher_with_the_toggle() {
+        let callback = crate::callback::CallbackServer::start().expect("callback server");
+        let direct_url = "https://accounts.google.com/o/oauth2/v2/auth?state=test";
+        let launcher_url = super::browser_target_with_mode(true, Some(&callback), direct_url);
+        assert!(launcher_url.starts_with("http://127.0.0.1:"));
+        assert!(launcher_url.contains("/oauth2/launch/"));
+        assert_ne!(launcher_url, direct_url);
+        assert_eq!(
+            super::browser_target_with_mode(false, Some(&callback), direct_url),
+            direct_url
+        );
+    }
+
+    #[test]
+    fn browser_candidates_prioritize_foreground_browser_launchers() {
+        let candidates = super::browser_candidates("http://127.0.0.1:12345", None);
+        let gio_index = candidates
+            .iter()
+            .position(|(program, _)| program == "gio")
+            .expect("gio fallback");
+        let brave_index = candidates
+            .iter()
+            .position(|(program, _)| program == "brave")
+            .expect("brave launcher");
+        assert!(brave_index < gio_index);
+        assert_eq!(candidates[brave_index].1[0], "--new-window");
+    }
+
+    #[test]
+    fn configured_browser_gets_a_new_window_when_it_is_a_browser_launcher() {
+        let candidates = super::browser_candidates(
+            "http://127.0.0.1:12345",
+            Some("/nix/store/brave-gpu-picker/bin/brave-gpu-picker".into()),
+        );
+        assert_eq!(
+            candidates[0].1,
+            vec![
+                std::ffi::OsString::from("--new-window"),
+                std::ffi::OsString::from("http://127.0.0.1:12345")
+            ]
+        );
+    }
+
+    #[test]
+    fn configured_non_browser_launcher_keeps_its_original_argument_shape() {
+        let candidates =
+            super::browser_candidates("http://127.0.0.1:12345", Some("custom-url-handler".into()));
+        assert_eq!(
+            candidates[0].1,
+            vec![std::ffi::OsString::from("http://127.0.0.1:12345")]
+        );
+    }
+
+    #[test]
+    fn owned_chromium_arguments_use_an_isolated_profile_and_new_window() {
+        let arguments = super::owned_browser_arguments(
+            OsStr::new("brave-gpu-picker"),
+            "http://127.0.0.1:12345",
+            Path::new("/tmp/arqen-oauth-test"),
+        )
+        .expect("Chromium browser arguments");
+        assert_eq!(
+            arguments[0],
+            OsString::from("--user-data-dir=/tmp/arqen-oauth-test")
+        );
+        assert!(arguments.contains(&OsString::from("--no-first-run")));
+        assert!(arguments.contains(&OsString::from("--new-window")));
+        assert_eq!(
+            arguments.last(),
+            Some(&OsString::from("http://127.0.0.1:12345"))
+        );
+    }
+
+    #[test]
+    fn owned_firefox_arguments_disable_remote_reuse() {
+        let arguments = super::owned_browser_arguments(
+            OsStr::new("firefox"),
+            "http://127.0.0.1:12345",
+            Path::new("/tmp/arqen-oauth-test"),
+        )
+        .expect("Firefox browser arguments");
+        assert_eq!(arguments[0], OsString::from("--no-remote"));
+        assert_eq!(arguments[1], OsString::from("--profile"));
+        assert!(arguments.contains(&OsString::from("--new-window")));
+        assert_eq!(
+            arguments.last(),
+            Some(&OsString::from("http://127.0.0.1:12345"))
+        );
+    }
+
+    #[test]
+    fn non_browser_handlers_cannot_be_owned() {
+        assert!(
+            super::owned_browser_arguments(
+                OsStr::new("gio"),
+                "http://127.0.0.1:12345",
+                Path::new("/tmp/arqen-oauth-test"),
+            )
+            .is_none()
+        );
     }
 
     #[test]
