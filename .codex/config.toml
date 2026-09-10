@@ -1,0 +1,35 @@
+[mcp_servers."codebase-memory-mcp"]
+command = "bash"
+args = ["-lc", "set -euo pipefail; root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" || { echo \"MCP launcher must run inside the target Git repository.\" >&2; exit 1; }; exec bash \"$root/.codex/mcp/codebase-memory/run.sh\""]
+startup_timeout_sec = 60
+tool_timeout_sec = 300
+default_tools_approval_mode = "writes"
+enabled_tools = [
+  "index_repository",
+  "search_graph",
+  "query_graph",
+  "trace_path",
+  "get_code_snippet",
+  "get_graph_schema",
+  "get_architecture",
+  "search_code",
+  "list_projects",
+  "delete_project",
+  "index_status",
+  "check_index_coverage",
+  "detect_changes",
+  "manage_adr",
+  "ingest_traces",
+]
+
+[mcp_servers."codebase-memory-mcp".tools.index_repository]
+approval_mode = "prompt"
+
+[mcp_servers."codebase-memory-mcp".tools.delete_project]
+approval_mode = "prompt"
+
+[mcp_servers."codebase-memory-mcp".tools.manage_adr]
+approval_mode = "prompt"
+
+[mcp_servers."codebase-memory-mcp".tools.ingest_traces]
+approval_mode = "prompt"
