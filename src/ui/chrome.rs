@@ -319,6 +319,7 @@ fn is_positive_notice(notice: &str) -> bool {
     notice.starts_with("Authorization URL copied")
         || notice.starts_with("Authorization URL opened")
         || notice.starts_with("Browser opened")
+        || notice.starts_with("Dedicated Google login window opened")
         || notice.starts_with("Google account connected")
         || notice.starts_with("Quit cancelled")
         || notice.starts_with("Selected ")
