@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use reqwest::blocking::Client;
+use reqwest::{StatusCode, blocking::Client};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{collections::HashMap, fs, path::Path};
@@ -9,12 +9,22 @@ use uuid::Uuid;
 
 const KEYRING_SERVICE: &str = "arqen";
 const REDIRECT_URI: &str = "http://localhost";
-const SCOPES: &str = "openid email profile https://www.googleapis.com/auth/gmail.readonly";
+const REVOCATION_URI: &str = "https://oauth2.googleapis.com/revoke";
+pub const SUBJECT_MISMATCH_MESSAGE: &str =
+    "Google account does not match the account selected for reauthentication";
+const REQUESTED_SCOPES: &str =
+    "openid email profile https://www.googleapis.com/auth/gmail.readonly";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Callback {
     pub code: String,
     pub state: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct GoogleLogin {
+    pub profile: GoogleProfile,
+    pub granted_scopes: Vec<String>,
 }
 
 pub fn parse_callback(input: &str) -> Result<Callback> {
@@ -51,9 +61,15 @@ struct CredentialsFile {
 struct TokenResponse {
     access_token: String,
     refresh_token: Option<String>,
+    scope: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+struct RevocationError {
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 pub struct GoogleProfile {
     pub sub: String,
     pub email: String,
@@ -97,7 +113,7 @@ impl GoogleOAuth {
             .append_pair("client_id", &self.credentials.client_id)
             .append_pair("redirect_uri", &self.redirect_uri)
             .append_pair("response_type", "code")
-            .append_pair("scope", SCOPES)
+            .append_pair("scope", REQUESTED_SCOPES)
             .append_pair("access_type", "offline")
             .append_pair("prompt", "consent")
             .append_pair("state", &state)
@@ -108,7 +124,11 @@ impl GoogleOAuth {
         Ok(url.to_string())
     }
 
-    pub fn finish(&mut self, callback: Callback) -> Result<GoogleProfile> {
+    pub fn finish(
+        &mut self,
+        callback: Callback,
+        expected_subject: Option<&str>,
+    ) -> Result<GoogleLogin> {
         let expected_state = self.state.take().context("no login is in progress")?;
         anyhow::ensure!(callback.state == expected_state, "OAuth state mismatch");
         let verifier = self
@@ -132,6 +152,7 @@ impl GoogleOAuth {
             .context("Google rejected the authorization-code exchange")?
             .json()
             .context("parse Google's token response")?;
+        let granted_scopes = granted_scopes(token.scope.as_deref())?;
         let profile: GoogleProfile = self
             .client
             .get("https://openidconnect.googleapis.com/v1/userinfo")
@@ -142,6 +163,7 @@ impl GoogleOAuth {
             .context("Google rejected the profile request")?
             .json()
             .context("parse Google's account profile")?;
+        ensure_expected_subject(&profile, expected_subject)?;
         let refresh_token = token
             .refresh_token
             .context("Google did not return a refresh token; retry login with consent")?;
@@ -150,8 +172,104 @@ impl GoogleOAuth {
         entry
             .set_password(&refresh_token)
             .context("save Google refresh token in the OS keyring")?;
-        Ok(profile)
+        Ok(GoogleLogin {
+            profile,
+            granted_scopes,
+        })
     }
+}
+
+pub fn revoke_google_account(token_key: Option<&str>, subject: &str) -> Result<()> {
+    let (service, user) = keyring_coordinates(token_key, subject);
+    let entry = keyring::Entry::new(&service, &user)
+        .context("create OS keyring entry for Google refresh token")?;
+    let refresh_token = match entry.get_password() {
+        Ok(refresh_token) => refresh_token,
+        Err(keyring::Error::NoEntry) => {
+            anyhow::bail!(
+                "no stored Google refresh token; reauthenticate this account before disconnecting"
+            )
+        }
+        Err(error) => {
+            return Err(anyhow::anyhow!(error))
+                .context("read Google refresh token from the OS keyring");
+        }
+    };
+    revoke_refresh_token(&refresh_token)?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => {
+            Err(anyhow::anyhow!(error)).context("remove Google refresh token from the OS keyring")
+        }
+    }
+}
+
+fn keyring_coordinates(token_key: Option<&str>, subject: &str) -> (String, String) {
+    let Some(reference) = token_key.and_then(|value| value.strip_prefix("keyring:")) else {
+        return (KEYRING_SERVICE.to_owned(), subject.to_owned());
+    };
+    let Some((service, user)) = reference.split_once(':') else {
+        return (KEYRING_SERVICE.to_owned(), subject.to_owned());
+    };
+    if service.is_empty() || user.is_empty() {
+        return (KEYRING_SERVICE.to_owned(), subject.to_owned());
+    }
+    (service.to_owned(), user.to_owned())
+}
+
+fn revoke_refresh_token(refresh_token: &str) -> Result<()> {
+    let response = Client::new()
+        .post(REVOCATION_URI)
+        .form(&[("token", refresh_token)])
+        .send()
+        .context("send Google token revocation request")?;
+    let status = response.status();
+    let error_code = if status.is_success() {
+        None
+    } else {
+        response
+            .json::<RevocationError>()
+            .ok()
+            .and_then(|error| error.error)
+    };
+    validate_revocation_response(status, error_code.as_deref())
+}
+
+fn validate_revocation_response(status: StatusCode, error_code: Option<&str>) -> Result<()> {
+    if status.is_success()
+        || (status == StatusCode::BAD_REQUEST && error_code == Some("invalid_token"))
+    {
+        return Ok(());
+    }
+    match error_code {
+        Some(error_code) => {
+            anyhow::bail!("Google token revocation failed with HTTP {status} ({error_code})")
+        }
+        None => anyhow::bail!("Google token revocation failed with HTTP {status}"),
+    }
+}
+
+fn canonical_scopes(raw: &str) -> Result<Vec<String>> {
+    let mut scopes: Vec<String> = raw.split_whitespace().map(str::to_owned).collect();
+    scopes.sort();
+    scopes.dedup();
+    anyhow::ensure!(
+        !scopes.is_empty(),
+        "Google returned an empty granted-scope set"
+    );
+    Ok(scopes)
+}
+
+fn granted_scopes(raw: Option<&str>) -> Result<Vec<String>> {
+    raw.context("Google did not return granted scopes")
+        .and_then(canonical_scopes)
+}
+
+fn ensure_expected_subject(profile: &GoogleProfile, expected_subject: Option<&str>) -> Result<()> {
+    if let Some(expected_subject) = expected_subject {
+        anyhow::ensure!(profile.sub == expected_subject, SUBJECT_MISMATCH_MESSAGE);
+    }
+    Ok(())
 }
 
 pub fn token_key(subject: &str) -> String {
@@ -160,7 +278,11 @@ pub fn token_key(subject: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{GoogleOAuth, InstalledCredentials, parse_callback};
+    use super::{
+        GoogleOAuth, GoogleProfile, InstalledCredentials, canonical_scopes,
+        ensure_expected_subject, granted_scopes, parse_callback, validate_revocation_response,
+    };
+    use reqwest::StatusCode;
     use reqwest::blocking::Client;
 
     #[test]
@@ -194,5 +316,85 @@ mod tests {
         oauth.set_redirect_uri("http://127.0.0.1:43123/oauth2/callback");
         let url = oauth.authorization_url().unwrap();
         assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A43123%2Foauth2%2Fcallback"));
+        assert!(url.contains(
+            "scope=openid+email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.readonly"
+        ));
+    }
+
+    #[test]
+    fn canonicalizes_and_deduplicates_granted_scopes() {
+        assert_eq!(
+            canonical_scopes("profile openid profile https://example.test/scope").unwrap(),
+            vec!["https://example.test/scope", "openid", "profile"]
+        );
+    }
+
+    #[test]
+    fn rejects_empty_granted_scope_sets() {
+        assert!(canonical_scopes(" \t\n").is_err());
+    }
+
+    #[test]
+    fn rejects_missing_granted_scopes() {
+        assert!(granted_scopes(None).is_err());
+    }
+
+    #[test]
+    fn reads_granted_scopes_from_the_token_response() {
+        let token: super::TokenResponse = serde_json::from_str(
+            r#"{
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "scope": "profile openid"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            granted_scopes(token.scope.as_deref()).unwrap(),
+            vec!["openid", "profile"]
+        );
+    }
+
+    #[test]
+    fn rejects_reauthentication_subject_mismatch() {
+        let profile = GoogleProfile {
+            sub: "returned-subject".into(),
+            email: "returned@example.com".into(),
+            name: None,
+        };
+        let error = ensure_expected_subject(&profile, Some("selected-subject")).unwrap_err();
+        assert!(error.to_string().contains("does not match"));
+    }
+
+    #[test]
+    fn treats_success_and_already_revoked_tokens_as_terminal() {
+        assert!(validate_revocation_response(StatusCode::OK, None).is_ok());
+        assert!(
+            validate_revocation_response(StatusCode::BAD_REQUEST, Some("invalid_token")).is_ok()
+        );
+    }
+
+    #[test]
+    fn rejects_other_revocation_failures_without_exposing_tokens() {
+        let error = validate_revocation_response(StatusCode::BAD_REQUEST, Some("invalid_request"))
+            .unwrap_err();
+        assert!(error.to_string().contains("invalid_request"));
+        assert!(!error.to_string().contains("refresh-token"));
+    }
+
+    #[test]
+    fn uses_current_keyring_coordinates_for_missing_or_malformed_references() {
+        assert_eq!(
+            super::keyring_coordinates(None, "subject"),
+            ("arqen".into(), "subject".into())
+        );
+        assert_eq!(
+            super::keyring_coordinates(Some("keyring:legacy:subject"), "fallback"),
+            ("legacy".into(), "subject".into())
+        );
+        assert_eq!(
+            super::keyring_coordinates(Some("not-a-reference"), "fallback"),
+            ("arqen".into(), "fallback".into())
+        );
     }
 }
