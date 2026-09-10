@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+staged_file_list="$(mktemp)"
+trap 'rm -f -- "$staged_file_list"' EXIT
+
+if ! git diff --cached --name-only --no-renames --diff-filter=ACDMRTUXB -z >"$staged_file_list"; then
+    echo "Commit blocked: could not inspect the staged paths." >&2
+    exit 1
+fi
+
+staged_paths=()
+while IFS= read -r -d '' path; do
+    staged_paths+=("$path")
+done <"$staged_file_list"
+
+if ((${#staged_paths[@]} != 1)); then
+    echo "Commit blocked: exactly one staged path is required, but ${#staged_paths[@]} were found." >&2
+    if ((${#staged_paths[@]} > 0)); then
+        printf '  %q\n' "${staged_paths[@]}" >&2
+    fi
+    echo "Stage or unstage files until one path remains, then retry the commit." >&2
+    exit 1
+fi
+
+exit 0
