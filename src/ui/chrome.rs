@@ -1,5 +1,5 @@
 use super::{UiMode, theme};
-use arqen::Account;
+use arqen::{Account, ConnectionState};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
@@ -52,7 +52,7 @@ pub(crate) fn render_header(frame: &mut Frame<'_>, area: Rect, accounts: &[Accou
                         .add_modifier(ratatui::style::Modifier::BOLD),
                 )),
                 Line::from(Span::styled(
-                    format!("{} connected", accounts.len()),
+                    format!("{} connected", connected_count(accounts)),
                     Style::default().fg(theme::MUTED),
                 )),
             ])
@@ -84,7 +84,7 @@ pub(crate) fn render_header(frame: &mut Frame<'_>, area: Rect, accounts: &[Accou
                     .add_modifier(ratatui::style::Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                format!("{} connected", accounts.len()),
+                format!("{} connected", connected_count(accounts)),
                 Style::default().fg(theme::MUTED),
             )),
         ])
@@ -94,14 +94,21 @@ pub(crate) fn render_header(frame: &mut Frame<'_>, area: Rect, accounts: &[Accou
     );
 }
 
-pub(crate) fn render_footer(frame: &mut Frame<'_>, area: Rect, notice: Option<&str>, mode: UiMode) {
+pub(crate) fn render_footer(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    notice: Option<&str>,
+    mode: UiMode,
+    selected_state: Option<ConnectionState>,
+) {
     let notice = notice.unwrap_or("Select an account to inspect its connection.");
     let notice_text = notice_label(notice);
-    let paragraph = Paragraph::new(Line::from(footer_actions())).wrap(Wrap { trim: true });
+    let paragraph =
+        Paragraph::new(Line::from(footer_actions(selected_state))).wrap(Wrap { trim: true });
     if mode == UiMode::Compact || area.height < 3 {
         frame.render_widget(
             Paragraph::new(vec![
-                Line::from(footer_actions()),
+                Line::from(footer_actions(selected_state)),
                 notice_line(notice, &notice_text),
             ])
             .wrap(Wrap { trim: true }),
@@ -120,7 +127,7 @@ pub(crate) fn render_footer(frame: &mut Frame<'_>, area: Rect, notice: Option<&s
         frame.render_widget(block, area);
         frame.render_widget(
             Paragraph::new(vec![
-                Line::from(footer_actions()),
+                Line::from(footer_actions(selected_state)),
                 notice_line(notice, &notice_text),
             ])
             .wrap(Wrap { trim: true }),
@@ -194,8 +201,13 @@ pub(crate) fn header_height(width: u16, mode: UiMode) -> u16 {
     left.max(right).saturating_add(2)
 }
 
-pub(crate) fn footer_height(width: u16, notice: Option<&str>, mode: UiMode) -> u16 {
-    let actions = Text::from(Line::from(footer_actions()));
+pub(crate) fn footer_height(
+    width: u16,
+    notice: Option<&str>,
+    mode: UiMode,
+    selected_state: Option<ConnectionState>,
+) -> u16 {
+    let actions = Text::from(Line::from(footer_actions(selected_state)));
     let notice = notice.unwrap_or("Select an account to inspect its connection.");
     let notice_text = notice_label(notice);
     if mode == UiMode::Compact {
@@ -206,7 +218,10 @@ pub(crate) fn footer_height(width: u16, notice: Option<&str>, mode: UiMode) -> u
         .saturating_sub(2 + super::content_padding(width).saturating_mul(2))
         .max(1);
     if mode == UiMode::Narrow {
-        let actions_height = wrapped_height(Text::from(Line::from(footer_actions())), inner);
+        let actions_height = wrapped_height(
+            Text::from(Line::from(footer_actions(selected_state))),
+            inner,
+        );
         let notice_height = wrapped_height(Text::from(notice_text.as_str()), inner);
         return actions_height
             .saturating_add(notice_height)
@@ -264,8 +279,8 @@ fn title_line() -> Span<'static> {
     )
 }
 
-fn footer_actions() -> Vec<Span<'static>> {
-    vec![
+fn footer_actions(selected_state: Option<ConnectionState>) -> Vec<Span<'static>> {
+    let mut actions = vec![
         Span::styled(
             "[a]",
             Style::default()
@@ -273,6 +288,44 @@ fn footer_actions() -> Vec<Span<'static>> {
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
         Span::styled(" add  ", Style::default().fg(theme::TEXT)),
+    ];
+    if let Some(state) = selected_state {
+        let (shortcut, label) = match state {
+            ConnectionState::Connected => ("[d]", " disconnect  "),
+            ConnectionState::Disconnected => ("[l]", " login  "),
+            ConnectionState::Indeterminate => ("[d]", " retry  "),
+        };
+        actions.extend([
+            Span::styled(
+                shortcut,
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+            Span::styled(label, Style::default().fg(theme::TEXT)),
+        ]);
+        if state == ConnectionState::Indeterminate {
+            actions.extend([
+                Span::styled(
+                    "[l]",
+                    Style::default()
+                        .fg(theme::PRIMARY)
+                        .add_modifier(ratatui::style::Modifier::BOLD),
+                ),
+                Span::styled(" login  ", Style::default().fg(theme::TEXT)),
+            ]);
+        }
+        actions.extend([
+            Span::styled(
+                "[r]",
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ),
+            Span::styled(" reauth  ", Style::default().fg(theme::TEXT)),
+        ]);
+    }
+    actions.extend([
         Span::styled(
             "[j/k]",
             Style::default()
@@ -294,7 +347,111 @@ fn footer_actions() -> Vec<Span<'static>> {
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
         Span::styled(" quit", Style::default().fg(theme::TEXT)),
-    ]
+    ]);
+    actions
+}
+
+pub(crate) fn reauthenticate_target(
+    area: Rect,
+    mode: UiMode,
+    selected_state: Option<ConnectionState>,
+    column: u16,
+    row: u16,
+) -> bool {
+    action_target(area, mode, selected_state, "[r]", column, row)
+}
+
+pub(crate) fn disconnect_target(
+    area: Rect,
+    mode: UiMode,
+    selected_state: Option<ConnectionState>,
+    column: u16,
+    row: u16,
+) -> bool {
+    action_target(area, mode, selected_state, "[d]", column, row)
+}
+
+pub(crate) fn login_target(
+    area: Rect,
+    mode: UiMode,
+    selected_state: Option<ConnectionState>,
+    column: u16,
+    row: u16,
+) -> bool {
+    action_target(area, mode, selected_state, "[l]", column, row)
+}
+
+fn action_target(
+    area: Rect,
+    mode: UiMode,
+    selected_state: Option<ConnectionState>,
+    target: &str,
+    column: u16,
+    row: u16,
+) -> bool {
+    let Some(selected_state) = selected_state else {
+        return false;
+    };
+    let inner = if mode == UiMode::Compact {
+        area
+    } else {
+        Rect {
+            x: area.x.saturating_add(1),
+            y: area.y.saturating_add(1),
+            width: area.width.saturating_sub(2),
+            height: area.height.saturating_sub(2),
+        }
+    };
+    let action_column = if mode == UiMode::Wide {
+        Layout::horizontal([Constraint::Percentage(60), Constraint::Fill(1)]).split(inner)[0]
+    } else {
+        inner
+    };
+    let tokens = footer_tokens(Some(selected_state));
+    let Some(token_start) = tokens
+        .iter()
+        .scan(0usize, |offset, (token, label)| {
+            let current = *offset;
+            *offset += token.chars().count() + 1 + label.chars().count() + 2;
+            Some((token, current))
+        })
+        .find_map(|(token, offset)| (*token == target).then_some(offset))
+    else {
+        return false;
+    };
+    let width = usize::from(action_column.width.max(1));
+    let line_offset = token_start / width;
+    let column_offset = token_start % width;
+    row == action_column
+        .y
+        .saturating_add(u16::try_from(line_offset).unwrap_or(u16::MAX))
+        && usize::from(column.saturating_sub(action_column.x)) >= column_offset
+        && usize::from(column.saturating_sub(action_column.x))
+            < column_offset + target.chars().count()
+}
+
+fn footer_tokens(selected_state: Option<ConnectionState>) -> Vec<(&'static str, &'static str)> {
+    let mut tokens = vec![("[a]", "add")];
+    if let Some(state) = selected_state {
+        match state {
+            ConnectionState::Connected => tokens.push(("[d]", "disconnect")),
+            ConnectionState::Disconnected => tokens.push(("[l]", "login")),
+            ConnectionState::Indeterminate => {
+                tokens.push(("[d]", "retry"));
+                tokens.push(("[l]", "login"));
+            }
+        }
+        tokens.push(("[r]", "reauth"));
+    }
+    tokens.extend([("[j/k]", "select"), ("[Enter]", "inspect"), ("[q]", "quit")]);
+    tokens
+}
+
+fn connected_count(accounts: &[Account]) -> usize {
+    accounts
+        .iter()
+        .filter(|account| account.connection_state == ConnectionState::Connected)
+        .count()
 }
 
 fn wrapped_height(text: Text<'_>, width: u16) -> u16 {
