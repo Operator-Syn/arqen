@@ -5,7 +5,7 @@ pub(crate) mod modal;
 pub(crate) mod theme;
 
 use crate::Screen;
-use arqen::Account;
+use arqen::{Account, ConnectionState};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -17,6 +17,10 @@ use ratatui::{
 pub(crate) enum MouseTarget {
     Account(usize),
     AddAccount,
+    Reauthenticate,
+    Disconnect,
+    Login,
+    ConnectionBadge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,21 +56,35 @@ pub(crate) fn draw(
         area,
     );
 
-    let areas = layout(area, accounts.len(), notice);
+    let selected_state = accounts
+        .get(selected)
+        .map(|account| account.connection_state);
+    let areas = layout(area, accounts.len(), selected_state, notice);
     chrome::render_header(frame, areas.header, accounts, areas.mode);
     accounts::render_account_list(frame, areas.accounts, accounts, selected, areas.mode);
     accounts::render_account_details(frame, areas.details, accounts.get(selected), areas.mode);
-    chrome::render_footer(frame, areas.footer, notice, areas.mode);
+    chrome::render_footer(frame, areas.footer, notice, areas.mode, selected_state);
 
     match screen {
         Screen::Accounts => {}
-        Screen::Authorization { url, callback, .. } => {
+        Screen::Authorization {
+            url,
+            callback,
+            intent,
+            ..
+        } => {
             dialogs::render_authorization(
                 frame,
                 area,
                 url,
                 areas.mode == UiMode::Compact,
                 callback.is_none(),
+                matches!(
+                    intent,
+                    crate::LoginIntent::Reauthenticate { .. }
+                        | crate::LoginIntent::Reconnect { .. }
+                ),
+                matches!(intent, crate::LoginIntent::Reconnect { .. }),
             );
         }
         Screen::Redirect { input, .. } => {
@@ -78,21 +96,46 @@ pub(crate) fn draw(
         Screen::ConfirmQuit => {
             dialogs::render_confirm_quit(frame, area, areas.mode == UiMode::Compact);
         }
+        Screen::ConfirmDisconnect { email, retry, .. } => {
+            dialogs::render_disconnect(frame, area, email, *retry, areas.mode == UiMode::Compact);
+        }
     }
 }
 
 pub(crate) fn mouse_target(
     area: Rect,
-    account_count: usize,
+    accounts: &[Account],
+    selected: usize,
     column: u16,
     row: u16,
     notice: Option<&str>,
 ) -> Option<MouseTarget> {
-    let areas = layout(area, account_count, notice);
-    accounts::mouse_target(areas.accounts, account_count, column, row, areas.mode).or_else(|| {
-        (account_count == 0 && contains(areas.details, column, row))
-            .then_some(MouseTarget::AddAccount)
-    })
+    let selected_state = accounts
+        .get(selected)
+        .map(|account| account.connection_state);
+    let areas = layout(area, accounts.len(), selected_state, notice);
+    accounts::mouse_target(areas.accounts, accounts.len(), column, row, areas.mode)
+        .or_else(|| {
+            chrome::reauthenticate_target(areas.footer, areas.mode, selected_state, column, row)
+                .then_some(MouseTarget::Reauthenticate)
+        })
+        .or_else(|| {
+            chrome::disconnect_target(areas.footer, areas.mode, selected_state, column, row)
+                .then_some(MouseTarget::Disconnect)
+        })
+        .or_else(|| {
+            chrome::login_target(areas.footer, areas.mode, selected_state, column, row)
+                .then_some(MouseTarget::Login)
+        })
+        .or_else(|| {
+            (selected_state.is_some()
+                && accounts::connection_badge_target(areas.details, areas.mode, column, row))
+            .then_some(MouseTarget::ConnectionBadge)
+        })
+        .or_else(|| {
+            (accounts.is_empty() && contains(areas.details, column, row))
+                .then_some(MouseTarget::AddAccount)
+        })
 }
 
 pub(crate) fn modal_action(
@@ -104,12 +147,27 @@ pub(crate) fn modal_action(
 ) -> Option<modal::ModalActionId> {
     let compact = ui_mode(area) == UiMode::Compact;
     let spec = match screen {
-        Screen::Authorization { url, callback, .. } => {
-            dialogs::authorization_spec(url, compact, callback.is_none())
-        }
+        Screen::Authorization {
+            url,
+            callback,
+            intent,
+            ..
+        } => dialogs::authorization_spec(
+            url,
+            compact,
+            callback.is_none(),
+            matches!(
+                intent,
+                crate::LoginIntent::Reauthenticate { .. } | crate::LoginIntent::Reconnect { .. }
+            ),
+            matches!(intent, crate::LoginIntent::Reconnect { .. }),
+        ),
         Screen::Redirect { input, .. } => dialogs::redirect_spec(notice, input, compact),
         Screen::Error(message) => dialogs::error_spec(message, compact),
         Screen::ConfirmQuit => dialogs::confirm_quit_spec(compact),
+        Screen::ConfirmDisconnect { email, retry, .. } => {
+            dialogs::disconnect_spec(email, *retry, compact)
+        }
         Screen::Accounts => return None,
     };
     modal::Modal::hit_test(area, &spec, column, row)
@@ -122,7 +180,12 @@ fn contains(area: Rect, column: u16, row: u16) -> bool {
         && row < area.y.saturating_add(area.height)
 }
 
-fn layout(area: Rect, account_count: usize, notice: Option<&str>) -> Areas {
+fn layout(
+    area: Rect,
+    account_count: usize,
+    selected_state: Option<ConnectionState>,
+    notice: Option<&str>,
+) -> Areas {
     let inset = proportional_inset(area);
     let content = Rect {
         x: area.x.saturating_add(inset),
@@ -134,7 +197,12 @@ fn layout(area: Rect, account_count: usize, notice: Option<&str>) -> Areas {
     let vertical = Layout::vertical([
         Constraint::Length(chrome::header_height(content.width, mode)),
         Constraint::Min(1),
-        Constraint::Length(chrome::footer_height(content.width, notice, mode)),
+        Constraint::Length(chrome::footer_height(
+            content.width,
+            notice,
+            mode,
+            selected_state,
+        )),
     ])
     .split(content);
     let body = if mode == UiMode::Wide {
@@ -183,7 +251,7 @@ fn ui_mode(area: Rect) -> UiMode {
 mod tests {
     use super::{MouseTarget, UiMode, draw, layout, mouse_target};
     use crate::Screen;
-    use arqen::Account;
+    use arqen::{Account, ConnectionState};
     use ratatui::{Terminal, backend::TestBackend, layout::Rect};
 
     fn account(name: &str, email: &str) -> Account {
@@ -193,6 +261,13 @@ mod tests {
             email: email.into(),
             display_name: Some(name.into()),
             token_key: Some(format!("google/{name}")),
+            granted_scopes: Some(vec![
+                "email".into(),
+                "https://www.googleapis.com/auth/gmail.readonly".into(),
+                "openid".into(),
+                "profile".into(),
+            ]),
+            connection_state: ConnectionState::Connected,
         }
     }
 
@@ -224,10 +299,43 @@ mod tests {
         assert!(wide.contains("Connection details"));
         assert!(wide.contains("alex@example.com"));
         assert!(wide.contains("Gmail read-only"));
-        assert!(wide.contains("Scopes"));
-        assert!(wide.contains("Additional information"));
+        assert!(wide.contains("Granted scopes"));
+        assert!(wide.contains("[r] reauth"));
         assert!(narrow.contains("Selected account"));
         assert!(narrow.contains("alex@example.com"));
+    }
+
+    #[test]
+    fn renders_unverified_missing_and_unknown_scope_states() {
+        let mut unverified = account("Legacy", "legacy@example.com");
+        unverified.granted_scopes = None;
+        let unverified_output = rendered(180, 40, Screen::Accounts, &[unverified]);
+        assert!(unverified_output.contains("Scopes unverified"));
+        assert!(unverified_output.contains("Scope evidence"));
+        assert!(unverified_output.contains("Unverified"));
+
+        let mut missing_gmail = account("Identity", "identity@example.com");
+        missing_gmail.granted_scopes = Some(vec!["openid".into()]);
+        let missing_output = rendered(180, 40, Screen::Accounts, &[missing_gmail]);
+        assert!(missing_output.contains("Gmail read-only — not granted"));
+
+        let mut unknown = account("Unknown", "unknown@example.com");
+        unknown.granted_scopes = Some(vec!["https://example.test/future".into()]);
+        let unknown_output = rendered(180, 40, Screen::Accounts, &[unknown]);
+        assert!(unknown_output.contains("https://example.test/future"));
+
+        let mut disconnected = account("Disconnected", "disconnected@example.com");
+        disconnected.connection_state = ConnectionState::Disconnected;
+        let disconnected_output = rendered(180, 40, Screen::Accounts, &[disconnected]);
+        assert!(disconnected_output.contains("DISCONNECTED"));
+        assert!(disconnected_output.contains("Last confirmed scopes"));
+        assert!(disconnected_output.contains("Provider grant revoked"));
+
+        let mut indeterminate = account("Unknown state", "unknown-state@example.com");
+        indeterminate.connection_state = ConnectionState::Indeterminate;
+        let indeterminate_output = rendered(180, 40, Screen::Accounts, &[indeterminate]);
+        assert!(indeterminate_output.contains("UNKNOWN"));
+        assert!(indeterminate_output.contains("Cleanup incomplete"));
     }
 
     #[test]
@@ -241,51 +349,164 @@ mod tests {
                 oauth: None,
                 url: "https://accounts.google.com/example".into(),
                 callback: None,
+                intent: crate::LoginIntent::Add,
             },
             &[],
         );
         assert!(auth.contains("Connect Google account"));
+        let reauth = rendered(
+            100,
+            30,
+            Screen::Authorization {
+                oauth: None,
+                url: "https://accounts.google.com/example".into(),
+                callback: None,
+                intent: crate::LoginIntent::Reauthenticate {
+                    subject: "subject".into(),
+                },
+            },
+            &[],
+        );
+        assert!(reauth.contains("Reauthenticate Google account"));
+        let reconnect = rendered(
+            100,
+            30,
+            Screen::Authorization {
+                oauth: None,
+                url: "https://accounts.google.com/example".into(),
+                callback: None,
+                intent: crate::LoginIntent::Reconnect {
+                    subject: "subject".into(),
+                },
+            },
+            &[],
+        );
+        assert!(reconnect.contains("Reconnect Google account"));
         let redirect = rendered(
             100,
             30,
             Screen::Redirect {
                 oauth: None,
                 input: "http://localhost/?code=example".into(),
+                intent: crate::LoginIntent::Add,
             },
             &[],
         );
         assert!(redirect.contains("Finish connection"));
         let error = rendered(100, 30, Screen::Error("Login failed".into()), &[]);
         assert!(error.contains("Login failed"));
+        let reauth_error = rendered(
+            100,
+            30,
+            Screen::Error("Reauthentication not completed\n\nTry again".into()),
+            &[],
+        );
+        assert!(reauth_error.contains("Reauthentication not completed"));
         let quit = rendered(100, 30, Screen::ConfirmQuit, &[]);
         assert!(quit.contains("Confirm quit"));
+        let disconnect = rendered(
+            100,
+            30,
+            Screen::ConfirmDisconnect {
+                subject: "subject".into(),
+                email: "user@example.com".into(),
+                retry: false,
+            },
+            &[],
+        );
+        assert!(disconnect.contains("Disconnect Google account"));
+        assert!(disconnect.contains("DISCONNECT"));
     }
 
     #[test]
     fn mouse_target_matches_account_rows_and_add_action() {
         let area = Rect::new(0, 0, 120, 32);
-        let areas = layout(area, 2, None);
+        let accounts = vec![
+            account("First", "first@example.com"),
+            account("Second", "second@example.com"),
+        ];
+        let areas = layout(area, 2, Some(ConnectionState::Connected), None);
         assert_eq!(
-            mouse_target(area, 2, areas.accounts.x + 2, areas.accounts.y + 4, None),
+            mouse_target(
+                area,
+                &accounts,
+                0,
+                areas.accounts.x + 2,
+                areas.accounts.y + 4,
+                None,
+            ),
             Some(MouseTarget::Account(0))
         );
         assert_eq!(
-            mouse_target(area, 2, areas.accounts.x + 2, areas.accounts.y + 8, None),
+            mouse_target(
+                area,
+                &accounts,
+                0,
+                areas.accounts.x + 2,
+                areas.accounts.y + 8,
+                None,
+            ),
             Some(MouseTarget::Account(1))
         );
         assert_eq!(
-            mouse_target(area, 2, areas.accounts.x + 2, areas.accounts.y + 12, None),
+            mouse_target(
+                area,
+                &accounts,
+                0,
+                areas.accounts.x + 2,
+                areas.accounts.y + 12,
+                None,
+            ),
             Some(MouseTarget::AddAccount)
         );
-        assert_eq!(mouse_target(area, 2, 0, 0, None), None);
+        assert_eq!(
+            mouse_target(
+                area,
+                &accounts,
+                0,
+                areas.footer.x + 1 + 9,
+                areas.footer.y + 1,
+                None,
+            ),
+            Some(MouseTarget::Disconnect)
+        );
+        assert_eq!(
+            mouse_target(
+                area,
+                &accounts,
+                0,
+                areas.footer.x + 1 + 25,
+                areas.footer.y + 1,
+                None,
+            ),
+            Some(MouseTarget::Reauthenticate)
+        );
+        assert_eq!(
+            mouse_target(
+                area,
+                &accounts,
+                0,
+                areas.details.x + areas.details.width.saturating_sub(5),
+                areas.details.y + 4,
+                None,
+            ),
+            Some(MouseTarget::ConnectionBadge)
+        );
+        assert_eq!(mouse_target(area, &accounts, 0, 0, 0, None), None);
 
         let compact = Rect::new(0, 0, 60, 24);
-        let compact_areas = layout(compact, 3, None);
+        let compact_accounts = vec![
+            account("First", "first@example.com"),
+            account("Second", "second@example.com"),
+            account("Third", "third@example.com"),
+        ];
+        let compact_areas = layout(compact, 3, Some(ConnectionState::Connected), None);
         assert_eq!(compact_areas.mode, UiMode::Compact);
         assert_eq!(
             mouse_target(
                 compact,
-                3,
+                &compact_accounts,
+                0,
                 compact_areas.accounts.x + 1,
                 compact_areas.accounts.y + 3,
                 None,
@@ -295,7 +516,8 @@ mod tests {
         assert_eq!(
             mouse_target(
                 compact,
-                3,
+                &compact_accounts,
+                0,
                 compact_areas.accounts.x + 1,
                 compact_areas.accounts.y + 6,
                 None,
@@ -304,10 +526,11 @@ mod tests {
         );
 
         let empty = Rect::new(0, 0, 80, 24);
-        let empty_areas = layout(empty, 0, None);
+        let empty_areas = layout(empty, 0, None, None);
         assert_eq!(
             mouse_target(
                 empty,
+                &[],
                 0,
                 empty_areas.accounts.x + 1,
                 empty_areas.accounts.y + 1,
@@ -318,6 +541,7 @@ mod tests {
         assert_eq!(
             mouse_target(
                 empty,
+                &[],
                 0,
                 empty_areas.details.x + 1,
                 empty_areas.details.y + 1,
@@ -329,18 +553,33 @@ mod tests {
 
     #[test]
     fn layout_scales_columns_and_selects_modes_from_available_space() {
-        let wide = layout(Rect::new(0, 0, 120, 32), 3, None);
+        let wide = layout(
+            Rect::new(0, 0, 120, 32),
+            3,
+            Some(ConnectionState::Connected),
+            None,
+        );
         assert_eq!(wide.mode, UiMode::Wide);
         let columns = wide.accounts.width + wide.details.width;
         assert!(wide.accounts.width * 100 >= columns * 35);
         assert!(wide.accounts.width * 100 <= columns * 43);
 
-        let narrow = layout(Rect::new(0, 0, 80, 24), 3, None);
+        let narrow = layout(
+            Rect::new(0, 0, 80, 24),
+            3,
+            Some(ConnectionState::Connected),
+            None,
+        );
         assert_eq!(narrow.mode, UiMode::Narrow);
         assert_eq!(narrow.accounts.x, narrow.details.x);
         assert!(narrow.details.y > narrow.accounts.y);
 
-        let compact = layout(Rect::new(0, 0, 60, 18), 3, None);
+        let compact = layout(
+            Rect::new(0, 0, 60, 18),
+            3,
+            Some(ConnectionState::Connected),
+            None,
+        );
         assert_eq!(compact.mode, UiMode::Compact);
         assert_eq!(compact.accounts.x, compact.details.x);
     }
