@@ -25,7 +25,7 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 use subtle::ConstantTimeEq;
 use tokio_util::sync::CancellationToken;
 
-const DEFAULT_LISTEN_ADDR: &str = "0.0.0.0:8787";
+const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:8787";
 const MAX_MCP_REQUEST_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone)]
@@ -94,7 +94,11 @@ fn bearer_token_from_env() -> anyhow::Result<String> {
         Ok(token) => Ok(token),
         Err(std::env::VarError::NotPresent) => {
             let path = std::env::var_os("ARQEN_MCP_BEARER_TOKEN_FILE")
-                .context("set ARQEN_MCP_BEARER_TOKEN or ARQEN_MCP_BEARER_TOKEN_FILE")?;
+                .map(PathBuf::from)
+                .map(Ok)
+                .unwrap_or_else(|| {
+                    crate::config_directory().map(|directory| directory.join("mcp-bearer-token"))
+                })?;
             let content = std::fs::read_to_string(&path).with_context(|| {
                 format!(
                     "read MCP bearer token file at {}",
@@ -203,8 +207,9 @@ fn build_router(options: ServerOptions, cancellation_token: CancellationToken) -
         .with_allowed_origins(options.allowed_origins)
         .with_cancellation_token(cancellation_token);
     let broker = BrokerClient::new(options.broker_socket);
+    let service_broker = broker.clone();
     let service = StreamableHttpService::new(
-        move || Ok(EmailMcpServer::new(broker.clone())),
+        move || Ok(EmailMcpServer::new(service_broker.clone())),
         LocalSessionManager::default().into(),
         config,
     );
@@ -214,11 +219,32 @@ fn build_router(options: ServerOptions, cancellation_token: CancellationToken) -
     Router::new()
         .nest_service("/mcp", service)
         .route("/healthz", get(health))
+        .route(
+            "/readyz",
+            get(move || {
+                let broker = broker.clone();
+                async move { readiness(broker).await }
+            }),
+        )
         .layer(from_fn_with_state(auth_state, authorize))
 }
 
 async fn health() -> impl IntoResponse {
     (StatusCode::NO_CONTENT, ())
+}
+
+async fn readiness(broker: BrokerClient) -> Response {
+    match broker.readiness().await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            axum::Json(serde_json::json!({
+                "code": error.code.as_str(),
+                "message": error.message,
+            })),
+        )
+            .into_response(),
+    }
 }
 
 async fn authorize(State(state): State<AuthState>, request: Request, next: Next) -> Response {
@@ -341,6 +367,16 @@ mod tests {
             .unwrap();
         assert_eq!(health.status(), StatusCode::NO_CONTENT);
 
+        let readiness = client
+            .get(format!("{base}/readyz"))
+            .bearer_auth("test-secret")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(readiness.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let readiness_body: serde_json::Value = readiness.json().await.unwrap();
+        assert_eq!(readiness_body["code"], "internal");
+
         let initialize = client
             .post(format!("{base}/mcp"))
             .bearer_auth("test-secret")
@@ -456,6 +492,57 @@ mod tests {
             body["result"]["structuredContent"]["target_email"],
             "target@example.com"
         );
+        broker_thread.join().unwrap();
+        cancellation.cancel();
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn readiness_reports_ready_when_the_broker_accepts_status() {
+        use std::{
+            io::{BufRead, BufReader, Write},
+            os::unix::net::UnixListener,
+            thread,
+        };
+
+        let socket_path = std::env::temp_dir().join(format!(
+            "arqen-server-readiness-test-{}.sock",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let broker_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: BrokerRequest = serde_json::from_str(&line).unwrap();
+            assert!(request.validate_readiness().is_ok());
+            let mut stream = reader.into_inner();
+            serde_json::to_writer(&mut stream, &BrokerResponse::Ready).unwrap();
+            stream.write_all(b"\n").unwrap();
+        });
+
+        let tcp_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = tcp_listener.local_addr().unwrap();
+        let cancellation = CancellationToken::new();
+        let mut options = test_options(address);
+        options.broker_socket = socket_path.clone();
+        let router = build_router(options, cancellation.clone());
+        let shutdown = cancellation.clone();
+        tokio::spawn(async move {
+            let _ = axum::serve(tcp_listener, router)
+                .with_graceful_shutdown(shutdown.cancelled_owned())
+                .await;
+        });
+
+        let response = reqwest::Client::new()
+            .get(format!("http://{address}/readyz"))
+            .bearer_auth("test-secret")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
         broker_thread.join().unwrap();
         cancellation.cancel();
         let _ = std::fs::remove_file(socket_path);
