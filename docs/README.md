@@ -8,7 +8,8 @@ or Google account has been deployed or exercised live.
 **Verification state:** `verified-repository` for the Rust code, tests, and
 checked-in examples; `verified-external` for the linked MCP and Gmail API
 contracts; `deployment-ready example` for the container, systemd, and Nginx
-templates. Last reviewed: 2026-09-11.
+templates. User-service activation, keyring persistence, remote OAuth, and
+public deployment remain operator-owned. Last reviewed: 2026-09-12.
 
 ## Document tree
 
@@ -34,7 +35,9 @@ docs/
 ├── decisions/
 │   ├── ADR-001-target-account.md
 │   ├── ADR-002-host-credential-broker.md
-│   └── ADR-003-bearer-v1-and-oauth-later.md
+│   ├── ADR-003-bearer-v1-and-oauth-later.md
+│   ├── ADR-004-always-on-user-services.md
+│   └── ADR-005-docker-mcp-first-pass.md
 ├── development/
 │   ├── local-workflows.md
 │   └── verification.md
@@ -85,11 +88,14 @@ remain the visual source of truth for the account dashboard. The root
 - **Gmail listing:** bounded inbox/search pagination, metadata-only headers,
   labels, and Unicode-safe snippet truncation.
 - **MCP transport:** Streamable HTTP `/mcp`, authenticated health probe,
-  bearer gate, Host/Origin allowlists, and one advertised read-only tool.
-- **Operations:** non-root container plus host systemd and Nginx examples;
-  activation, TLS, and public deployment remain operator-owned.
+  readiness probe, bearer gate, Host/Origin allowlists, and one advertised
+  read-only tool.
+- **Operations:** host broker plus Docker MCP first-pass deployment, native
+  systemd alternative, and Nginx examples; activation, TLS, and public
+  deployment remain operator-owned.
 - **Local workflows:** `.env.example`, Make targets, Nix-aware Cargo wrappers,
-  and disposable native/Compose smoke paths.
+  remote SSH OAuth instructions, quickstart installation, and disposable
+  native/Compose smoke paths.
 
 Notable constraints are recorded in the ADRs: target choice is not inferred
 from the selected TUI row, remote callers cannot choose an account, Gmail’s
