@@ -5,7 +5,13 @@
 `arqen mcp-server` exposes one endpoint at `/mcp` using the official Rust MCP
 SDK’s Streamable HTTP server. The current deployment mode uses JSON responses
 and retains the SDK’s request-scoped streaming capability for responses that
-need SSE. `/healthz` is an authenticated no-content probe.
+need SSE. `/healthz` is an authenticated liveness probe; `/readyz` is an
+authenticated local-dependency probe.
+
+For the first-pass VPS deployment this process runs in Docker Compose. It
+connects to the host credential broker through a read-only Unix-socket mount;
+it does not own SQLite, the OS keyring, OAuth client configuration, or account
+selection.
 
 The SDK’s local session manager is process-local; MCP session state is not
 stored in the Arqen SQLite database. Restarting the HTTP process therefore
