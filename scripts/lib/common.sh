@@ -7,6 +7,14 @@ set -euo pipefail
 ARQEN_SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARQEN_PROJECT_ROOT="$(cd "$ARQEN_SCRIPT_DIRECTORY/../.." && pwd)"
 
+user_env_file="${XDG_CONFIG_HOME:-${HOME:-}/.config}/arqen/arqen.env"
+if [[ -f "$user_env_file" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$user_env_file"
+    set +a
+fi
+
 if [[ -f "$ARQEN_PROJECT_ROOT/.env" ]]; then
     set -a
     # shellcheck disable=SC1091
@@ -41,7 +49,7 @@ arqen_load_defaults() {
     : "${ARQEN_MCP_HOST_PORT:=8787}"
     : "${ARQEN_MCP_ALLOWED_HOSTS:=127.0.0.1:${ARQEN_MCP_HOST_PORT}}"
     : "${ARQEN_MCP_ALLOWED_ORIGINS:=http://127.0.0.1:${ARQEN_MCP_HOST_PORT}}"
-    : "${ARQEN_MCP_BEARER_TOKEN_FILE:=.secrets/mcp-bearer-token}"
+    : "${ARQEN_MCP_BEARER_TOKEN_FILE:=${XDG_CONFIG_HOME:-${HOME:-}/.config}/arqen/mcp-bearer-token}"
     : "${ARQEN_COMPOSE_PROJECT:=arqen-local}"
     : "${ARQEN_USE_NIX:=auto}"
     export ARQEN_MCP_LISTEN_ADDR ARQEN_MCP_HOST_PORT ARQEN_MCP_ALLOWED_HOSTS
@@ -67,7 +75,7 @@ arqen_prepare_runtime() {
 }
 
 arqen_require_google_client() {
-    local configured_path="${GOOGLE_CLIENT_SECRET:-.secrets/google-client-secret.json}"
+    local configured_path="${GOOGLE_CLIENT_SECRET:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/arqen/google-client-secret.json}"
     local resolved_path
     resolved_path="$(arqen_resolve_path "$configured_path")"
     [[ -f "$resolved_path" ]] || arqen_die "Google OAuth client JSON not found at $resolved_path; add it or set GOOGLE_CLIENT_SECRET in .env"
