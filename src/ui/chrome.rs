@@ -321,6 +321,8 @@ fn is_positive_notice(notice: &str) -> bool {
         || notice.starts_with("Browser opened")
         || notice.starts_with("Dedicated Google login window opened")
         || notice.starts_with("Google account connected")
+        || notice.starts_with("MCP target set")
+        || notice.starts_with("MCP target cleared")
         || notice.starts_with("Quit cancelled")
         || notice.starts_with("Selected ")
 }
@@ -346,6 +348,13 @@ fn footer_actions(
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
         Span::styled(" add  ", Style::default().fg(theme::TEXT)),
+        Span::styled(
+            "[t]",
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        Span::styled(" target  ", Style::default().fg(theme::TEXT)),
     ];
     if let Some(state) = selected_state {
         let (shortcut, label) = match state {
@@ -452,6 +461,13 @@ fn compact_footer_actions(selected_state: Option<ConnectionState>) -> Vec<Span<'
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
         Span::styled(" add  ", Style::default().fg(theme::TEXT)),
+        Span::styled(
+            "[t]",
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        Span::styled(" target  ", Style::default().fg(theme::TEXT)),
     ];
     if let Some(state) = selected_state {
         let entries: &[(&str, &str)] = match state {
@@ -497,6 +513,13 @@ fn narrow_footer_actions(selected_state: Option<ConnectionState>) -> Vec<Span<'s
                 .add_modifier(ratatui::style::Modifier::BOLD),
         ),
         Span::styled(" add  ", Style::default().fg(theme::TEXT)),
+        Span::styled(
+            "[t]",
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        Span::styled(" target  ", Style::default().fg(theme::TEXT)),
     ];
     if let Some(state) = selected_state {
         let entries: &[(&str, &str)] = match state {
