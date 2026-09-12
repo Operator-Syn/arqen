@@ -4,7 +4,7 @@
 
 | Path | Role | Key contract |
 | --- | --- | --- |
-| `src/main.rs` | TUI state, commands, OAuth flow, CLI dispatch | `t` persists target; `credential-broker` and `mcp-server` entry points |
+| `src/main.rs` | TUI state, commands, OAuth flow, CLI dispatch | `t` persists target; remote callback mode; `credential-broker` and `mcp-server` entry points |
 | `src/auth.rs` | Google PKCE/token/keyring operations | exact returned scopes; refresh tokens stay in keyring |
 | `src/lib.rs` | SQLite schema and CRUD | `mcp_configuration` singleton with target subject |
 | `src/ui/accounts.rs` | Account cards and details panes | target marker, scope presentation, scrollbars |
@@ -19,9 +19,10 @@
 | `src/mcp.rs` | Broker wire types | operation/result/error serialization |
 | `src/server.rs` | Streamable HTTP MCP process | bearer/Host/Origin gate and `list_emails` |
 | `Dockerfile` | MCP container image | non-root runtime |
-| `deploy/` | systemd, Compose, Nginx examples | operator-owned deployment boundary |
+| `deploy/` | Docker MCP first-pass, systemd alternatives, Nginx examples | operator-owned deployment boundary |
 | `.env.example` | local configuration template | safe defaults; no secrets |
 | `Makefile` / `scripts/` | named local workflows and smoke checks | sources ignored `.env`; explicit live-call opt-in |
+| `scripts/arqen-quickstart.sh` | user binary/config/unit preparation | no activation unless explicitly requested |
 | `flake.nix` | Pinned development shell | Rust/tooling entry point |
 | `Cargo.toml` / `Cargo.lock` | Package and dependency contract | reproducible Rust dependency resolution |
 | `docs/` | architecture and evidence map | no secrets or live credentials |
