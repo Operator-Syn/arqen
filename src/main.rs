@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use arqen::{
-    Account, AccountStore, ConnectionState,
+    Account, AccountStore, ConnectionState, GMAIL_READONLY_SCOPE,
     auth::{GoogleOAuth, parse_callback, revoke_google_account, token_key},
 };
 use crossterm::{
@@ -23,6 +23,7 @@ use std::{
 };
 
 mod callback;
+mod server;
 
 const APP_DATA_DIRECTORY: &str = "arqen";
 const LEGACY_DATA_DIRECTORY: &str = "google-account-tui";
@@ -165,6 +166,7 @@ struct App {
     store: AccountStore,
     accounts: Vec<Account>,
     selected: usize,
+    mcp_target_subject: Option<String>,
     pane_focus: PaneFocus,
     accounts_scroll: usize,
     details_scroll: usize,
@@ -177,10 +179,12 @@ struct App {
 impl App {
     fn new(store: AccountStore) -> Result<Self> {
         let accounts = store.list_accounts()?;
+        let mcp_target_subject = store.mcp_configuration()?.target_google_subject;
         Ok(Self {
             store,
             accounts,
             selected: 0,
+            mcp_target_subject,
             pane_focus: PaneFocus::Accounts,
             accounts_scroll: 0,
             details_scroll: 0,
@@ -203,6 +207,7 @@ impl App {
 
     fn reload_accounts(&mut self) -> Result<()> {
         self.accounts = self.store.list_accounts()?;
+        self.mcp_target_subject = self.store.mcp_configuration()?.target_google_subject;
         self.selected = self.selected.min(self.accounts.len().saturating_sub(1));
         self.details_scroll = 0;
         Ok(())
@@ -214,6 +219,35 @@ impl App {
             self.details_scroll = 0;
         }
         self.selected = selected;
+    }
+
+    fn toggle_mcp_target(&mut self) {
+        let Some(account) = self.accounts.get(self.selected) else {
+            return;
+        };
+        let subject = account.subject.clone();
+        let email = account.email.clone();
+        if self.mcp_target_subject.as_deref() == Some(subject.as_str()) {
+            match self.store.set_mcp_target_subject(None) {
+                Ok(()) => {
+                    self.mcp_target_subject = None;
+                    self.notice = Some("MCP target cleared.".into());
+                }
+                Err(error) => self.show_error("Could not clear MCP target", error),
+            }
+            return;
+        }
+        let Some(reason) = mcp_target_ineligibility(account) else {
+            match self.store.set_mcp_target_subject(Some(&subject)) {
+                Ok(()) => {
+                    self.mcp_target_subject = Some(subject);
+                    self.notice = Some(format!("MCP target set to {email}."));
+                }
+                Err(error) => self.show_error("Could not set MCP target", error),
+            }
+            return;
+        };
+        self.notice = Some(format!("Cannot set MCP target: {reason}"));
     }
 
     fn viewport_rows(&self) -> usize {
@@ -491,6 +525,7 @@ impl App {
                     };
                 }
                 KeyCode::Char('a') => self.start_login(LoginIntent::Add),
+                KeyCode::Char('t') => self.toggle_mcp_target(),
                 KeyCode::Char('d') => {
                     let retry = self.accounts.get(self.selected).is_some_and(|account| {
                         account.connection_state == ConnectionState::Indeterminate
@@ -700,6 +735,22 @@ fn login_error_context(intent: &LoginIntent) -> &'static str {
         LoginIntent::Reauthenticate { .. } => "Reauthentication not completed",
         LoginIntent::Reconnect { .. } => "Reconnection not completed",
     }
+}
+
+fn mcp_target_ineligibility(account: &Account) -> Option<&'static str> {
+    if account.connection_state != ConnectionState::Connected {
+        return Some("the account is not connected");
+    }
+    let Some(scopes) = account.granted_scopes.as_deref() else {
+        return Some("Google's granted scopes are unverified");
+    };
+    if !scopes.iter().any(|scope| scope == GMAIL_READONLY_SCOPE) {
+        return Some("the recorded grant does not include Gmail read-only access");
+    }
+    if account.token_key.is_none() {
+        return Some("the account has no protected keyring reference");
+    }
+    None
 }
 
 fn friendly_login_error(intent: &LoginIntent, error: &anyhow::Error) -> String {
@@ -1126,6 +1177,16 @@ fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
 }
 
 fn main() -> Result<()> {
+    match env::args().nth(1).as_deref() {
+        Some("credential-broker") => return run_credential_broker(),
+        Some("mcp-server") => return run_mcp_server(),
+        Some("--help") | Some("-h") => {
+            print_help();
+            return Ok(());
+        }
+        Some(command) => anyhow::bail!("unknown Arqen command `{command}`; use --help"),
+        None => {}
+    }
     let path = database_path().with_context(|| "open application data directory")?;
     let store = AccountStore::open(&path)
         .with_context(|| format!("open account database at {}", path.display()))?;
@@ -1136,6 +1197,36 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen)?;
     result
+}
+
+fn run_credential_broker() -> Result<()> {
+    let socket_path = configured_broker_socket()?;
+    let database_path = database_path().context("open application data directory")?;
+    let credentials_path = client_secret_path()?;
+    arqen::broker::run(arqen::broker::BrokerOptions {
+        socket_path,
+        database_path,
+        credentials_path,
+    })
+}
+
+fn run_mcp_server() -> Result<()> {
+    let options = server::ServerOptions::from_env(configured_broker_socket()?)?;
+    server::run(options)
+}
+
+fn configured_broker_socket() -> Result<PathBuf> {
+    match env::var_os("ARQEN_GMAIL_BROKER_SOCKET") {
+        Some(path) if !path.is_empty() => Ok(PathBuf::from(path)),
+        Some(_) => anyhow::bail!("ARQEN_GMAIL_BROKER_SOCKET cannot be empty"),
+        None => arqen::broker::default_socket_path(),
+    }
+}
+
+fn print_help() {
+    println!(
+        "Arqen\n\nCommands:\n  credential-broker  Serve host keyring-backed Gmail access over a Unix socket\n  mcp-server         Serve the Streamable HTTP MCP endpoint\n\nWith no command, start the interactive account TUI."
+    );
 }
 
 fn run_tui(stdout: &mut io::Stdout, mut app: App) -> Result<()> {
@@ -1149,6 +1240,7 @@ fn run_tui(stdout: &mut io::Stdout, mut app: App) -> Result<()> {
                 frame,
                 &app.accounts,
                 app.selected,
+                app.mcp_target_subject.as_deref(),
                 app.pane_focus,
                 &mut app.accounts_scroll,
                 &mut app.details_scroll,
@@ -1276,7 +1368,7 @@ mod ui;
 #[cfg(test)]
 mod tests {
     use super::{App, LoginIntent, PaneFocus, Screen, handle_event, handle_scroll_mouse_at};
-    use arqen::{Account, AccountStore, ConnectionState};
+    use arqen::{Account, AccountStore, ConnectionState, GMAIL_READONLY_SCOPE};
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
     use ratatui::layout::Rect;
     use std::{
@@ -1351,6 +1443,55 @@ mod tests {
         assert_eq!(app.selected, 1);
         app.handle_key(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
         assert_eq!(app.selected, 0);
+    }
+
+    #[test]
+    fn mcp_target_toggle_persists_and_replaces_the_selected_account() {
+        let mut app = app_with_accounts();
+        for account in &app.accounts {
+            app.store
+                .upsert_google_account(&Account {
+                    granted_scopes: Some(vec![GMAIL_READONLY_SCOPE.into()]),
+                    ..account.clone()
+                })
+                .unwrap();
+        }
+        app.reload_accounts().unwrap();
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        assert_eq!(app.mcp_target_subject.as_deref(), Some("subject-first"));
+        assert!(
+            app.notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("first@example.com"))
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        assert_eq!(app.mcp_target_subject.as_deref(), Some("subject-second"));
+        assert_eq!(
+            app.store
+                .mcp_configuration()
+                .unwrap()
+                .target_google_subject
+                .as_deref(),
+            Some("subject-second")
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        assert_eq!(app.mcp_target_subject, None);
+    }
+
+    #[test]
+    fn mcp_target_toggle_explains_ineligible_accounts_without_changing_configuration() {
+        let mut app = app_with_accounts();
+        app.handle_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE));
+        assert_eq!(app.mcp_target_subject, None);
+        assert!(
+            app.notice
+                .as_deref()
+                .is_some_and(|notice| notice.contains("granted scopes are unverified"))
+        );
     }
 
     #[test]
