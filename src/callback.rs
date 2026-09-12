@@ -27,8 +27,16 @@ pub(crate) struct CallbackServer {
 
 impl CallbackServer {
     pub(crate) fn start() -> Result<Self> {
-        let listener =
-            TcpListener::bind(("127.0.0.1", 0)).context("bind OAuth loopback listener")?;
+        Self::start_with_port(None)
+    }
+
+    pub(crate) fn start_on_port(port: u16) -> Result<Self> {
+        Self::start_with_port(Some(port))
+    }
+
+    fn start_with_port(port: Option<u16>) -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", port.unwrap_or(0)))
+            .context("bind OAuth loopback listener")?;
         listener
             .set_nonblocking(true)
             .context("configure OAuth loopback listener")?;
@@ -372,6 +380,21 @@ mod tests {
         assert!(page.contains("background:#000"));
         assert!(page.contains("color:#fff"));
         assert!(!page.contains("<button"));
+    }
+
+    #[test]
+    fn callback_server_can_bind_a_configured_loopback_port() {
+        let _lock = lock_callback_tests();
+        let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+
+        let server = CallbackServer::start_on_port(port).expect("callback server");
+        assert!(
+            server
+                .redirect_uri()
+                .starts_with(&format!("http://127.0.0.1:{port}/"))
+        );
     }
 
     #[test]
