@@ -4,7 +4,9 @@
 non-root user. `deploy/containers/docker-compose.yml` mounts the host broker
 socket read-only, reads the bearer token from a secret file, drops Linux
 capabilities, and publishes only a configurable loopback port (8787 by
-default) for Nginx.
+default) for Nginx. The Compose build uses host networking only for package/DNS
+resolution while constructing the image; the running MCP service stays on the
+normal Compose network.
 
 The local scripts make the example easier to exercise without a second env
 export:
