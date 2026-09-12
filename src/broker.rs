@@ -1,6 +1,9 @@
 use crate::{
     Account, AccountStore, ConnectionState,
-    auth::{is_invalid_grant, is_missing_refresh_token, refresh_google_access_token},
+    auth::{
+        check_google_refresh_token, is_invalid_grant, is_missing_refresh_token,
+        refresh_google_access_token,
+    },
     gmail::{EmailListResponse, GmailApi, GmailApiError, is_unauthorized},
     mcp::{BrokerErrorCode, BrokerFailure, BrokerRequest, BrokerResponse},
 };
@@ -10,7 +13,11 @@ use std::{
     fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
     time::{Duration, Instant},
 };
 
@@ -65,6 +72,10 @@ pub fn run(options: BrokerOptions) -> Result<()> {
 
 #[cfg(unix)]
 fn run_unix(options: BrokerOptions) -> Result<()> {
+    use signal_hook::{
+        consts::{SIGINT, SIGTERM},
+        flag,
+    };
     use std::os::unix::net::UnixListener;
 
     prepare_socket_path(&options.socket_path)?;
@@ -75,26 +86,44 @@ fn run_unix(options: BrokerOptions) -> Result<()> {
         )
     })?;
     restrict_socket_permissions(&options.socket_path)?;
+    listener
+        .set_nonblocking(true)
+        .context("configure credential broker listener")?;
+    let owned_socket_identity = socket_identity(&options.socket_path)?;
+    let shutdown = Arc::new(AtomicBool::new(false));
+    flag::register(SIGINT, Arc::clone(&shutdown)).context("register broker SIGINT handler")?;
+    flag::register(SIGTERM, Arc::clone(&shutdown)).context("register broker SIGTERM handler")?;
     let state = BrokerState {
         database_path: options.database_path,
         credentials_path: options.credentials_path,
         access_tokens: Arc::new(Mutex::new(HashMap::new())),
     };
-    for stream in listener.incoming() {
-        match stream {
+    let result = loop {
+        if shutdown.load(Ordering::Relaxed) {
+            break Ok(());
+        }
+        match listener.accept() {
             Ok(stream) => {
+                let (stream, _) = stream;
                 let state = state.clone();
                 std::thread::Builder::new()
                     .name("arqen-gmail-broker-request".into())
                     .spawn(move || handle_connection(stream, &state))
                     .context("spawn credential broker request")?;
             }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) => {
-                return Err(error).context("accept credential broker connection");
+                break Err(error).context("accept credential broker connection");
             }
         }
+    };
+    if socket_identity(&options.socket_path).ok() == Some(owned_socket_identity) {
+        let _ = fs::remove_file(&options.socket_path);
     }
-    Ok(())
+    result
 }
 
 #[cfg(unix)]
@@ -113,12 +142,52 @@ fn prepare_socket_path(path: &Path) -> Result<()> {
             parent.display()
         )
     })?;
-    anyhow::ensure!(
-        !path.exists(),
-        "credential broker socket already exists at {}; stop the previous broker before starting another",
-        path.display()
-    );
+    if path.exists() {
+        use std::os::unix::fs::FileTypeExt;
+        use std::os::unix::net::UnixStream;
+
+        let metadata = fs::symlink_metadata(path)
+            .with_context(|| format!("inspect credential broker path at {}", path.display()))?;
+        anyhow::ensure!(
+            metadata.file_type().is_socket(),
+            "credential broker path already exists at {} and is not a Unix socket",
+            path.display()
+        );
+        match UnixStream::connect(path) {
+            Ok(_) => anyhow::bail!(
+                "credential broker socket already exists at {}; stop the previous broker before starting another",
+                path.display()
+            ),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound
+                ) =>
+            {
+                fs::remove_file(path).with_context(|| {
+                    format!(
+                        "remove stale credential broker socket at {}",
+                        path.display()
+                    )
+                })?;
+            }
+            Err(error) => {
+                anyhow::bail!(
+                    "cannot safely determine whether credential broker socket {} is active: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
     Ok(())
+}
+
+#[cfg(unix)]
+fn socket_identity(path: &Path) -> Result<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("inspect credential broker socket at {}", path.display()))?;
+    Ok((metadata.dev(), metadata.ino()))
 }
 
 #[cfg(unix)]
@@ -132,6 +201,13 @@ fn restrict_socket_permissions(path: &Path) -> Result<()> {
 fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState) {
     let mut reader = BufReader::new(stream);
     let response = match read_request(&mut reader) {
+        Ok(request) if request.operation == "readiness" => match request.validate_readiness() {
+            Ok(()) => handle_readiness(state),
+            Err(_) => BrokerResponse::error(
+                BrokerErrorCode::InvalidRequest,
+                "the broker request is invalid",
+            ),
+        },
         Ok(request) => match request.validate() {
             Ok(request) => handle_list_emails(request, state),
             Err(_) => BrokerResponse::error(
@@ -152,6 +228,65 @@ fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState
         let _ = stream.write_all(b"\n");
         let _ = stream.flush();
     }
+}
+
+fn handle_readiness(state: &BrokerState) -> BrokerResponse {
+    let store = match AccountStore::open(&state.database_path) {
+        Ok(store) => store,
+        Err(_) => {
+            return BrokerResponse::error(
+                BrokerErrorCode::Internal,
+                "the account database is unavailable",
+            );
+        }
+    };
+    let target_subject = match store.mcp_configuration() {
+        Ok(configuration) => match configuration.target_google_subject {
+            Some(subject) => subject,
+            None => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::TargetNotConfigured,
+                    "select an eligible MCP target account in Arqen first",
+                );
+            }
+        },
+        Err(_) => {
+            return BrokerResponse::error(
+                BrokerErrorCode::Internal,
+                "the account database configuration is unavailable",
+            );
+        }
+    };
+    let account = match store.list_accounts() {
+        Ok(accounts) => match accounts
+            .into_iter()
+            .find(|account| account.subject == target_subject)
+        {
+            Some(account) => account,
+            None => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::TargetUnavailable,
+                    "the configured MCP target account is no longer available",
+                );
+            }
+        },
+        Err(_) => {
+            return BrokerResponse::error(
+                BrokerErrorCode::Internal,
+                "the account database could not be read",
+            );
+        }
+    };
+    if let Some(reason) = target_ineligibility(&account) {
+        return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
+    }
+    if check_google_refresh_token(account.token_key.as_deref(), &account.subject).is_err() {
+        return BrokerResponse::error(
+            BrokerErrorCode::TargetUnavailable,
+            "the configured MCP target has no available local refresh credential",
+        );
+    }
+    BrokerResponse::Ready
 }
 
 fn read_request<R: BufRead>(reader: &mut R) -> Result<BrokerRequest> {
@@ -423,7 +558,71 @@ impl BrokerClient {
             })?;
         match response {
             BrokerResponse::Ok { result } => Ok(result),
+            BrokerResponse::Ready => Err(BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker returned an invalid mail-list response".into(),
+            }),
             BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+        }
+    }
+
+    pub async fn readiness(&self) -> std::result::Result<(), BrokerFailure> {
+        match tokio::time::timeout(Duration::from_secs(2), self.readiness_inner()).await {
+            Ok(result) => result,
+            Err(_) => Err(BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the credential broker readiness check timed out".into(),
+            }),
+        }
+    }
+
+    async fn readiness_inner(&self) -> std::result::Result<(), BrokerFailure> {
+        use tokio::io::{AsyncWriteExt, BufReader};
+        use tokio::net::UnixStream;
+
+        let request = BrokerRequest::readiness();
+        let mut stream =
+            UnixStream::connect(&self.socket_path)
+                .await
+                .map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::Internal,
+                    message: "the credential broker is unavailable".into(),
+                })?;
+        let mut encoded = serde_json::to_vec(&request).map_err(|_| BrokerFailure {
+            code: BrokerErrorCode::Internal,
+            message: "the broker readiness request could not be encoded".into(),
+        })?;
+        encoded.push(b'\n');
+        stream
+            .write_all(&encoded)
+            .await
+            .map_err(|_| BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker readiness request failed".into(),
+            })?;
+        stream.shutdown().await.map_err(|_| BrokerFailure {
+            code: BrokerErrorCode::Internal,
+            message: "the broker readiness request could not finish".into(),
+        })?;
+        let mut reader = BufReader::new(stream);
+        let line = read_bounded_line_async(&mut reader, MAX_RESPONSE_BYTES)
+            .await
+            .map_err(|_| BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker readiness response could not be read".into(),
+            })?;
+        let response: BrokerResponse =
+            serde_json::from_slice(&line).map_err(|_| BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker readiness response was invalid".into(),
+            })?;
+        match response {
+            BrokerResponse::Ready => Ok(()),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            BrokerResponse::Ok { .. } => Err(BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker returned an invalid readiness response".into(),
+            }),
         }
     }
 }
@@ -446,6 +645,13 @@ impl BrokerClient {
         &self,
         _request: crate::gmail::ListEmailsRequest,
     ) -> std::result::Result<EmailListResponse, BrokerFailure> {
+        Err(BrokerFailure {
+            code: BrokerErrorCode::Internal,
+            message: "the credential broker currently requires a Unix host".into(),
+        })
+    }
+
+    pub async fn readiness(&self) -> std::result::Result<(), BrokerFailure> {
         Err(BrokerFailure {
             code: BrokerErrorCode::Internal,
             message: "the credential broker currently requires a Unix host".into(),
@@ -586,5 +792,20 @@ mod tests {
         let error = prepare_socket_path(&path).unwrap_err();
         assert!(error.to_string().contains("already exists"));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn socket_setup_reclaims_a_stale_unix_socket() {
+        use std::os::unix::net::UnixListener;
+
+        let path = std::env::temp_dir().join(format!(
+            "arqen-broker-stale-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let listener = UnixListener::bind(&path).unwrap();
+        drop(listener);
+        prepare_socket_path(&path).unwrap();
+        assert!(!path.exists());
     }
 }
