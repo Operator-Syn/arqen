@@ -3,6 +3,9 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
+      # The VPS image build needs package/DNS access, but the running MCP
+      # service remains on Compose's normal network below.
+      network: host
     environment:
       ARQEN_MCP_LISTEN_ADDR: "0.0.0.0:8787"
       ARQEN_MCP_ALLOWED_HOSTS: "${ARQEN_MCP_ALLOWED_HOSTS:?set the public MCP Host value}"
