@@ -307,6 +307,27 @@ pub(crate) fn is_missing_refresh_token(error: &anyhow::Error) -> bool {
         .any(|cause| cause.to_string().contains("no stored Google refresh token"))
 }
 
+pub(crate) fn check_google_refresh_token(token_key: Option<&str>, subject: &str) -> Result<()> {
+    let (service, user) = keyring_coordinates(token_key, subject);
+    let entry = keyring::Entry::new(&service, &user)
+        .context("create OS keyring entry for Google refresh token")?;
+    match entry.get_password() {
+        Ok(refresh_token) => {
+            anyhow::ensure!(
+                !refresh_token.is_empty(),
+                "stored Google refresh token is empty"
+            );
+            Ok(())
+        }
+        Err(keyring::Error::NoEntry) => {
+            anyhow::bail!("no stored Google refresh token")
+        }
+        Err(error) => {
+            Err(anyhow::Error::new(error)).context("read Google refresh token from the OS keyring")
+        }
+    }
+}
+
 pub fn revoke_google_account(token_key: Option<&str>, subject: &str) -> Result<()> {
     let (service, user) = keyring_coordinates(token_key, subject);
     let entry = keyring::Entry::new(&service, &user)
