@@ -1,5 +1,5 @@
 use super::{UiMode, theme};
-use arqen::{Account, ConnectionState};
+use arqen::{Account, ConnectionState, GMAIL_READONLY_SCOPE};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -10,7 +10,6 @@ use ratatui::{
     },
 };
 
-const GMAIL_READONLY_SCOPE: &str = "https://www.googleapis.com/auth/gmail.readonly";
 const EMAIL_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.email";
 const PROFILE_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.profile";
 const CONNECTION_BADGE_WIDTH: u16 = 21;
@@ -135,11 +134,13 @@ fn scope_block_height(lines: &[Line<'_>], width: u16) -> u16 {
         .max(3)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_account_list(
     frame: &mut Frame<'_>,
     area: Rect,
     accounts: &[Account],
     selected: usize,
+    target_subject: Option<&str>,
     mode: UiMode,
     focused: bool,
     scroll_offset: &mut usize,
@@ -162,11 +163,16 @@ pub(crate) fn render_account_list(
         .map(|(index, account)| {
             let name = account.email.as_str();
             let marker = if index == selected { ">" } else { " " };
+            let target_marker = if target_subject == Some(account.subject.as_str()) {
+                "◆"
+            } else {
+                " "
+            };
             let (status_symbol, _, status_color) = status_presentation(account.connection_state);
             let card_padding: usize = if row_height >= 4 { 2 } else { 1 };
             if row_height >= 2 {
                 let prefix = format!(
-                    "{}{marker}  {status_symbol}  {name}",
+                    "{}{marker} {target_marker} {status_symbol}  {name}",
                     " ".repeat(card_padding)
                 );
                 let provider_gap = row_width
@@ -175,7 +181,7 @@ pub(crate) fn render_account_list(
                     as usize;
                 let primary = Line::from(vec![
                     Span::styled(
-                        format!("{}{marker}  ", " ".repeat(card_padding)),
+                        format!("{}{marker} {target_marker} ", " ".repeat(card_padding)),
                         Style::default().fg(theme::PRIMARY),
                     ),
                     Span::styled(status_symbol, Style::default().fg(status_color)),
@@ -189,7 +195,12 @@ pub(crate) fn render_account_list(
                     Span::raw(" ".repeat(card_padding + 6)),
                     Span::styled(
                         format!(
-                            "{} · {}",
+                            "{}{} · {}",
+                            if target_subject == Some(account.subject.as_str()) {
+                                "MCP target · "
+                            } else {
+                                ""
+                            },
                             status_label(account.connection_state),
                             scope_summary(account)
                         ),
@@ -204,7 +215,7 @@ pub(crate) fn render_account_list(
             } else {
                 ListItem::new(Line::from(vec![
                     Span::styled(
-                        format!("{}{marker}  ", " ".repeat(card_padding)),
+                        format!("{}{marker} {target_marker} ", " ".repeat(card_padding)),
                         Style::default().fg(theme::PRIMARY),
                     ),
                     Span::styled(status_symbol, Style::default().fg(status_color)),
@@ -378,6 +389,7 @@ pub(crate) fn render_account_details(
     frame: &mut Frame<'_>,
     area: Rect,
     account: Option<&Account>,
+    target_subject: Option<&str>,
     mode: UiMode,
     focused: bool,
     details_scroll: &mut usize,
@@ -587,6 +599,19 @@ pub(crate) fn render_account_details(
     let additional_rows = [
         ("Account ID", account.id.as_str(), theme::TEXT),
         ("Type", "Personal", theme::TEXT),
+        (
+            "MCP target",
+            if target_subject == Some(account.subject.as_str()) {
+                "Selected"
+            } else {
+                "Not selected"
+            },
+            if target_subject == Some(account.subject.as_str()) {
+                theme::SUCCESS
+            } else {
+                theme::MUTED
+            },
+        ),
         (
             "Status",
             status_label(account.connection_state),
