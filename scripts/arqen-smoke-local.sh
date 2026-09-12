@@ -13,8 +13,8 @@ show_help() {
 Usage: scripts/arqen-smoke-local.sh [--call]
        scripts/arqen-smoke-local.sh --container [--call]
 
-Starts an isolated broker and MCP process, then checks the authenticated
-health endpoint and tools/list. --call additionally invokes live Gmail.
+Starts an isolated broker and MCP process, then checks authenticated liveness,
+readiness, and tools/list. --call additionally invokes live Gmail.
 EOF
 }
 
@@ -80,7 +80,9 @@ if [[ "$live_call" == true ]]; then
     arqen_require_google_client
 else
     # The broker only opens the client JSON when a live Gmail call is made.
-    # Use an ephemeral placeholder for the no-network protocol smoke test.
+    # Use an isolated database and ephemeral placeholder for the no-network
+    # protocol smoke test; never inspect the operator's live keyring/database.
+    export XDG_DATA_HOME="$smoke_runtime_dir/data"
     smoke_client="$smoke_runtime_dir/google-client-secret.json"
     printf '{}\n' > "$smoke_client"
     chmod 600 "$smoke_client"
@@ -145,6 +147,16 @@ for ((attempt = 0; attempt < 120; attempt++)); do
     sleep 0.1
 done
 [[ "$health_status" == 204 ]] || arqen_die "authenticated MCP health check did not return HTTP 204"
+
+ready_status="$(curl -sS --max-time 2 -o "$smoke_runtime_dir/ready.json" -w '%{http_code}' \
+    -H "Authorization: Bearer $token" "$smoke_base_url/readyz" 2>/dev/null || true)"
+if [[ "$live_call" == true ]]; then
+    [[ "$ready_status" == 204 ]] || arqen_die "live MCP readiness check did not return HTTP 204"
+else
+    [[ "$ready_status" == 503 ]] || arqen_die "protocol-only MCP readiness check did not return HTTP 503"
+    grep -q 'target_not_configured' "$smoke_runtime_dir/ready.json" \
+        || arqen_die "protocol-only readiness did not report target_not_configured"
+fi
 
 rpc_headers=(
     -H "Authorization: Bearer $token"
