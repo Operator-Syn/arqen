@@ -1,0 +1,28 @@
+services:
+  arqen-mcp:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      ARQEN_MCP_LISTEN_ADDR: "0.0.0.0:8787"
+      ARQEN_MCP_ALLOWED_HOSTS: "${ARQEN_MCP_ALLOWED_HOSTS:?set the public MCP Host value}"
+      ARQEN_MCP_ALLOWED_ORIGINS: "${ARQEN_MCP_ALLOWED_ORIGINS:?set the public MCP Origin value}"
+      ARQEN_GMAIL_BROKER_SOCKET: "/run/arqen/gmail-broker.sock"
+      ARQEN_MCP_BEARER_TOKEN_FILE: "/run/secrets/arqen-mcp-bearer-token"
+    ports:
+      - "127.0.0.1:${ARQEN_MCP_HOST_PORT:-8787}:8787"
+    user: "${ARQEN_CONTAINER_UID:-1000}:${ARQEN_CONTAINER_GID:-1000}"
+    volumes:
+      - "${XDG_RUNTIME_DIR:?set XDG_RUNTIME_DIR}/arqen:/run/arqen:ro"
+    secrets:
+      - arqen-mcp-bearer-token
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+secrets:
+  arqen-mcp-bearer-token:
+    file: "${ARQEN_MCP_BEARER_TOKEN_FILE:?set ARQEN_MCP_BEARER_TOKEN_FILE to a user-only secret file}"
