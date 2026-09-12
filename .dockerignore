@@ -1,0 +1,11 @@
+.git
+.codex
+.direnv
+target
+result
+.env
+.secrets
+*.sqlite3
+*.sqlite3-*
+*.log
+
