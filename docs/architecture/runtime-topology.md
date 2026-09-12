@@ -34,6 +34,18 @@ mounts that socket read-only and binds its HTTP port to loopback; Nginx is the
 public TLS boundary. The service templates do not create certificates, DNS,
 firewall rules, users, or secret files.
 
+The locked first-pass VPS path keeps the TUI, SQLite, OS keyring, and
+credential broker on the host, and runs only `mcp-server` in Docker Compose.
+The container mounts the broker socket read-only and uses `restart:
+unless-stopped`; `/healthz` reports HTTP liveness and `/readyz` reports
+broker/database/target/keyring readiness without calling Gmail. The native
+`arqen-mcp.service` remains an alternative for non-Docker hosts.
+
+For a headless VPS login, the TUI can bind a configured loopback callback port
+(`ARQEN_OAUTH_REMOTE=1`, default `8765`). The operator forwards that port with
+SSH and opens the authorization URL in a local browser. No public OAuth
+callback route is required.
+
 Credential failures are fail-closed. A stale or disconnected target is not
 replaced automatically; a missing target returns `target_not_configured`, and
 an expired/revoked Google grant returns `reauthentication_required` without
