@@ -16,6 +16,11 @@ make compose-up      # terminal B
 make compose-down
 ```
 
+For the first-pass VPS deployment, run `make vps-up`. It keeps the TUI,
+SQLite, OS keyring, and credential broker on the VPS host while Docker runs
+only the always-on MCP HTTP boundary. The container receives a read-only broker
+socket mount and never receives refresh tokens or the OAuth client JSON.
+
 `make compose-smoke` creates its own project name, token, runtime directory,
 and host port, then removes them on exit. It verifies the authenticated health
 and tool-discovery paths without contacting Google. Use
