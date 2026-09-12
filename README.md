@@ -1,8 +1,8 @@
 # Arqen
 
 An agent-agnostic Rust TUI for authenticating and managing multiple Google
-accounts. Agents, MCP servers, and other applications can consume the account
-metadata and credentials later.
+accounts. The bundled MCP server can consume bounded Gmail metadata through a
+host-side credential broker.
 
 ## Current slice
 
@@ -17,6 +17,10 @@ metadata and credentials later.
   same Google login flow used for adding an account.
 - Press `r` with an account selected to reauthenticate it and refresh its
   recorded Google grant.
+- Press `t` with an eligible account selected to set it as the single MCP
+  target. Press `t` again to clear it; selecting another eligible account
+  replaces the previous target. The target marker and status are persisted in
+  SQLite.
 - Login displays a Google authorization URL, captures the Google loopback
   redirect automatically, exchanges the authorization code, stores the refresh token in the OS keyring,
   and saves account metadata, a key reference, and the exact granted scope set
@@ -31,14 +35,21 @@ be read from their legacy path safely.
 
 ## Run
 
-The app automatically reads `.secrets/google-client-secret.json`. To use a
-different location, set `GOOGLE_CLIENT_SECRET` before starting:
+For a repeatable local setup, run the named workflow once. It creates an
+ignored `.env` from [`.env.example`](.env.example), creates a user-only bearer
+token file, and loads those values automatically for every script:
 
 ```bash
-export GOOGLE_CLIENT_SECRET="/path/to/client_secret.json"
+make setup-local
+make tui
 ```
 
-Start it with:
+The default OAuth client path is `.secrets/google-client-secret.json`. Put the
+Google desktop-client JSON there, or change `GOOGLE_CLIENT_SECRET` in the
+ignored `.env` file. The setup script reports a missing client without
+printing its contents; the TUI needs the client only when a login starts.
+
+The underlying command remains available when a script is not convenient:
 
 ```bash
 cargo run
@@ -73,6 +84,101 @@ they are reauthenticated. Arqen records the last confirmed grant and does not
 perform a live revocation check. The details view shows friendly labels with
 canonical scope strings, including unknown provider scopes. The TUI itself is
 not coupled to Hermes or any particular agent.
+
+## Gmail MCP server
+
+The first MCP capability is a bounded, read-only `list_emails` tool. It always
+uses the account explicitly marked with `t` in the TUI; it never chooses an
+account implicitly or accepts a subject from the remote caller. The tool lists
+message IDs and fetches `From`, `Subject`, `Date`, labels, and a snippet (at
+most 300 Unicode characters), with a public page-size cap of 50.
+
+The server is split into two processes so refresh tokens stay on the host:
+
+```text
+TUI + SQLite + OS keyring ── Unix socket ── credential-broker
+                                              │
+                                      mcp-server (HTTP)
+```
+
+### Local workflow
+
+The scripts keep the broker and HTTP process separate while avoiding repeated
+exports. After `make setup-local`, start the host broker and MCP server in two
+terminals:
+
+```bash
+make broker   # terminal A; same user as the TUI and keyring
+make mcp      # terminal B; loopback HTTP on 127.0.0.1:8787
+```
+
+When the TUI is used only as the frontend for login and target selection, one
+terminal can supervise both backend processes:
+
+```bash
+make backend
+```
+
+It initializes missing local configuration, waits for the broker socket, checks
+the authenticated MCP health endpoint, and stops only the processes it started
+when you press Ctrl-C. An already-running broker is reused. Add
+`ARQEN_BACKEND_ARGS=--usurp` only to bypass the stale-socket confirmation.
+
+If an interrupted broker left a socket behind, `make broker` checks whether a
+listener is present and asks before taking over a stale socket. To explicitly
+skip that prompt, use `make broker ARQEN_BROKER_ARGS=--usurp`. An active broker
+is never overwritten.
+
+For a disposable protocol check, `make smoke-local` builds the binary, starts
+isolated broker/MCP processes, verifies authenticated `/healthz` and
+`tools/list`, and cleans up its temporary socket and token. It does not call
+Google. `make smoke-local-call` additionally invokes `list_emails` against the
+explicitly selected account, so use that only when a live Gmail request is
+intended.
+
+The ephemeral container path is similarly named:
+
+```bash
+make compose-smoke       # build/run a temporary Compose MCP process
+make compose-smoke-call  # same, plus one live list_emails call
+make compose-up          # persistent container; broker must already run
+make compose-down
+```
+
+All scripts source the ignored `.env`. Its example values keep development on
+loopback, use `.secrets/mcp-bearer-token`, and select the repository's pinned
+Nix shell when available (`ARQEN_USE_NIX=auto`). The Compose scripts pass the
+current UID/GID so the container can read only the host broker socket; they do
+not start the broker for you.
+
+The direct commands remain useful for manual or non-local deployments:
+
+```bash
+cargo run -- credential-broker
+cargo run -- mcp-server
+```
+
+For those direct commands, set `ARQEN_MCP_ALLOWED_HOSTS`,
+`ARQEN_MCP_ALLOWED_ORIGINS`, and either `ARQEN_MCP_BEARER_TOKEN_FILE` or
+`ARQEN_MCP_BEARER_TOKEN` outside Git. Keep the listener behind a TLS reverse
+proxy when it is not loopback.
+
+`ARQEN_MCP_LISTEN_ADDR` defaults to `0.0.0.0:8787` and
+`ARQEN_GMAIL_BROKER_SOCKET` defaults to
+`${XDG_RUNTIME_DIR}/arqen/gmail-broker.sock`. The bearer token can instead be
+provided as `ARQEN_MCP_BEARER_TOKEN`; keep either value outside Git and
+user-readable only. Put a TLS reverse proxy in front of the HTTP listener for
+public access. See [the architecture docs](docs/README.md),
+[`Dockerfile`](Dockerfile),
+[`deploy/containers/docker-compose.yml`](deploy/containers/docker-compose.yml),
+and [`deploy/nginx/arqen-mcp.conf`](deploy/nginx/arqen-mcp.conf) for the
+operator-owned examples.
+
+The Gmail read-only OAuth scope is restricted. Review Google’s current
+verification and user-data policy before any public deployment. The checked-in
+server, container, systemd, and Nginx files do not create secrets, issue
+certificates, change DNS/firewall state, activate services, or deploy a live
+endpoint.
 
 Connected, disconnected, and indeterminate connection states are persisted with
 each identity. Disconnecting revokes the selected Google refresh token through
@@ -111,8 +217,9 @@ details pane to its top; no scroll position or scrollbar state is persisted.
 SQLite stores account metadata and a keyring reference. It does not store OAuth
 access or refresh tokens. Refresh tokens are stored using the `keyring` crate,
 which uses the persistent Linux Secret Service backend (with the keyutils cache)
-in the flake development environment. Access tokens are held only during the
-login exchange.
+in the flake development environment. Access tokens are held only in memory
+during login and short-lived broker requests; they are never persisted or
+returned to the MCP server.
 
 Older development builds used keyring's in-memory mock when no backend feature
 was configured. Those tokens were never persisted and cannot be recovered;
@@ -132,6 +239,15 @@ commands below. With direnv enabled this happens automatically:
 ```bash
 nix develop .#arqen
 ```
+
+The complete repository check sequence is also available as:
+
+```bash
+make check
+```
+
+The scripts are small Bash wrappers around the same Cargo and Nix commands;
+they are not a second build system and do not hide live OAuth/Gmail work.
 
 ```bash
 cargo test
