@@ -1,14 +1,21 @@
 # Named local workflows. Run `make setup-local` once; each script then loads
 # the ignored .env file automatically.
 
-.PHONY: help setup-local check tui backend broker mcp smoke-local smoke-local-call \
+.PHONY: help setup-local quickstart vps-up check tui backend broker mcp smoke-local smoke-local-call \
 	compose-up compose-down compose-smoke compose-smoke-call
 
 help:
-	@printf '%s\n' 'Arqen local workflows:' '  make setup-local' '  make check' '  make tui' '  make backend' '  make backend ARQEN_BACKEND_ARGS=--usurp' '  make broker' '  make broker ARQEN_BROKER_ARGS=--usurp' '  make mcp' '  make smoke-local' '  make smoke-local-call' '  make compose-up' '  make compose-down' '  make compose-smoke' '  make compose-smoke-call'
+	@printf '%s\n' 'Arqen local workflows:' '  make setup-local' '  make quickstart' '  make vps-up' '  make check' '  make tui' '  make backend' '  make backend ARQEN_BACKEND_ARGS=--usurp' '  make broker' '  make mcp' '  make smoke-local' '  make smoke-local-call' '  make compose-up' '  make compose-down' '  make compose-smoke' '  make compose-smoke-call'
 
 setup-local:
 	./scripts/arqen-setup-local.sh
+
+quickstart:
+	./scripts/arqen-quickstart.sh $(ARQEN_QUICKSTART_ARGS)
+
+vps-up:
+	./scripts/arqen-quickstart.sh --enable --enable-linger $(ARQEN_QUICKSTART_ARGS)
+	./scripts/arqen-compose-up.sh
 
 check:
 	./scripts/arqen-check.sh
