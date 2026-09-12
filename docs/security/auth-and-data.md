@@ -16,10 +16,13 @@ linked.
 5. Gmail receives only the short-lived access token and bounded metadata
    requests. Public tool responses contain no full bodies, attachments, or
    credentials.
+6. Headless VPS OAuth uses an SSH local port forward to a loopback callback;
+   the OAuth callback listener is never bound to a public interface.
+7. `/healthz` and `/readyz` require the same bearer gate as `/mcp`; readiness
+   does not call Google or return credential state beyond stable failure codes.
 
 The Gmail read-only scope is restricted under Google’s current scope policy;
 see the [Gmail scope documentation](https://developers.google.com/workspace/gmail/api/auth/scopes)
 and [Workspace user-data policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy)
 before any public launch. A passing build is not a policy approval or live
 authorization verification.
-
