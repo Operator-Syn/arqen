@@ -13,7 +13,12 @@ specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/tr
   `ARQEN_MCP_ALLOWED_HOSTS` and `ARQEN_MCP_ALLOWED_ORIGINS`. Missing Origin is
   accepted by the SDK; a supplied Origin must match.
 - Request body: maximum 1 MiB.
-- Health: `GET /healthz` with the same bearer token returns `204 No Content`.
+- Liveness: `GET /healthz` with the same bearer token returns `204 No Content`
+  when the HTTP process is running.
+- Readiness: `GET /readyz` with the same bearer token returns `204 No Content`
+  only when the broker, account database, selected target, and local keyring
+  credential are usable. It returns `503` with a stable `{code,message}` JSON
+  body otherwise. It does not call Gmail or refresh a token.
 
 The MCP SDK negotiates the protocol version and may return JSON or a
 request-scoped SSE stream according to the request and response needs. Clients
@@ -47,4 +52,3 @@ The broker uses these stable codes: `invalid_request`,
 `target_not_configured`, `target_unavailable`, `reauthentication_required`,
 `gmail_rate_limited`, `gmail_unavailable`, and `internal`. A failure never
 includes an access token or refresh token.
-
