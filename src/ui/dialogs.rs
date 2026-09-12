@@ -5,16 +5,25 @@ use ratatui::{
     prelude::{Line, Span, Text},
 };
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_authorization(
     frame: &mut Frame<'_>,
     area: Rect,
     url: &str,
     compact: bool,
     manual_fallback: bool,
+    remote: bool,
     reauthenticate: bool,
     reconnect: bool,
 ) {
-    let spec = authorization_spec(url, compact, manual_fallback, reauthenticate, reconnect);
+    let spec = authorization_spec(
+        url,
+        compact,
+        manual_fallback,
+        remote,
+        reauthenticate,
+        reconnect,
+    );
     Modal::render(frame, area, &spec);
 }
 
@@ -153,10 +162,11 @@ pub(crate) fn authorization_spec(
     url: &str,
     compact: bool,
     manual_fallback: bool,
+    remote: bool,
     reauthenticate: bool,
     reconnect: bool,
 ) -> ModalSpec {
-    let login_helper_enabled = crate::LOGIN_HELPER_ENABLED && !manual_fallback;
+    let login_helper_enabled = crate::LOGIN_HELPER_ENABLED && !manual_fallback && !remote;
     let title = if reconnect {
         "Reconnect Google account"
     } else if reauthenticate {
@@ -167,7 +177,9 @@ pub(crate) fn authorization_spec(
     let body = if compact {
         Text::from(vec![
             Line::from(if reconnect {
-                if manual_fallback {
+                if remote {
+                    "Open the URL in your local browser while the SSH tunnel remains connected."
+                } else if manual_fallback {
                     "Open the URL to reconnect this account."
                 } else if login_helper_enabled {
                     "Open the login helper to reconnect this account."
@@ -175,7 +187,9 @@ pub(crate) fn authorization_spec(
                     "Open the Google sign-in URL to reconnect this account."
                 }
             } else if reauthenticate {
-                if manual_fallback {
+                if remote {
+                    "Open the URL in your local browser while the SSH tunnel remains connected."
+                } else if manual_fallback {
                     "Open the URL to refresh this account's grant."
                 } else if login_helper_enabled {
                     "Open the login helper to refresh this account's grant."
@@ -183,7 +197,9 @@ pub(crate) fn authorization_spec(
                     "Open the Google sign-in URL to refresh this account's grant."
                 }
             } else {
-                if manual_fallback {
+                if remote {
+                    "Open the URL in your local browser while the SSH tunnel remains connected."
+                } else if manual_fallback {
                     "Open the URL and approve access."
                 } else if login_helper_enabled {
                     "Open the login helper and approve access."
@@ -198,7 +214,9 @@ pub(crate) fn authorization_spec(
         ])
     } else {
         Text::from(vec![
-            Line::from(if manual_fallback {
+            Line::from(if remote {
+                "Open this URL in your local browser; the SSH tunnel returns the callback here:"
+            } else if manual_fallback {
                 "Open this authorization URL in your browser:"
             } else if login_helper_enabled {
                 "Use [o] to open the login helper, or [c] to copy this URL:"
@@ -218,7 +236,9 @@ pub(crate) fn authorization_spec(
             Line::from(
                 "2. Follow the Google login procedure and approve only the permissions you want to apply.",
             ),
-            if manual_fallback {
+            if remote {
+                Line::from("Keep the SSH tunnel connected until Arqen confirms the account.")
+            } else if manual_fallback {
                 Line::from(
                     "Automatic callback unavailable; press Enter to use manual redirect input.",
                 )
@@ -232,10 +252,20 @@ pub(crate) fn authorization_spec(
         tone: ModalTone::Neutral,
         body,
         actions: {
-            let mut actions = vec![
-                action(ModalActionId::Copy, "COPY", "c", ActionTone::Primary),
-                action(ModalActionId::Open, "OPEN", "o", ActionTone::Primary),
-            ];
+            let mut actions = vec![action(
+                ModalActionId::Copy,
+                "COPY",
+                "c",
+                ActionTone::Primary,
+            )];
+            if !remote {
+                actions.push(action(
+                    ModalActionId::Open,
+                    "OPEN",
+                    "o",
+                    ActionTone::Primary,
+                ));
+            }
             if manual_fallback {
                 actions.push(action(
                     ModalActionId::Continue,
@@ -252,8 +282,18 @@ pub(crate) fn authorization_spec(
             ));
             actions
         },
-        focused_action: if manual_fallback { 2 } else { 1 },
+        focused_action: if manual_fallback {
+            actions_len_for_focus(remote)
+        } else if remote {
+            0
+        } else {
+            1
+        },
     }
+}
+
+fn actions_len_for_focus(remote: bool) -> usize {
+    if remote { 1 } else { 2 }
 }
 
 pub(crate) fn redirect_spec(notice: Option<&str>, input: &str, _compact: bool) -> ModalSpec {
