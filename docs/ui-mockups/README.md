@@ -14,6 +14,8 @@ identity, local-session status, and connected-account count.
 
 - Header: product identity, local-session status, and connected-account count.
 - Account list: keyboard/mouse-selectable identities with one highlighted row.
+- The account list may show a `◆` MCP target marker. Only one target subject is
+  persisted at a time, and only connected eligible accounts can be selected.
 - Selected account: email identity, connected/disconnected/indeterminate state, provider, confirmed or
   unverified scope evidence, exact granted scopes, and keyring-protected
   credential reference or cleanup status.
@@ -60,7 +62,7 @@ are visual affordances only in v1 and are not draggable.
 
 ## Interaction labels
 
-`a` adds an account, `d` disconnects or retries cleanup for the selected account, `l` reconnects a disconnected account, `r` reauthenticates the selected account, `j`/`k` or the arrow keys select an account, `Enter`
+`a` adds an account, `d` disconnects or retries cleanup for the selected account, `l` reconnects a disconnected account, `r` reauthenticates the selected account, `t` sets or clears the single MCP target, `j`/`k` or the arrow keys select an account, `Enter`
 inspects or continues, `c` copies an authorization URL, `o` opens it and
 starts automatic callback handling, and `Esc` cancels the current modal. From the account screen, `q` opens quit
 confirmation; `Enter`/`y` confirms and `Esc`/`n` cancels. Mouse actions have
