@@ -16,12 +16,27 @@ impl BrokerRequest {
         }
     }
 
+    pub fn readiness() -> Self {
+        Self {
+            operation: "readiness".into(),
+            request: ListEmailsRequest::default(),
+        }
+    }
+
     pub fn validate(self) -> anyhow::Result<ListEmailsRequest> {
         anyhow::ensure!(
             self.operation == "list_emails",
             "unsupported broker operation"
         );
         self.request.validate()
+    }
+
+    pub fn validate_readiness(self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.operation == "readiness",
+            "unsupported broker operation"
+        );
+        Ok(())
     }
 }
 
@@ -71,6 +86,7 @@ pub enum BrokerResponse {
     Ok {
         result: EmailListResponse,
     },
+    Ready,
     Error {
         code: BrokerErrorCode,
         message: String,
@@ -104,6 +120,15 @@ mod tests {
         let request: BrokerRequest =
             serde_json::from_str(r#"{"operation":"read_message","max_results":1}"#).unwrap();
         assert!(request.validate().is_err());
+    }
+
+    #[test]
+    fn readiness_request_has_a_separate_internal_operation() {
+        let request = BrokerRequest::readiness();
+        let encoded = serde_json::to_string(&request).unwrap();
+        assert!(encoded.contains(r#""operation":"readiness""#));
+        let decoded: BrokerRequest = serde_json::from_str(&encoded).unwrap();
+        assert!(decoded.validate_readiness().is_ok());
     }
 
     #[test]
