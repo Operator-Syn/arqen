@@ -40,7 +40,7 @@ The current visual reference is [the account dashboard mockup](ui-mockups/README
 5. Give empty states an explanation and one obvious next action.
 6. Keep borders thin and quiet; active dialogs may use `primary-strong`.
 7. Keep `text` for essential content and `muted` for secondary information.
-8. Label actions consistently with `[ a ]`, `[ d ]`, `[ l ]`, `[ r ]`, `[ c ]`, `[ o ]`, and `[Enter]`.
+8. Label actions consistently with `[ a ]`, `[ d ]`, `[ l ]`, `[ r ]`, `[ t ]`, `[ c ]`, `[ o ]`, and `[Enter]`.
 9. Every mouse action must have a keyboard equivalent.
 10. Use ASCII-safe symbols by default. Do not require a particular terminal font.
 11. Future screens should import shared tokens from `theme` rather than adding
@@ -67,6 +67,8 @@ The current visual reference is [the account dashboard mockup](ui-mockups/README
 - `d` confirms disconnect for a connected account or retries cleanup for an indeterminate account.
 - `l` starts the add-account login flow for a disconnected or indeterminate account.
 - `r` reauthenticates the selected account and refreshes its recorded scope grant.
+- `t` sets the selected eligible account as the one persisted MCP target, or
+  clears it when the selected account is already the target.
 - `c` copies a visible authorization URL.
 - `o` opens Google sign-in in a dedicated browser process with an isolated
   temporary profile when automatic callback handling is available. Arqen owns
