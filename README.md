@@ -44,10 +44,11 @@ make setup-local
 make tui
 ```
 
-The default OAuth client path is `.secrets/google-client-secret.json`. Put the
-Google desktop-client JSON there, or change `GOOGLE_CLIENT_SECRET` in the
-ignored `.env` file. The setup script reports a missing client without
-printing its contents; the TUI needs the client only when a login starts.
+Repository workflows use `.secrets/google-client-secret.json` by default. The
+installed user services use `~/.config/arqen/google-client-secret.json`; set
+`GOOGLE_CLIENT_SECRET` when a different path is required. The setup scripts
+report a missing client without printing its contents; the TUI needs the
+client only when a login starts.
 
 The underlying command remains available when a script is not convenient:
 
@@ -85,6 +86,23 @@ perform a live revocation check. The details view shows friendly labels with
 canonical scope strings, including unknown provider scopes. The TUI itself is
 not coupled to Hermes or any particular agent.
 
+### Remote VPS login over SSH
+
+When the TUI runs on a headless VPS, use remote OAuth mode and forward its
+loopback callback to the laptop browser. The callback remains private to the
+SSH connection; it is not exposed by the VPS firewall or reverse proxy:
+
+```bash
+ssh -t \
+  -L 127.0.0.1:8765:127.0.0.1:8765 \
+  user@your-vps \
+  'ARQEN_OAUTH_REMOTE=1 ARQEN_OAUTH_CALLBACK_PORT=8765 ~/.local/bin/arqen'
+```
+
+Press `a` in the remote TUI, copy the displayed authorization URL from the SSH
+terminal, and open it in the laptop browser. Keep the SSH connection open until
+Arqen confirms the account. Change both port values together if `8765` is busy.
+
 ## Gmail MCP server
 
 The first MCP capability is a bounded, read-only `list_emails` tool. It always
@@ -100,6 +118,11 @@ TUI + SQLite + OS keyring ── Unix socket ── credential-broker
                                               │
                                       mcp-server (HTTP)
 ```
+
+In the first-pass VPS deployment, the TUI and credential broker run on the VPS
+host while `mcp-server` runs in the Docker container. The container receives a
+read-only broker socket mount; it does not receive the SQLite database, OS
+keyring, OAuth client JSON, or refresh tokens.
 
 ### Local workflow
 
@@ -130,11 +153,11 @@ skip that prompt, use `make broker ARQEN_BROKER_ARGS=--usurp`. An active broker
 is never overwritten.
 
 For a disposable protocol check, `make smoke-local` builds the binary, starts
-isolated broker/MCP processes, verifies authenticated `/healthz` and
-`tools/list`, and cleans up its temporary socket and token. It does not call
-Google. `make smoke-local-call` additionally invokes `list_emails` against the
-explicitly selected account, so use that only when a live Gmail request is
-intended.
+isolated broker/MCP processes, verifies authenticated `/healthz`, `/readyz`,
+and `tools/list`, and cleans up its temporary socket, database, and token. It
+does not call Google. `make smoke-local-call` additionally invokes
+`list_emails` against the explicitly selected account, so use that only when a
+live Gmail request is intended.
 
 The ephemeral container path is similarly named:
 
@@ -163,7 +186,7 @@ For those direct commands, set `ARQEN_MCP_ALLOWED_HOSTS`,
 `ARQEN_MCP_BEARER_TOKEN` outside Git. Keep the listener behind a TLS reverse
 proxy when it is not loopback.
 
-`ARQEN_MCP_LISTEN_ADDR` defaults to `0.0.0.0:8787` and
+`ARQEN_MCP_LISTEN_ADDR` defaults to `127.0.0.1:8787` and
 `ARQEN_GMAIL_BROKER_SOCKET` defaults to
 `${XDG_RUNTIME_DIR}/arqen/gmail-broker.sock`. The bearer token can instead be
 provided as `ARQEN_MCP_BEARER_TOKEN`; keep either value outside Git and
@@ -179,6 +202,32 @@ verification and user-data policy before any public deployment. The checked-in
 server, container, systemd, and Nginx files do not create secrets, issue
 certificates, change DNS/firewall state, activate services, or deploy a live
 endpoint.
+
+### Unattended user services
+
+Build and prepare the VPS host-side broker plus Docker MCP workflow with:
+
+```bash
+make vps-up
+```
+
+This builds the host binary, prepares XDG config paths and a user-only bearer
+token file, enables the host credential broker with user lingering, and starts
+the Docker MCP container. The native MCP unit is retained as an alternative
+but is not enabled by the first-pass VPS workflow.
+
+To prepare without activation:
+
+```bash
+make quickstart
+```
+
+The MCP service exposes authenticated `/healthz` for process liveness and
+`/readyz` for broker/database/target/keyring readiness. A missing target keeps
+the service alive but returns a not-ready result and `target_not_configured`
+for tool calls. Inspect service state with `systemctl --user` and
+`journalctl --user`; no service activation or public deployment is performed
+by repository checks.
 
 Connected, disconnected, and indeterminate connection states are persisted with
 each identity. Disconnecting revokes the selected Google refresh token through
