@@ -15,3 +15,8 @@ nor MCP result/error payload contains a token. Google `invalid_grant` and
 Gmail HTTP 401 are surfaced as a reauthentication error; the broker does not
 silently rewrite the account state.
 
+On a headless VPS, set `ARQEN_OAUTH_REMOTE=1` and a fixed
+`ARQEN_OAUTH_CALLBACK_PORT` (default `8765`), then forward that loopback port
+from the laptop with SSH. The browser remains local while the code exchange
+and keyring write happen on the VPS. Installed services use the XDG client
+configuration path; `GOOGLE_CLIENT_SECRET` remains an explicit override.
