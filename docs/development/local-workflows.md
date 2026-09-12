@@ -20,6 +20,8 @@ request.
 
 | Command | Purpose | Live Google request? |
 | --- | --- | --- |
+| `make quickstart` | build/install the binary and prepare native user units without activation | no |
+| `make vps-up` | enable the host broker and start the Docker MCP service | no, until a tool call arrives |
 | `make tui` | start the interactive account TUI | only when the user starts login |
 | `make backend` | set up and supervise the native broker + MCP backend | no, until a tool call arrives |
 | `make broker` | start the host keyring/SQLite credential broker; asks before stale-socket takeover | no, until an MCP call arrives |
@@ -89,15 +91,53 @@ token from `.secrets/mcp-bearer-token`; the broker uses the default
 already selected one eligible connected account before `list_emails` can
 succeed.
 
+## Remote OAuth over SSH
+
+For a TUI running on a headless VPS, use a fixed loopback callback and an SSH
+local forward from the laptop:
+
+```bash
+ssh -t \
+  -L 127.0.0.1:8765:127.0.0.1:8765 \
+  user@your-vps \
+  'ARQEN_OAUTH_REMOTE=1 ARQEN_OAUTH_CALLBACK_PORT=8765 ~/.local/bin/arqen'
+```
+
+Press `a` in the remote TUI, open the displayed URL in the laptop browser, and
+keep the SSH connection open until the callback completes. The callback port
+is loopback-only on both ends and must not be opened in a firewall.
+
+## Unattended user services
+
+`make quickstart` installs the release binary under `~/.local/bin`, creates
+`~/.config/arqen/arqen.env` and the user-only bearer token file, installs
+`arqen-credential-broker.service` and `arqen-mcp.service`, and reloads the
+user systemd manager. It does not enable or start them unless explicitly
+requested:
+
+```bash
+make quickstart ARQEN_QUICKSTART_ARGS='--enable --enable-linger'
+make compose-up
+```
+
+For the locked first-pass VPS deployment, use `make vps-up`; it enables only
+the host broker and starts the Docker MCP service. The native MCP unit is an
+alternative for hosts that do not use Docker. The Docker MCP process remains
+live while the broker recovers. Authenticated
+`/healthz` reports HTTP liveness; `/readyz` reports local broker/database/
+target/keyring readiness without calling Gmail. A service restart requires MCP
+clients to initialize again, but account and target configuration remain in
+SQLite.
+
 ## Disposable smoke checks
 
-The native smoke script builds the binary, creates a temporary runtime/socket
-and bearer token, starts both processes, verifies authenticated `/healthz` and
-`tools/list`, then terminates both processes and removes only its generated
-temporary directory. The no-call path uses an empty placeholder client file so
-it cannot touch Google. The Compose variant additionally builds and runs the
-container with the host broker socket mounted read-only and cleans up its exact
-Compose project.
+The native smoke script builds the binary, creates a temporary runtime/socket,
+isolated database, and bearer token, starts both processes, verifies
+authenticated `/healthz`, `/readyz`, and `tools/list`, then terminates both
+processes and removes only its generated temporary directory. The no-call path
+expects readiness to report `target_not_configured` and cannot touch Google.
+The Compose variant additionally builds and runs the container with the host
+broker socket mounted read-only and cleans up its exact Compose project.
 
 Pass `--call` only when you intentionally want to exercise Gmail. That path
 uses the configured real OAuth client, keyring, database, and explicitly
