@@ -127,17 +127,52 @@ fn database_path() -> Result<std::path::PathBuf> {
     Ok(path)
 }
 
+pub(crate) fn config_directory() -> Result<PathBuf> {
+    let base = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .context("set HOME or XDG_CONFIG_HOME to choose the config directory")?;
+    Ok(base.join(APP_DATA_DIRECTORY))
+}
+
 fn client_secret_path() -> Result<std::path::PathBuf> {
     if let Some(path) = env::var_os("GOOGLE_CLIENT_SECRET") {
         return Ok(std::path::PathBuf::from(path));
     }
+    let path = config_directory()?.join("google-client-secret.json");
+    if path.is_file() {
+        return Ok(path);
+    }
+    // Keep the repository-local path as a development-only compatibility
+    // fallback. Installed services and direct binaries use the XDG path above.
     let path = std::path::PathBuf::from(".secrets/google-client-secret.json");
     anyhow::ensure!(
         path.is_file(),
         "Google OAuth client JSON not found; place it at {} or set GOOGLE_CLIENT_SECRET",
-        path.display()
+        config_directory()?
+            .join("google-client-secret.json")
+            .display()
     );
     Ok(path)
+}
+
+fn oauth_remote_mode() -> bool {
+    matches!(
+        env::var("ARQEN_OAUTH_REMOTE").ok().as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
+}
+
+fn oauth_callback_port() -> Result<Option<u16>> {
+    if !oauth_remote_mode() {
+        return Ok(None);
+    }
+    let raw = env::var("ARQEN_OAUTH_CALLBACK_PORT").unwrap_or_else(|_| "8765".into());
+    let port = raw
+        .parse::<u16>()
+        .with_context(|| format!("parse ARQEN_OAUTH_CALLBACK_PORT `{raw}`"))?;
+    anyhow::ensure!(port != 0, "ARQEN_OAUTH_CALLBACK_PORT cannot be zero");
+    Ok(Some(port))
 }
 
 pub(crate) enum Screen {
@@ -146,6 +181,7 @@ pub(crate) enum Screen {
         oauth: Option<GoogleOAuth>,
         url: String,
         callback: Option<callback::CallbackServer>,
+        remote: bool,
         intent: LoginIntent,
     },
     Redirect {
@@ -321,7 +357,17 @@ impl App {
     fn start_login(&mut self, intent: LoginIntent) {
         self.stop_browser();
         let result = (|| -> Result<Screen> {
-            let callback = callback::CallbackServer::start().ok();
+            let remote = oauth_remote_mode();
+            let callback = match oauth_callback_port()? {
+                Some(port) => Some(callback::CallbackServer::start_on_port(port).with_context(
+                    || {
+                        format!(
+                            "bind remote OAuth callback on 127.0.0.1:{port}; keep the SSH local port forward available"
+                        )
+                    },
+                )?),
+                None => callback::CallbackServer::start().ok(),
+            };
             let mut oauth = GoogleOAuth::from_file(client_secret_path()?)
                 .context("load Google OAuth client configuration")?;
             if let Some(callback) = callback.as_ref() {
@@ -339,6 +385,7 @@ impl App {
                 oauth: Some(oauth),
                 url,
                 callback,
+                remote,
                 intent,
             })
         })();
@@ -584,6 +631,7 @@ impl App {
                 oauth,
                 url,
                 callback,
+                remote,
                 intent,
             } => match key.code {
                 KeyCode::Char('c') => {
@@ -600,6 +648,12 @@ impl App {
                     });
                 }
                 KeyCode::Char('o') => {
+                    if *remote {
+                        self.notice = Some(
+                            "Remote OAuth mode is active. Open the authorization URL in your local browser while the SSH tunnel remains connected.".into(),
+                        );
+                        return;
+                    }
                     let using_helper = LOGIN_HELPER_ENABLED && callback.is_some();
                     let browser_url = browser_target(callback.as_ref(), url);
                     self.browser.take();
@@ -634,7 +688,9 @@ impl App {
                 KeyCode::Enter => {
                     if callback.is_some() {
                         self.notice = Some(
-                            if LOGIN_HELPER_ENABLED {
+                            if *remote {
+                                "Open the URL in your local browser; the SSH tunnel will deliver the callback to this TUI."
+                            } else if LOGIN_HELPER_ENABLED {
                                 "Press [o] to open the login helper."
                             } else {
                                 "Press [o] to open Google sign-in, or [c] to copy the URL."
@@ -1749,6 +1805,7 @@ mod tests {
             oauth: None,
             url: "https://accounts.google.com".into(),
             callback: None,
+            remote: false,
             intent: LoginIntent::Add,
         };
         assert!(!handle_event(
