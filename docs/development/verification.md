@@ -33,9 +33,15 @@ using the selected account and host keyring.
 
 The unit tests cover SQLite target invariants, TUI target rendering and
 keyboard behavior, callback routes, bounded broker frames, Gmail request
-construction/error mapping, bearer authentication, Host/Origin checks, and
-MCP tool discovery. Local HTTP tests use loopback fixtures; they do not call
-Google or require a keyring secret.
+construction/error mapping, bearer authentication, Host/Origin checks, MCP
+tool discovery, readiness failures, and configured remote callback ports. Local
+HTTP tests use loopback fixtures; they do not call Google or require a keyring
+secret.
+
+The service templates and quickstart are source-level deployment artifacts.
+`systemctl --user` activation, user lingering, headless Secret Service
+availability, and the SSH-tunneled real OAuth flow require operator-owned
+verification on the target VPS.
 
 Keep evidence categories separate:
 
