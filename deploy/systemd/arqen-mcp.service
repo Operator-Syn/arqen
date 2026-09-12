@@ -1,0 +1,26 @@
+[Unit]
+Description=Arqen Streamable HTTP MCP server
+After=arqen-credential-broker.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/arqen mcp-server
+Environment=ARQEN_GMAIL_BROKER_SOCKET=%t/arqen/gmail-broker.sock
+Environment=ARQEN_MCP_LISTEN_ADDR=127.0.0.1:8787
+EnvironmentFile=-%h/.config/arqen/arqen.env
+Environment=RUST_BACKTRACE=1
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+# The MCP process remains alive while the broker restarts. /readyz reports
+# broker/account readiness separately from HTTP process liveness.
+
+[Install]
+WantedBy=default.target
