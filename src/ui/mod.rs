@@ -55,6 +55,7 @@ pub(crate) fn draw(
     frame: &mut Frame<'_>,
     accounts: &[Account],
     selected: usize,
+    target_subject: Option<&str>,
     pane_focus: PaneFocus,
     accounts_scroll: &mut usize,
     details_scroll: &mut usize,
@@ -77,6 +78,7 @@ pub(crate) fn draw(
         areas.accounts,
         accounts,
         selected,
+        target_subject,
         areas.mode,
         pane_focus == PaneFocus::Accounts,
         accounts_scroll,
@@ -85,6 +87,7 @@ pub(crate) fn draw(
         frame,
         areas.details,
         accounts.get(selected),
+        target_subject,
         areas.mode,
         pane_focus == PaneFocus::Details,
         details_scroll,
@@ -400,6 +403,16 @@ mod tests {
         rendered_at(width, height, screen, accounts, 0)
     }
 
+    fn rendered_with_target(
+        width: u16,
+        height: u16,
+        screen: Screen,
+        accounts: &[Account],
+        target_subject: Option<&str>,
+    ) -> String {
+        rendered_state_with_target(width, height, screen, accounts, 0, 0, 0, target_subject)
+    }
+
     fn rendered_at(
         width: u16,
         height: u16,
@@ -419,6 +432,29 @@ mod tests {
         accounts_scroll: usize,
         details_scroll: usize,
     ) -> String {
+        rendered_state_with_target(
+            width,
+            height,
+            screen,
+            accounts,
+            selected,
+            accounts_scroll,
+            details_scroll,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rendered_state_with_target(
+        width: u16,
+        height: u16,
+        screen: Screen,
+        accounts: &[Account],
+        selected: usize,
+        accounts_scroll: usize,
+        details_scroll: usize,
+        target_subject: Option<&str>,
+    ) -> String {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut accounts_scroll = accounts_scroll;
@@ -429,6 +465,7 @@ mod tests {
                     frame,
                     accounts,
                     selected,
+                    target_subject,
                     PaneFocus::Accounts,
                     &mut accounts_scroll,
                     &mut details_scroll,
@@ -548,6 +585,21 @@ mod tests {
     }
 
     #[test]
+    fn marks_the_persisted_mcp_target_in_both_panes() {
+        let accounts = vec![account("Alex Morgan", "alex@example.com")];
+        let output = rendered_with_target(
+            120,
+            32,
+            Screen::Accounts,
+            &accounts,
+            Some("subject-Alex Morgan"),
+        );
+        assert!(output.contains("◆"), "{output}");
+        assert!(output.contains("MCP target"), "{output}");
+        assert!(output.contains("Selected"), "{output}");
+    }
+
+    #[test]
     fn renders_persistent_scrollbars_and_reaches_compact_list_rows() {
         let accounts: Vec<Account> = (0..12)
             .map(|index| {
@@ -599,6 +651,7 @@ mod tests {
                     frame,
                     &accounts,
                     0,
+                    None,
                     PaneFocus::Details,
                     &mut accounts_scroll,
                     &mut details_scroll,
@@ -711,6 +764,7 @@ mod tests {
                     frame,
                     &accounts,
                     0,
+                    None,
                     PaneFocus::Details,
                     &mut accounts_scroll,
                     &mut details_scroll,
