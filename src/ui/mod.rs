@@ -106,6 +106,7 @@ pub(crate) fn draw(
         Screen::Authorization {
             url,
             callback,
+            remote,
             intent,
             ..
         } => {
@@ -115,6 +116,7 @@ pub(crate) fn draw(
                 url,
                 areas.mode == UiMode::Compact,
                 callback.is_none(),
+                *remote,
                 matches!(
                     intent,
                     crate::LoginIntent::Reauthenticate { .. }
@@ -227,12 +229,14 @@ pub(crate) fn modal_action(
         Screen::Authorization {
             url,
             callback,
+            remote,
             intent,
             ..
         } => dialogs::authorization_spec(
             url,
             compact,
             callback.is_none(),
+            *remote,
             matches!(
                 intent,
                 crate::LoginIntent::Reauthenticate { .. } | crate::LoginIntent::Reconnect { .. }
@@ -836,6 +840,7 @@ mod tests {
                 oauth: None,
                 url: "https://accounts.google.com/example".into(),
                 callback: None,
+                remote: false,
                 intent: crate::LoginIntent::Add,
             },
             &[],
@@ -849,6 +854,7 @@ mod tests {
                 oauth: None,
                 url: "https://accounts.google.com/example".into(),
                 callback: Some(callback),
+                remote: false,
                 intent: crate::LoginIntent::Add,
             },
             &[],
@@ -856,6 +862,21 @@ mod tests {
         assert!(automatic_auth.contains("Google sign-in"));
         assert!(!automatic_auth.contains("login helper"));
         assert!(automatic_auth.contains("https://accounts.google.com/example"));
+        let remote_callback = crate::callback::CallbackServer::start().expect("callback server");
+        let remote_auth = rendered(
+            120,
+            32,
+            Screen::Authorization {
+                oauth: None,
+                url: "https://accounts.google.com/example".into(),
+                callback: Some(remote_callback),
+                remote: true,
+                intent: crate::LoginIntent::Add,
+            },
+            &[],
+        );
+        assert!(remote_auth.contains("local browser"));
+        assert!(!remote_auth.contains("[o]"));
         let reauth = rendered(
             100,
             30,
@@ -863,6 +884,7 @@ mod tests {
                 oauth: None,
                 url: "https://accounts.google.com/example".into(),
                 callback: None,
+                remote: false,
                 intent: crate::LoginIntent::Reauthenticate {
                     subject: "subject".into(),
                 },
@@ -877,6 +899,7 @@ mod tests {
                 oauth: None,
                 url: "https://accounts.google.com/example".into(),
                 callback: None,
+                remote: false,
                 intent: crate::LoginIntent::Reconnect {
                     subject: "subject".into(),
                 },
