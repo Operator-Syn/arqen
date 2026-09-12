@@ -1,7 +1,12 @@
 pub mod auth;
+pub mod broker;
+pub mod gmail;
+pub mod mcp;
 
 use anyhow::Result;
 use rusqlite::{Connection, params};
+
+pub const GMAIL_READONLY_SCOPE: &str = "https://www.googleapis.com/auth/gmail.readonly";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
@@ -47,6 +52,11 @@ pub struct AccountStore {
     connection: Connection,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpConfiguration {
+    pub target_google_subject: Option<String>,
+}
+
 impl AccountStore {
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let connection = Connection::open(path)?;
@@ -84,7 +94,16 @@ impl AccountStore {
                  FOREIGN KEY (google_subject)
                      REFERENCES google_accounts(google_subject)
                      ON DELETE CASCADE
-             );",
+             );
+             CREATE TABLE IF NOT EXISTS mcp_configuration (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 target_google_subject TEXT,
+                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                 FOREIGN KEY (target_google_subject)
+                     REFERENCES google_accounts(google_subject)
+                     ON DELETE SET NULL
+             );
+             INSERT OR IGNORE INTO mcp_configuration (id) VALUES (1);",
         )?;
         let has_connection_state = {
             let mut statement = self
@@ -167,6 +186,54 @@ impl AccountStore {
         Ok(())
     }
 
+    pub fn mcp_configuration(&self) -> Result<McpConfiguration> {
+        let target_google_subject = self.connection.query_row(
+            "SELECT target_google_subject
+             FROM mcp_configuration
+             WHERE id = 1",
+            [],
+            |row| row.get::<_, Option<String>>(0),
+        )?;
+        Ok(McpConfiguration {
+            target_google_subject,
+        })
+    }
+
+    pub fn set_mcp_target_subject(&self, subject: Option<&str>) -> Result<()> {
+        let transaction = self.connection.unchecked_transaction()?;
+        if let Some(subject) = subject {
+            anyhow::ensure!(!subject.is_empty(), "MCP target subject cannot be empty");
+            let eligible: i64 = transaction.query_row(
+                "SELECT COUNT(*)
+                 FROM google_accounts AS account
+                 WHERE account.google_subject = ?1
+                   AND account.connection_state = 'connected'
+                   AND account.token_key IS NOT NULL
+                   AND EXISTS (
+                       SELECT 1
+                       FROM google_account_scopes AS scope
+                       WHERE scope.google_subject = account.google_subject
+                         AND scope.scope = ?2
+                   )",
+                params![subject, GMAIL_READONLY_SCOPE],
+                |row| row.get(0),
+            )?;
+            anyhow::ensure!(
+                eligible == 1,
+                "MCP target must be a connected Google account with a recorded Gmail read-only grant and a keyring reference"
+            );
+        }
+        transaction.execute(
+            "UPDATE mcp_configuration
+             SET target_google_subject = ?1,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+             WHERE id = 1",
+            params![subject],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn list_accounts(&self) -> Result<Vec<Account>> {
         let mut statement = self.connection.prepare(
             "SELECT id, google_subject, email, display_name, token_key, connection_state
@@ -224,7 +291,7 @@ impl AccountStore {
 
 #[cfg(test)]
 mod tests {
-    use super::{Account, AccountStore, ConnectionState};
+    use super::{Account, AccountStore, ConnectionState, GMAIL_READONLY_SCOPE};
 
     #[test]
     fn stores_and_lists_multiple_google_accounts() {
@@ -378,6 +445,127 @@ mod tests {
         assert_eq!(
             account.granted_scopes.as_deref(),
             Some(["openid".to_string()].as_slice())
+        );
+    }
+
+    fn eligible_account(id: &str, subject: &str, email: &str) -> Account {
+        Account {
+            id: id.into(),
+            subject: subject.into(),
+            email: email.into(),
+            display_name: Some("Eligible account".into()),
+            token_key: Some(format!("keyring:arqen:{subject}")),
+            granted_scopes: Some(vec![GMAIL_READONLY_SCOPE.into(), "openid".into()]),
+            connection_state: ConnectionState::Connected,
+        }
+    }
+
+    #[test]
+    fn mcp_target_configuration_defaults_to_empty_and_round_trips() {
+        let store = AccountStore::in_memory().unwrap();
+        assert_eq!(
+            store.mcp_configuration().unwrap().target_google_subject,
+            None
+        );
+        store
+            .upsert_google_account(&eligible_account(
+                "account-one",
+                "google-subject-one",
+                "one@example.com",
+            ))
+            .unwrap();
+
+        store
+            .set_mcp_target_subject(Some("google-subject-one"))
+            .unwrap();
+        assert_eq!(
+            store
+                .mcp_configuration()
+                .unwrap()
+                .target_google_subject
+                .as_deref(),
+            Some("google-subject-one")
+        );
+
+        store.set_mcp_target_subject(None).unwrap();
+        assert_eq!(
+            store.mcp_configuration().unwrap().target_google_subject,
+            None
+        );
+    }
+
+    #[test]
+    fn mcp_target_replaces_previous_target_atomically() {
+        let store = AccountStore::in_memory().unwrap();
+        store
+            .upsert_google_account(&eligible_account(
+                "account-one",
+                "google-subject-one",
+                "one@example.com",
+            ))
+            .unwrap();
+        store
+            .upsert_google_account(&eligible_account(
+                "account-two",
+                "google-subject-two",
+                "two@example.com",
+            ))
+            .unwrap();
+
+        store
+            .set_mcp_target_subject(Some("google-subject-one"))
+            .unwrap();
+        store
+            .set_mcp_target_subject(Some("google-subject-two"))
+            .unwrap();
+
+        assert_eq!(
+            store
+                .mcp_configuration()
+                .unwrap()
+                .target_google_subject
+                .as_deref(),
+            Some("google-subject-two")
+        );
+    }
+
+    #[test]
+    fn mcp_target_requires_connected_verified_gmail_account_with_keyring_reference() {
+        let store = AccountStore::in_memory().unwrap();
+        let mut no_gmail = eligible_account("one", "subject-one", "one@example.com");
+        no_gmail.granted_scopes = Some(vec!["openid".into()]);
+        store.upsert_google_account(&no_gmail).unwrap();
+        let mut disconnected = eligible_account("two", "subject-two", "two@example.com");
+        disconnected.connection_state = ConnectionState::Disconnected;
+        store.upsert_google_account(&disconnected).unwrap();
+        let mut no_keyring = eligible_account("three", "subject-three", "three@example.com");
+        no_keyring.token_key = None;
+        store.upsert_google_account(&no_keyring).unwrap();
+
+        for subject in ["missing", "subject-one", "subject-two", "subject-three"] {
+            let error = store.set_mcp_target_subject(Some(subject)).unwrap_err();
+            assert!(error.to_string().contains("connected Google account"));
+        }
+    }
+
+    #[test]
+    fn deleting_an_account_clears_its_mcp_target_without_affecting_other_accounts() {
+        let store = AccountStore::in_memory().unwrap();
+        store
+            .upsert_google_account(&eligible_account(
+                "account-one",
+                "google-subject-one",
+                "one@example.com",
+            ))
+            .unwrap();
+        store
+            .set_mcp_target_subject(Some("google-subject-one"))
+            .unwrap();
+
+        assert!(store.remove_account("account-one").unwrap());
+        assert_eq!(
+            store.mcp_configuration().unwrap().target_google_subject,
+            None
         );
     }
 
