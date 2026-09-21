@@ -17,7 +17,7 @@ identity, local-session status, and connected-account count.
 - The account list may show a `◆` MCP target marker. Only one target subject is
   persisted at a time, and only connected eligible accounts can be selected.
 - Selected account: email identity, connected/disconnected/indeterminate state, provider, confirmed or
-  unverified scope evidence, exact granted scopes, and keyring-protected
+  unverified scope evidence, exact granted scopes, and protected
   credential reference or cleanup status.
 - Footer: the same actions are available through keyboard controls and matching
   mouse targets, including disconnect, reconnect, and reauthentication for the
