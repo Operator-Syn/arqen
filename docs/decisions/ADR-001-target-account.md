@@ -7,6 +7,5 @@
   call will use; provider discovery and per-request account choice are later
   work.
 - **Invariant:** Only connected accounts with confirmed Gmail read-only scope
-  evidence and a keyring reference can be selected. A stale target remains
+  evidence and a protected credential reference can be selected. A stale target remains
   visible but is never used as an automatic fallback.
-
