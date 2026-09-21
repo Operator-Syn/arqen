@@ -1,0 +1,25 @@
+[Unit]
+Description=Arqen Docker Wayland control container
+After=graphical-session.target
+PartOf=graphical-session.target
+BindsTo=graphical-session.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=ARQEN_DOCKER_DISPLAY_MODE=wayland
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=%t
+ExecStartPre=/bin/sh -c 'test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"'
+ExecStart=%h/.local/bin/arqen-docker-control-up
+ExecStop=%h/.local/bin/arqen-docker-control-down
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=0
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical-session.target
