@@ -1,3 +1,6 @@
+use crate::secrets::{
+    delete_refresh_token, load_refresh_token, store_refresh_token, token_reference,
+};
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::{
@@ -10,6 +13,7 @@ use std::{collections::HashMap, fs, path::Path, time::Duration};
 use url::Url;
 use uuid::Uuid;
 
+#[cfg(test)]
 const KEYRING_SERVICE: &str = "arqen";
 const REDIRECT_URI: &str = "http://localhost";
 const REVOCATION_URI: &str = "https://oauth2.googleapis.com/revoke";
@@ -201,11 +205,8 @@ impl GoogleOAuth {
         let refresh_token = token
             .refresh_token
             .context("Google did not return a refresh token; retry login with consent")?;
-        let entry = keyring::Entry::new(KEYRING_SERVICE, &profile.sub)
-            .context("create OS keyring entry for Google refresh token")?;
-        entry
-            .set_password(&refresh_token)
-            .context("save Google refresh token in the OS keyring")?;
+        let token_key = token_reference(&profile.sub);
+        store_refresh_token(Some(&token_key), &profile.sub, &refresh_token)?;
         Ok(GoogleLogin {
             profile,
             granted_scopes,
@@ -227,19 +228,7 @@ pub(crate) fn refresh_google_access_token(
     subject: &str,
 ) -> Result<RefreshedAccessToken> {
     let credentials = read_credentials(credentials_path.as_ref())?;
-    let (service, user) = keyring_coordinates(token_key, subject);
-    let entry = keyring::Entry::new(&service, &user)
-        .context("create OS keyring entry for Google refresh token")?;
-    let refresh_token = match entry.get_password() {
-        Ok(refresh_token) => refresh_token,
-        Err(keyring::Error::NoEntry) => {
-            anyhow::bail!("no stored Google refresh token; reauthenticate the selected MCP target")
-        }
-        Err(error) => {
-            return Err(anyhow::Error::new(error))
-                .context("read Google refresh token from the OS keyring");
-        }
-    };
+    let refresh_token = load_refresh_token(token_key, subject)?;
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
@@ -256,9 +245,7 @@ pub(crate) fn refresh_google_access_token(
         .context("send Google access-token refresh request")?;
     let token = parse_token_response(response)?;
     if let Some(rotated_refresh_token) = token.refresh_token {
-        entry
-            .set_password(&rotated_refresh_token)
-            .context("save rotated Google refresh token in the OS keyring")?;
+        store_refresh_token(token_key, subject, &rotated_refresh_token)?;
     }
     Ok(RefreshedAccessToken {
         value: token.access_token,
@@ -308,51 +295,18 @@ pub(crate) fn is_missing_refresh_token(error: &anyhow::Error) -> bool {
 }
 
 pub(crate) fn check_google_refresh_token(token_key: Option<&str>, subject: &str) -> Result<()> {
-    let (service, user) = keyring_coordinates(token_key, subject);
-    let entry = keyring::Entry::new(&service, &user)
-        .context("create OS keyring entry for Google refresh token")?;
-    match entry.get_password() {
-        Ok(refresh_token) => {
-            anyhow::ensure!(
-                !refresh_token.is_empty(),
-                "stored Google refresh token is empty"
-            );
-            Ok(())
-        }
-        Err(keyring::Error::NoEntry) => {
-            anyhow::bail!("no stored Google refresh token")
-        }
-        Err(error) => {
-            Err(anyhow::Error::new(error)).context("read Google refresh token from the OS keyring")
-        }
-    }
+    load_refresh_token(token_key, subject).map(|_| ())
 }
 
 pub fn revoke_google_account(token_key: Option<&str>, subject: &str) -> Result<()> {
-    let (service, user) = keyring_coordinates(token_key, subject);
-    let entry = keyring::Entry::new(&service, &user)
-        .context("create OS keyring entry for Google refresh token")?;
-    let refresh_token = match entry.get_password() {
-        Ok(refresh_token) => refresh_token,
-        Err(keyring::Error::NoEntry) => {
-            anyhow::bail!(
-                "no stored Google refresh token; reauthenticate this account before disconnecting"
-            )
-        }
-        Err(error) => {
-            return Err(anyhow::anyhow!(error))
-                .context("read Google refresh token from the OS keyring");
-        }
-    };
+    let refresh_token = load_refresh_token(token_key, subject).context(
+        "no stored Google refresh token; reauthenticate this account before disconnecting",
+    )?;
     revoke_refresh_token(&refresh_token)?;
-    match entry.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => {
-            Err(anyhow::anyhow!(error)).context("remove Google refresh token from the OS keyring")
-        }
-    }
+    delete_refresh_token(token_key, subject)
 }
 
+#[cfg(test)]
 fn keyring_coordinates(token_key: Option<&str>, subject: &str) -> (String, String) {
     let Some(reference) = token_key.and_then(|value| value.strip_prefix("keyring:")) else {
         return (KEYRING_SERVICE.to_owned(), subject.to_owned());
@@ -422,7 +376,7 @@ fn ensure_expected_subject(profile: &GoogleProfile, expected_subject: Option<&st
 }
 
 pub fn token_key(subject: &str) -> String {
-    format!("keyring:{KEYRING_SERVICE}:{subject}")
+    token_reference(subject)
 }
 
 #[cfg(test)]
