@@ -5,7 +5,11 @@ set -euo pipefail
 # shellcheck shell=bash
 
 ARQEN_SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ARQEN_PROJECT_ROOT="$(cd "$ARQEN_SCRIPT_DIRECTORY/../.." && pwd)"
+if [[ -n "${ARQEN_PROJECT_ROOT:-}" ]]; then
+    ARQEN_PROJECT_ROOT="$(cd "$ARQEN_PROJECT_ROOT" && pwd)"
+else
+    ARQEN_PROJECT_ROOT="$(cd "$ARQEN_SCRIPT_DIRECTORY/../.." && pwd)"
+fi
 
 user_env_file="${XDG_CONFIG_HOME:-${HOME:-}/.config}/arqen/arqen.env"
 if [[ -f "$user_env_file" ]]; then
