@@ -2,6 +2,7 @@ pub mod auth;
 pub mod broker;
 pub mod gmail;
 pub mod mcp;
+pub mod secrets;
 
 use anyhow::Result;
 use rusqlite::{Connection, params};
@@ -14,7 +15,7 @@ pub struct Account {
     pub subject: String,
     pub email: String,
     pub display_name: Option<String>,
-    /// Identifier for a future OS-keyring entry; never the token itself.
+    /// Opaque refresh-token-store reference; never the token itself.
     pub token_key: Option<String>,
     /// The exact scope set returned by Google for the last successful login.
     /// `None` means this account predates scope tracking or has no verified grant.
@@ -220,7 +221,7 @@ impl AccountStore {
             )?;
             anyhow::ensure!(
                 eligible == 1,
-                "MCP target must be a connected Google account with a recorded Gmail read-only grant and a keyring reference"
+                "MCP target must be a connected Google account with a recorded Gmail read-only grant and a protected credential reference"
             );
         }
         transaction.execute(
