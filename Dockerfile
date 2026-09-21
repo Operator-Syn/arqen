@@ -1,7 +1,7 @@
 FROM rust:1.97-bookworm AS build
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends --yes pkg-config libdbus-1-dev \
+    && apt-get install --no-install-recommends --yes pkg-config libdbus-1-dev libwayland-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
@@ -12,7 +12,7 @@ RUN cargo build --release --locked
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends --yes ca-certificates libdbus-1-3 \
+    && apt-get install --no-install-recommends --yes ca-certificates libdbus-1-3 libwayland-client0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /workspace/target/release/arqen /usr/local/bin/arqen
