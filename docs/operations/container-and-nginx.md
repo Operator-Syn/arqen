@@ -48,8 +48,11 @@ OpenBao-backed broker, streamed TUI, and MCP service. It publishes only
 loopback ports 7681 (TUI), 8765 (OAuth callback), and 8787 (MCP). OpenBao is
 not published, and the MCP container receives only its bearer token and broker
 socket. Run `make docker-up` from a Wayland or X11 graphical session: only the
-control container receives the detected native clipboard interface. Use
-`make docker-down` to stop without deleting volumes or the explicit
+control container receives the detected native clipboard interface. The
+control container is session-owned and must not be restored by the system
+Docker daemon before the graphical socket exists. Use the installed
+`arqen-docker-control.service` user unit for session-bound automatic startup.
+Use `make docker-down` to stop without deleting volumes or the explicit
 `make docker-reset ARQEN_DOCKER_RESET_CONFIRM=YES` path to remove the fresh
 profile. This path is clean-slate only; it does not migrate native keyring
 accounts.
