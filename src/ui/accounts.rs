@@ -555,7 +555,7 @@ pub(crate) fn render_account_details(
         (
             "Credential",
             match account.connection_state {
-                ConnectionState::Connected => "Protected (in OS keyring)",
+                ConnectionState::Connected => "Protected credential available",
                 ConnectionState::Disconnected => "Not stored",
                 ConnectionState::Indeterminate => "Cleanup incomplete",
             },
