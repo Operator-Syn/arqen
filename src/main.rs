@@ -175,6 +175,14 @@ fn oauth_callback_port() -> Result<Option<u16>> {
     Ok(Some(port))
 }
 
+fn oauth_callback_bind_addr() -> String {
+    env::var("ARQEN_OAUTH_CALLBACK_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1".into())
+}
+
+fn oauth_callback_public_host() -> String {
+    env::var("ARQEN_OAUTH_CALLBACK_PUBLIC_HOST").unwrap_or_else(|_| "127.0.0.1".into())
+}
+
 pub(crate) enum Screen {
     Accounts,
     Authorization {
@@ -359,13 +367,22 @@ impl App {
         let result = (|| -> Result<Screen> {
             let remote = oauth_remote_mode();
             let callback = match oauth_callback_port()? {
-                Some(port) => Some(callback::CallbackServer::start_on_port(port).with_context(
-                    || {
-                        format!(
-                            "bind remote OAuth callback on 127.0.0.1:{port}; keep the SSH local port forward available"
+                Some(port) => {
+                    let bind_addr = oauth_callback_bind_addr();
+                    let public_host = oauth_callback_public_host();
+                    Some(
+                        callback::CallbackServer::start_on_port_with_bind(
+                            port,
+                            &bind_addr,
+                            &public_host,
                         )
-                    },
-                )?),
+                        .with_context(|| {
+                            format!(
+                                "bind remote OAuth callback on {public_host}:{port} (listener {bind_addr}); keep the callback route available"
+                            )
+                        })?,
+                    )
+                }
                 None => callback::CallbackServer::start().ok(),
             };
             let mut oauth = GoogleOAuth::from_file(client_secret_path()?)
@@ -479,7 +496,7 @@ impl App {
             .find(|account| account.subject == subject)
             .and_then(|account| account.token_key.clone());
         let result = (|| -> Result<()> {
-            // Persist the safe state before touching provider or keyring state.
+            // Persist the safe state before touching provider or credential-store state.
             // If the process stops after this point, the next run will not claim
             // that the credential is usable.
             self.store
@@ -804,7 +821,7 @@ fn mcp_target_ineligibility(account: &Account) -> Option<&'static str> {
         return Some("the recorded grant does not include Gmail read-only access");
     }
     if account.token_key.is_none() {
-        return Some("the account has no protected keyring reference");
+        return Some("the account has no protected credential reference");
     }
     None
 }
@@ -1281,7 +1298,7 @@ fn configured_broker_socket() -> Result<PathBuf> {
 
 fn print_help() {
     println!(
-        "Arqen\n\nCommands:\n  credential-broker  Serve host keyring-backed Gmail access over a Unix socket\n  mcp-server         Serve the Streamable HTTP MCP endpoint\n\nWith no command, start the interactive account TUI."
+        "Arqen\n\nCommands:\n  credential-broker  Serve protected-store-backed Gmail access over a Unix socket\n  mcp-server         Serve the Streamable HTTP MCP endpoint\n\nWith no command, start the interactive account TUI."
     );
 }
 
