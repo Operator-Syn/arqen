@@ -25,11 +25,14 @@ The wrappers source `.env`; they never print bearer tokens or OAuth JSON.
 
 `make smoke-local` exercises the native broker and MCP processes on disposable
 loopback ports and a temporary Unix socket. `make compose-smoke` performs the
-same authenticated protocol checks with a disposable Docker Compose service.
-Both stop their processes/containers and remove only the temporary paths they
-created. Neither test calls Google. Add `--call` (`make smoke-local-call` or
-`make compose-smoke-call`) only for an intentional live `list_emails` request
-using the selected account and host keyring.
+same authenticated protocol checks with a disposable legacy Docker Compose
+service. `make docker-setup` and `make docker-up` exercise the persistent
+Docker-native profile; its clean-slate smoke includes OpenBao initialization,
+unseal recovery, streamed TUI HTTP access, broker/MCP readiness, and role
+policy checks. These protocol paths do not call Google. Add `--call`
+(`make smoke-local-call` or `make compose-smoke-call`) only for an intentional
+live `list_emails` request using the selected account and the configured
+protected credential store.
 
 The unit tests cover SQLite target invariants, TUI target rendering and
 keyboard behavior, callback routes, bounded broker frames, Gmail request
