@@ -1,0 +1,222 @@
+services:
+  openbao:
+    image: openbao/openbao:2.6.0
+    command: ["server", "-config=/etc/openbao/config.hcl"]
+    volumes:
+      - arqen-openbao-data:/openbao/file
+      - ./openbao/config.hcl:/etc/openbao/config.hcl:ro
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  openbao-bootstrap:
+    image: openbao/openbao:2.6.0
+    user: "0:0"
+    environment:
+      BAO_ADDR: http://openbao:8200
+      ARQEN_OPENBAO_SETUP_DIR: /run/arqen/setup
+      ARQEN_OPENBAO_SECRET_UID: "${ARQEN_DOCKER_SECRET_UID:-0}"
+      ARQEN_OPENBAO_SECRET_GID: "${ARQEN_DOCKER_SECRET_GID:-0}"
+    volumes:
+      - "${ARQEN_DOCKER_SECRETS_DIR:?set ARQEN_DOCKER_SECRETS_DIR}:/run/arqen/setup:rw"
+      - "${ARQEN_ROOT:-.}/deploy/containers/openbao/policy-control.hcl:/etc/arqen/policy-control.hcl:ro"
+      - "${ARQEN_ROOT:-.}/deploy/containers/openbao/policy-broker.hcl:/etc/arqen/policy-broker.hcl:ro"
+      - "${ARQEN_ROOT:-.}/deploy/containers/openbao/bootstrap.sh:/run/arqen/bootstrap.sh:ro"
+    entrypoint: ["/bin/sh", "/run/arqen/bootstrap.sh"]
+    depends_on:
+      - openbao
+    profiles:
+      - ops
+
+  openbao-unseal:
+    image: openbao/openbao:2.6.0
+    user: "0:0"
+    environment:
+      BAO_ADDR: http://openbao:8200
+    entrypoint: ["/bin/sh", "/run/arqen/unseal.sh"]
+    secrets:
+      - arqen-openbao-unseal-key
+    volumes:
+      - "${ARQEN_ROOT:-.}/deploy/containers/openbao/unseal.sh:/run/arqen/unseal.sh:ro"
+    depends_on:
+      - openbao
+    profiles:
+      - ops
+
+  arqen-secret-init:
+    image: debian:bookworm-slim
+    environment:
+      ARQEN_DOCKER_HOST_UID: "${ARQEN_DOCKER_HOST_UID:-65532}"
+      ARQEN_DOCKER_HOST_GID: "${ARQEN_DOCKER_HOST_GID:-65532}"
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        set -eu;
+        install -d -m 0700 -o "$${ARQEN_DOCKER_HOST_UID}" -g "$${ARQEN_DOCKER_HOST_GID}"
+        /run/arqen-control-secrets /run/arqen-broker-secrets
+        /run/arqen-mcp-secrets;
+        chown -R "$${ARQEN_DOCKER_HOST_UID}:$${ARQEN_DOCKER_HOST_GID}"
+        /var/lib/arqen /run/arqen;
+        for secret in google-client-secret arqen-control-password
+        arqen-openbao-control-role-id arqen-openbao-control-secret-id; do
+        install -m 0400 -o "$${ARQEN_DOCKER_HOST_UID}" -g "$${ARQEN_DOCKER_HOST_GID}"
+        "/run/secrets/$${secret}" "/run/arqen-control-secrets/$${secret}";
+        done;
+        for secret in google-client-secret arqen-openbao-broker-role-id
+        arqen-openbao-broker-secret-id; do
+        install -m 0400 -o "$${ARQEN_DOCKER_HOST_UID}" -g "$${ARQEN_DOCKER_HOST_GID}"
+        "/run/secrets/$${secret}" "/run/arqen-broker-secrets/$${secret}";
+        done;
+        install -m 0400 -o "$${ARQEN_DOCKER_HOST_UID}" -g "$${ARQEN_DOCKER_HOST_GID}"
+        /run/secrets/arqen-mcp-bearer-token
+        /run/arqen-mcp-secrets/arqen-mcp-bearer-token
+    volumes:
+      - arqen-control-secret-cache:/run/arqen-control-secrets
+      - arqen-broker-secret-cache:/run/arqen-broker-secrets
+      - arqen-mcp-secret-cache:/run/arqen-mcp-secrets
+      - arqen-data:/var/lib/arqen
+      - arqen-runtime:/run/arqen
+    secrets:
+      - google-client-secret
+      - arqen-control-password
+      - arqen-mcp-bearer-token
+      - arqen-openbao-control-role-id
+      - arqen-openbao-control-secret-id
+      - arqen-openbao-broker-role-id
+      - arqen-openbao-broker-secret-id
+    user: "0:0"
+    profiles:
+      - ops
+
+  arqen-broker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.docker-native
+      network: host
+    command: ["credential-broker"]
+    environment:
+      XDG_DATA_HOME: /var/lib/arqen
+      XDG_RUNTIME_DIR: /run
+      GOOGLE_CLIENT_SECRET: /run/arqen-secrets/google-client-secret
+      ARQEN_GMAIL_BROKER_SOCKET: /run/arqen/gmail-broker.sock
+      ARQEN_SECRET_BACKEND: openbao
+      ARQEN_OPENBAO_ADDR: http://openbao:8200
+      ARQEN_OPENBAO_ROLE_ID_FILE: /run/arqen-secrets/arqen-openbao-broker-role-id
+      ARQEN_OPENBAO_SECRET_ID_FILE: /run/arqen-secrets/arqen-openbao-broker-secret-id
+    volumes:
+      - arqen-data:/var/lib/arqen
+      - arqen-runtime:/run/arqen
+      - arqen-broker-secret-cache:/run/arqen-secrets:ro
+    restart: unless-stopped
+    read_only: true
+    user: "${ARQEN_DOCKER_HOST_UID:-65532}:${ARQEN_DOCKER_HOST_GID:-65532}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - openbao
+
+  arqen-control:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.docker-native
+      network: host
+    # ttyd 1.7.7 can retain stale first-load dimensions after switching to
+    # WebGL; the DOM renderer fits the streamed control surface immediately.
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        exec /usr/local/bin/ttyd -W -O -i 0.0.0.0 -p 7681
+        -t rendererType=dom
+        -c "arqen:$$(cat /run/arqen-secrets/arqen-control-password)"
+        /usr/local/bin/arqen
+    entrypoint: []
+    environment:
+      XDG_DATA_HOME: /var/lib/arqen
+      XDG_RUNTIME_DIR: /run
+      GOOGLE_CLIENT_SECRET: /run/arqen-secrets/google-client-secret
+      ARQEN_SECRET_BACKEND: openbao
+      ARQEN_OPENBAO_ADDR: http://openbao:8200
+      ARQEN_OPENBAO_ROLE_ID_FILE: /run/arqen-secrets/arqen-openbao-control-role-id
+      ARQEN_OPENBAO_SECRET_ID_FILE: /run/arqen-secrets/arqen-openbao-control-secret-id
+      ARQEN_OAUTH_REMOTE: "1"
+      ARQEN_OAUTH_CALLBACK_PORT: "8765"
+      ARQEN_OAUTH_CALLBACK_BIND_ADDR: 0.0.0.0
+      ARQEN_OAUTH_CALLBACK_PUBLIC_HOST: 127.0.0.1
+    ports:
+      - "127.0.0.1:${ARQEN_CONTROL_HOST_PORT:-7681}:7681"
+      - "127.0.0.1:${ARQEN_OAUTH_CALLBACK_HOST_PORT:-8765}:8765"
+    volumes:
+      - arqen-data:/var/lib/arqen
+      - arqen-control-secret-cache:/run/arqen-secrets:ro
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    read_only: true
+    user: "${ARQEN_DOCKER_HOST_UID:-65532}:${ARQEN_DOCKER_HOST_GID:-65532}"
+    group_add:
+      - "${ARQEN_DOCKER_HOST_GID:-65532}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - arqen-broker
+      - openbao
+
+  arqen-mcp:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      network: host
+    environment:
+      ARQEN_MCP_LISTEN_ADDR: 0.0.0.0:8787
+      ARQEN_MCP_ALLOWED_HOSTS: "${ARQEN_MCP_ALLOWED_HOSTS:-127.0.0.1:8787}"
+      ARQEN_MCP_ALLOWED_ORIGINS: "${ARQEN_MCP_ALLOWED_ORIGINS:-http://127.0.0.1:8787}"
+      ARQEN_GMAIL_BROKER_SOCKET: /run/arqen/gmail-broker.sock
+      ARQEN_MCP_BEARER_TOKEN_FILE: /run/arqen-secrets/arqen-mcp-bearer-token
+    ports:
+      - "127.0.0.1:${ARQEN_MCP_HOST_PORT:-8787}:8787"
+    volumes:
+      - arqen-runtime:/run/arqen:ro
+      - arqen-mcp-secret-cache:/run/arqen-secrets:ro
+    restart: unless-stopped
+    read_only: true
+    user: "${ARQEN_DOCKER_HOST_UID:-65532}:${ARQEN_DOCKER_HOST_GID:-65532}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - arqen-broker
+
+secrets:
+  google-client-secret:
+    file: "${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET to the OAuth client JSON path}"
+  arqen-control-password:
+    file: "${ARQEN_DOCKER_SECRETS_DIR:?set ARQEN_DOCKER_SECRETS_DIR}/arqen-control-password"
+  arqen-mcp-bearer-token:
+    file: "${ARQEN_MCP_BEARER_TOKEN_FILE:?set ARQEN_MCP_BEARER_TOKEN_FILE to the MCP token path}"
+  arqen-openbao-unseal-key:
+    file: "${ARQEN_DOCKER_SECRETS_DIR:?set ARQEN_DOCKER_SECRETS_DIR}/openbao-unseal-key"
+  arqen-openbao-control-role-id:
+    file: "${ARQEN_DOCKER_SECRETS_DIR:?set ARQEN_DOCKER_SECRETS_DIR}/openbao-control-role-id"
+  arqen-openbao-control-secret-id:
+    file: "${ARQEN_DOCKER_SECRETS_DIR:?set ARQEN_DOCKER_SECRETS_DIR}/openbao-control-secret-id"
+  arqen-openbao-broker-role-id:
+    file: "${ARQEN_DOCKER_SECRETS_DIR:?set ARQEN_DOCKER_SECRETS_DIR}/openbao-broker-role-id"
+  arqen-openbao-broker-secret-id:
+    file: "${ARQEN_DOCKER_SECRETS_DIR:?set ARQEN_DOCKER_SECRETS_DIR}/openbao-broker-secret-id"
+
+volumes:
+  arqen-data:
+  arqen-runtime:
+  arqen-openbao-data:
+  arqen-control-secret-cache:
+  arqen-broker-secret-cache:
+  arqen-mcp-secret-cache:
