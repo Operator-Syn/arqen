@@ -1,0 +1,9 @@
+services:
+  arqen-control:
+    environment:
+      XDG_RUNTIME_DIR: /run/arqen-display
+      WAYLAND_DISPLAY: wayland-0
+    volumes:
+      - type: bind
+        source: "${ARQEN_DOCKER_WAYLAND_SOCKET:?set ARQEN_DOCKER_WAYLAND_SOCKET to the Wayland socket}"
+        target: /run/arqen-display/wayland-0
