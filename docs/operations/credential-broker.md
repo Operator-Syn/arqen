@@ -1,7 +1,10 @@
 # Running the credential broker
 
-The broker is deliberately host-side so the process that can access the OS
-keyring and SQLite database is not the public HTTP process.
+The native broker is deliberately host-side so the process that can access the
+OS keyring and SQLite database is not the public HTTP process. The Docker-native
+profile uses the same Unix-socket boundary but runs the broker in its own
+container and resolves refresh tokens through OpenBao instead of the host
+keyring; see [the Docker-native local workflow](../development/local-workflows.md#docker-native-local-stack).
 
 ```bash
 cargo run -- credential-broker
