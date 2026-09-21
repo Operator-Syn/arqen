@@ -175,9 +175,14 @@ The MCP container receives only the bearer-token file and broker socket. OAuth
 client JSON and all OpenBao role credentials stay in the control or broker
 containers.
 
-Run `make docker-up` from the graphical host session that owns the clipboard.
-The startup script prefers Wayland and falls back to X11, validates the
-selected socket, and adds only that display interface to `arqen-control`.
+Run `make docker-up` once from the graphical host session that owns the
+clipboard. The startup script prefers Wayland and falls back to X11, validates
+the selected socket, and adds only that display interface to `arqen-control`.
+The headless OpenBao, broker, and MCP services may be restored by the system
+Docker daemon, but `arqen-control` is deliberately not a boot-restarted
+container: its native display socket is session-owned. `make quickstart`
+installs `arqen-docker-control.service`; enable that user unit when the control
+container should start automatically after the graphical session is ready.
 The local Arqen app containers run as the invoking non-root host UID/GID so
 the shared SQLite, broker socket, and compositor authorization stay coherent.
 Press `c` on the authorization screen to use Arqen's native clipboard path;
