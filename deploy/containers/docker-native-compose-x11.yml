@@ -1,0 +1,18 @@
+services:
+  arqen-control:
+    environment:
+      DISPLAY: "${DISPLAY:?set DISPLAY to the X11 display}"
+      XAUTHORITY: /run/secrets/arqen-xauthority
+    volumes:
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
+        read_only: true
+    secrets:
+      - source: arqen-xauthority
+        target: arqen-xauthority
+        mode: 0444
+
+secrets:
+  arqen-xauthority:
+    file: "${XAUTHORITY:?set XAUTHORITY to the Xauthority file}"
