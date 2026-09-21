@@ -74,6 +74,84 @@ arqen_prepare_runtime() {
     fi
 }
 
+arqen_detect_docker_display() {
+    local requested_mode="${ARQEN_DOCKER_DISPLAY_MODE:-auto}"
+    local mode=""
+    local wayland_socket=""
+    local display_value=""
+    local display_number=""
+    local xauthority=""
+
+    case "$requested_mode" in
+        auto|wayland|x11)
+            ;;
+        *)
+            arqen_die "ARQEN_DOCKER_DISPLAY_MODE must be auto, wayland, or x11"
+            ;;
+    esac
+
+    if [[ "$requested_mode" != x11 && -n "${WAYLAND_DISPLAY:-}" ]]; then
+        wayland_socket="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
+        if [[ -S "$wayland_socket" ]]; then
+            mode=wayland
+        elif [[ "$requested_mode" == wayland ]]; then
+            arqen_die "Wayland socket is not available at $wayland_socket"
+        fi
+    elif [[ "$requested_mode" == wayland ]]; then
+        arqen_die 'ARQEN_DOCKER_DISPLAY_MODE=wayland requires WAYLAND_DISPLAY'
+    fi
+
+    if [[ -z "$mode" && "$requested_mode" != wayland ]]; then
+        display_value="${DISPLAY:-}"
+        case "$display_value" in
+            unix/:*)
+                display_value="${display_value#unix/}"
+                ;;
+            unix:*)
+                display_value="${display_value#unix}"
+                ;;
+        esac
+        if [[ "$display_value" =~ ^:([0-9]+)(\..*)?$ ]]; then
+            display_number="${BASH_REMATCH[1]}"
+            if [[ -d /tmp/.X11-unix && -S "/tmp/.X11-unix/X$display_number" ]]; then
+                xauthority="${XAUTHORITY:-${HOME:-}/.Xauthority}"
+                if [[ -r "$xauthority" ]]; then
+                    mode=x11
+                elif [[ "$requested_mode" == x11 ]]; then
+                    arqen_die "Xauthority file is not readable: $xauthority"
+                fi
+            elif [[ "$requested_mode" == x11 ]]; then
+                arqen_die "X11 socket is not available at /tmp/.X11-unix/X$display_number"
+            fi
+        elif [[ "$requested_mode" == x11 ]]; then
+            arqen_die "local X11 DISPLAY is required (got ${DISPLAY:-unset})"
+        fi
+    fi
+
+    case "$mode" in
+        wayland)
+            export ARQEN_DOCKER_DISPLAY_MODE=wayland
+            export ARQEN_DOCKER_WAYLAND_SOCKET="$wayland_socket"
+            export ARQEN_DOCKER_DISPLAY_COMPOSE_FILE="$ARQEN_ROOT/deploy/containers/docker-native-compose-wayland.yml"
+            ;;
+        x11)
+            export ARQEN_DOCKER_DISPLAY_MODE=x11
+            export XAUTHORITY="$xauthority"
+            export ARQEN_DOCKER_DISPLAY_COMPOSE_FILE="$ARQEN_ROOT/deploy/containers/docker-native-compose-x11.yml"
+            ;;
+        *)
+            arqen_die 'no native display is available; run make docker-up from a Wayland or X11 desktop session'
+            ;;
+    esac
+
+    export ARQEN_DOCKER_HOST_UID="${ARQEN_DOCKER_HOST_UID:-$(id -u)}"
+    export ARQEN_DOCKER_HOST_GID="${ARQEN_DOCKER_HOST_GID:-$(id -g)}"
+    [[ "$ARQEN_DOCKER_HOST_UID" =~ ^[0-9]+$ ]] \
+        || arqen_die "ARQEN_DOCKER_HOST_UID must be numeric"
+    [[ "$ARQEN_DOCKER_HOST_GID" =~ ^[0-9]+$ ]] \
+        || arqen_die "ARQEN_DOCKER_HOST_GID must be numeric"
+}
+
 arqen_require_google_client() {
     local configured_path="${GOOGLE_CLIENT_SECRET:-${XDG_CONFIG_HOME:-${HOME:-}/.config}/arqen/google-client-secret.json}"
     local resolved_path
