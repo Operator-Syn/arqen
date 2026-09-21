@@ -27,21 +27,42 @@ pub(crate) struct CallbackServer {
 
 impl CallbackServer {
     pub(crate) fn start() -> Result<Self> {
-        Self::start_with_port(None)
+        Self::start_with_port(None, "127.0.0.1", "127.0.0.1")
     }
 
+    #[cfg(test)]
     pub(crate) fn start_on_port(port: u16) -> Result<Self> {
-        Self::start_with_port(Some(port))
+        Self::start_with_port(Some(port), "127.0.0.1", "127.0.0.1")
     }
 
-    fn start_with_port(port: Option<u16>) -> Result<Self> {
-        let listener = TcpListener::bind(("127.0.0.1", port.unwrap_or(0)))
-            .context("bind OAuth loopback listener")?;
+    pub(crate) fn start_on_port_with_bind(
+        port: u16,
+        bind_addr: &str,
+        public_host: &str,
+    ) -> Result<Self> {
+        Self::start_with_port(Some(port), bind_addr, public_host)
+    }
+
+    fn start_with_port(port: Option<u16>, bind_addr: &str, public_host: &str) -> Result<Self> {
+        anyhow::ensure!(
+            !bind_addr.is_empty(),
+            "OAuth callback bind address cannot be empty"
+        );
+        anyhow::ensure!(
+            !public_host.is_empty(),
+            "OAuth callback public host cannot be empty"
+        );
+        anyhow::ensure!(
+            !bind_addr.chars().any(char::is_control) && !public_host.chars().any(char::is_control),
+            "OAuth callback address contains control characters"
+        );
+        let listener = TcpListener::bind((bind_addr, port.unwrap_or(0)))
+            .context("bind OAuth callback listener")?;
         listener
             .set_nonblocking(true)
             .context("configure OAuth loopback listener")?;
         let port = listener.local_addr()?.port();
-        let base_uri = format!("http://127.0.0.1:{port}");
+        let base_uri = format!("http://{public_host}:{port}");
         let redirect_uri = format!("{base_uri}/oauth2/callback");
         let token = Uuid::new_v4().simple().to_string();
         let launch_path = format!("{LAUNCH_PATH_PREFIX}{token}");
@@ -394,6 +415,21 @@ mod tests {
             server
                 .redirect_uri()
                 .starts_with(&format!("http://127.0.0.1:{port}/"))
+        );
+    }
+
+    #[test]
+    fn callback_server_can_bind_container_address_and_advertise_host_loopback() {
+        let _lock = lock_callback_tests();
+        let probe = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = probe.local_addr().unwrap().port();
+        drop(probe);
+
+        let server = CallbackServer::start_on_port_with_bind(port, "0.0.0.0", "127.0.0.1")
+            .expect("callback server");
+        assert_eq!(
+            server.redirect_uri(),
+            format!("http://127.0.0.1:{port}/oauth2/callback")
         );
     }
 
