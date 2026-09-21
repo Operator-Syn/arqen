@@ -5,9 +5,10 @@ linked.
 
 1. The TUI is the only component that lets a person choose the MCP target.
    Selection is restricted to a connected identity with recorded Gmail
-   read-only consent and a keyring reference.
+   read-only consent and a protected credential reference.
 2. The broker socket is local and user-only (`0700` directory, `0600` socket).
-   It reads refresh tokens from the OS keyring and never serializes them.
+   Native runs read refresh tokens from the OS keyring; Docker runs read them
+   from OpenBao through a broker-only AppRole. Neither mode serializes them.
 3. The MCP server is the remote boundary. It requires a configured bearer
    token, exact allowlisted Host/Origin values, and a 1 MiB request cap.
 4. Nginx (or another reverse proxy) is expected to terminate TLS and apply
@@ -20,6 +21,11 @@ linked.
    the OAuth callback listener is never bound to a public interface.
 7. `/healthz` and `/readyz` require the same bearer gate as `/mcp`; readiness
    does not call Google or return credential state beyond stable failure codes.
+8. Docker-native clipboard access is limited to the local control container.
+   The broker, MCP, and OpenBao containers receive neither the host display
+   socket nor clipboard access. The app containers use the invoking non-root
+   host UID/GID for local volume and Unix-socket ownership; this does not grant
+   them a display socket.
 
 The Gmail read-only scope is restricted under Google’s current scope policy;
 see the [Gmail scope documentation](https://developers.google.com/workspace/gmail/api/auth/scopes)
