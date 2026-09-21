@@ -1,7 +1,8 @@
 # ADR-004: Unattended user services and SSH loopback OAuth
 
-- **Status:** Accepted as the native-host alternative; first-pass Docker VPS
-  deployment is recorded in ADR-005.
+- **Status:** Accepted as the native-host alternative; Docker-native local
+  deployment is documented separately and the legacy Docker VPS deployment is
+  recorded in ADR-005.
 - **Decision:** Run `credential-broker` and `mcp-server` as separate systemd
   user services under the same Linux user as the TUI and OS keyring. Prepare
   them with `make quickstart`; activation and user lingering are explicit
