@@ -1,8 +1,10 @@
 # Arqen
 
 An agent-agnostic Rust TUI for authenticating and managing multiple Google
-accounts. The bundled MCP server can consume bounded Gmail metadata through a
-host-side credential broker.
+accounts. The Docker-native profile is the primary local workflow: it runs the
+TUI, OpenBao-backed credential broker, and bounded MCP endpoint in one
+loopback-only Compose stack. Native and VPS/reverse-proxy profiles remain
+available as alternatives.
 
 ## Current slice
 
@@ -22,9 +24,10 @@ host-side credential broker.
   replaces the previous target. The target marker and status are persisted in
   SQLite.
 - Login displays a Google authorization URL, captures the Google loopback
-  redirect automatically, exchanges the authorization code, stores the refresh token in the OS keyring,
-  and saves account metadata, a key reference, and the exact granted scope set
-  returned by Google in SQLite.
+  redirect automatically, exchanges the authorization code, stores the refresh
+  token in the configured protected credential store (OpenBao in Docker, OS
+  keyring natively), and saves account metadata, an opaque token reference, and
+  the exact granted scope set returned by Google in SQLite.
 - Press `q` or `Esc` to exit.
 
 The database is created at `$XDG_DATA_HOME/arqen/accounts.sqlite3`, or
@@ -35,7 +38,7 @@ be read from their legacy path safely.
 
 ## Run
 
-For a repeatable local setup, run the named workflow once. It creates an
+For a repeatable native fallback setup, run the named workflow once. It creates an
 ignored `.env` from [`.env.example`](.env.example), creates a user-only bearer
 token file, and loads those values automatically for every script:
 
@@ -68,6 +71,11 @@ Then:
    browser launcher; close that browser window manually after login if needed.
 6. If the loopback listener cannot start, the TUI provides the legacy manual
    redirect-input fallback.
+
+After login, select the eligible account that agents should use and press `t`
+to persist it as the MCP target. Start the native backend in another terminal
+with `make backend`; it keeps the broker and loopback MCP endpoint available
+until you press Ctrl-C.
 
 The `LOGIN_HELPER_ENABLED` toggle in `src/main.rs` is disabled by default. Set it
 to `true` to use the optional local user-gesture popup helper instead of the
@@ -111,18 +119,46 @@ account implicitly or accepts a subject from the remote caller. The tool lists
 message IDs and fetches `From`, `Subject`, `Date`, labels, and a snippet (at
 most 300 Unicode characters), with a public page-size cap of 50.
 
-The server is split into two processes so refresh tokens stay on the host:
+The server is split into two processes so refresh tokens stay outside the MCP
+HTTP process:
 
 ```text
-TUI + SQLite + OS keyring ── Unix socket ── credential-broker
-                                              │
-                                      mcp-server (HTTP)
+Docker control TUI + SQLite ── OpenBao ── credential-broker
+                                             │
+                                     mcp-server (HTTP)
 ```
 
-In the first-pass VPS deployment, the TUI and credential broker run on the VPS
-host while `mcp-server` runs in the Docker container. The container receives a
-read-only broker socket mount; it does not receive the SQLite database, OS
-keyring, OAuth client JSON, or refresh tokens.
+The Docker-native local path keeps the TUI, SQLite database, OpenBao, credential
+broker, and MCP HTTP process on the same computer while isolating the MCP
+container from OAuth and OpenBao credentials. The MCP listener defaults to
+`127.0.0.1:8787`, so local agents can use it without making the service public.
+The native fallback keeps the same process split with the OS keyring; the
+first-pass VPS deployment remains supported with only `mcp-server` in Docker.
+
+### Local agent connection
+
+Configure an MCP client that supports Streamable HTTP and custom request
+headers with:
+
+- URL: `http://127.0.0.1:8787/mcp`
+- Header: `Authorization: Bearer <contents of .secrets/mcp-bearer-token>`
+
+The default allowlists require `Host: 127.0.0.1:8787`. A supplied `Origin`
+must be `http://127.0.0.1:8787`; clients that omit `Origin` are accepted by the
+MCP transport. A client using `localhost:8787` must add matching host and origin
+values to `.env` rather than silently bypassing the allowlist.
+
+The broker and TUI must share the same Docker profile (or, in native mode, the
+same user) so they share the SQLite database, runtime Unix socket, and selected
+credential backend. Any local agent that can read the bearer token has the same
+single-operator access; per-agent authorization is not part of this slice. The
+server advertises only the read-only `list_emails` tool and always uses the one
+target selected with `t`.
+
+Use authenticated `GET /healthz` to check HTTP liveness and `GET /readyz` to
+check broker, database, selected-target, and protected-credential readiness. Readiness does
+not call Gmail; a successful `list_emails` call is the first live provider
+check.
 
 ### Local workflow
 
@@ -203,27 +239,79 @@ server, container, systemd, and Nginx files do not create secrets, issue
 certificates, change DNS/firewall state, activate services, or deploy a live
 endpoint.
 
-### Unattended user services
+### Unattended local user services
 
-Build and prepare the VPS host-side broker plus Docker MCP workflow with:
+For an always-on local deployment, install and enable both native user services
+with user lingering:
 
 ```bash
-make vps-up
+make quickstart ARQEN_QUICKSTART_ARGS='--enable --enable-native-mcp --enable-linger'
 ```
 
-This builds the host binary, prepares XDG config paths and a user-only bearer
-token file, enables the host credential broker with user lingering, and starts
-the Docker MCP container. The native MCP unit is retained as an alternative
-but is not enabled by the first-pass VPS workflow.
+This builds the release binary, prepares XDG config paths and a user-only bearer
+token file, and starts the native broker plus loopback MCP service. It does not
+create OAuth credentials or select an account; complete those steps in the TUI.
 
-To prepare without activation:
+For a foreground session, `make backend` remains the simplest supervisor. Both
+paths keep service lifecycle outside the TUI, so agents can reconnect after the
+TUI exits.
+
+To prepare the native user units without enabling or starting them:
 
 ```bash
 make quickstart
 ```
 
+### Docker-native local workflow
+
+For a clean-slate deployment where all Arqen processes run in Docker, use the
+Docker-native stack:
+
+```bash
+make docker-setup   # first run only
+make docker-up
+```
+
+Open `http://127.0.0.1:7681`, read the generated control password from
+`.secrets/arqen-control-password`, complete OAuth, and press `t` to select the
+single MCP target. The stack publishes only loopback ports for the streamed
+TUI, OAuth callback, and MCP endpoint; OpenBao is internal-only. Inspect or
+stop it with `make docker-status` and `make docker-down`. Use
+`make docker-reset ARQEN_DOCKER_RESET_CONFIRM=YES` only to delete the fresh
+Docker profile and generated OpenBao/control secrets.
+
+The streamed control terminal uses ttyd's DOM renderer in Docker mode. This is
+intentional: ttyd 1.7.7 can retain stale cell measurements when its initial DOM
+renderer is replaced by WebGL, leaving blank space until the browser is
+resized. The DOM renderer makes the terminal fill the browser viewport on its
+first load; Arqen's small inner terminal inset remains intentional.
+
+Run `make docker-up` from the graphical host session that owns the clipboard.
+The command detects Wayland first and X11 second, then gives only the control
+container the corresponding native display socket. Pressing `c` uses Arqen's
+native clipboard implementation, so the exact OAuth URL is copied without
+parsing ttyd's rendered terminal rows. The broker, MCP, and OpenBao containers
+receive no display access. A headless Docker host cannot use this copy action;
+use the native TUI/manual OAuth workflow there.
+
+The Docker-native profile starts with a new SQLite/OpenBao volume and does not
+migrate older native keyring accounts.
+
+When the MCP HTTP boundary needs to run in Docker on a VPS, use the retained
+first-pass workflow:
+
+```bash
+make vps-up
+```
+
+It enables the host broker and starts the Docker MCP container. The native MCP
+unit remains available for hosts that do not use Docker. The checked-in Compose,
+systemd, and Nginx files are deployment templates; they do not create secrets,
+issue certificates, change DNS/firewall state, activate services, or deploy a
+live endpoint by themselves.
+
 The MCP service exposes authenticated `/healthz` for process liveness and
-`/readyz` for broker/database/target/keyring readiness. A missing target keeps
+`/readyz` for broker/database/target/protected-credential readiness. A missing target keeps
 the service alive but returns a not-ready result and `target_not_configured`
 for tool calls. Inspect service state with `systemctl --user` and
 `journalctl --user`; no service activation or public deployment is performed
@@ -263,12 +351,14 @@ details pane to its top; no scroll position or scrollbar state is persisted.
 
 ## Security boundary
 
-SQLite stores account metadata and a keyring reference. It does not store OAuth
-access or refresh tokens. Refresh tokens are stored using the `keyring` crate,
-which uses the persistent Linux Secret Service backend (with the keyutils cache)
-in the flake development environment. Access tokens are held only in memory
-during login and short-lived broker requests; they are never persisted or
-returned to the MCP server.
+SQLite stores account metadata and an opaque refresh-token reference. It does
+not store OAuth access or refresh tokens. Docker uses OpenBao KV v2 with
+separate control and broker AppRoles; native runs use the `keyring` crate and
+the persistent Linux Secret Service backend. Access tokens are held only in
+memory during login and short-lived broker requests; they are never persisted
+or returned to the MCP server. The MCP container receives only its bearer
+token and broker socket, never OAuth client JSON, OpenBao credentials, or
+refresh-token values.
 
 Older development builds used keyring's in-memory mock when no backend feature
 was configured. Those tokens were never persisted and cannot be recovered;
