@@ -1,9 +1,10 @@
-# Local workflows
+# Local-first workflows
 
-The repository includes a small set of named Bash workflows so a development
-session does not require repeatedly exporting the same values. The tracked
-`.env.example` contains loopback defaults and paths only; copy it to the
-ignored `.env` with:
+The repository supports a Docker-native local profile and a native loopback
+fallback. The Docker profile runs the full clean-slate stack; the legacy VPS and
+reverse-proxy workflows remain separate alternatives. The named Bash workflows
+avoid repeatedly exporting the same values. The tracked `.env.example` contains
+loopback defaults and paths only; copy it to the ignored `.env` with:
 
 ```bash
 make setup-local
@@ -14,24 +15,30 @@ That command creates `.env` with mode `0600`, creates `.secrets/` with mode
 file is configured and missing. It never generates or prints Google OAuth
 credentials. Add the real desktop-client JSON at the configured
 `GOOGLE_CLIENT_SECRET` path before starting a login or making a live Gmail
-request.
+request. Then run `make tui`, complete the Google login, and press `t` on the
+eligible account that should be exposed to local agents.
 
 ## Named commands
 
 | Command | Purpose | Live Google request? |
 | --- | --- | --- |
+| `make docker-setup` | initialize the clean-slate Docker-native OpenBao profile and protected local setup files | no |
+| `make docker-up` | start the Docker-native TUI, broker, and MCP stack and wait for MCP liveness | no |
+| `make docker-status` | report container, OpenBao, MCP liveness, and MCP readiness without printing secrets | no |
+| `make docker-down` | stop the Docker-native stack while preserving its volumes | no |
+| `make docker-reset ARQEN_DOCKER_RESET_CONFIRM=YES` | explicitly delete the fresh Docker-native volumes and generated setup secrets | no |
 | `make quickstart` | build/install the binary and prepare native user units without activation | no |
-| `make vps-up` | enable the host broker and start the Docker MCP service | no, until a tool call arrives |
 | `make tui` | start the interactive account TUI | only when the user starts login |
 | `make backend` | set up and supervise the native broker + MCP backend | no, until a tool call arrives |
 | `make broker` | start the host keyring/SQLite credential broker; asks before stale-socket takeover | no, until an MCP call arrives |
 | `make mcp` | start the authenticated Streamable HTTP MCP process | no, until a tool call arrives |
+| `make vps-up` | optional: enable the host broker and start the Docker MCP service | no, until a tool call arrives |
 | `make check` | format, test, lint, build, flake, and diff checks | no |
 | `make smoke-local` | disposable native broker + MCP protocol smoke | no |
 | `make smoke-local-call` | native smoke plus one `list_emails` call | yes |
-| `make compose-up` / `make compose-down` | manage the configured local container | no, until a tool call arrives |
-| `make compose-smoke` | disposable Compose protocol smoke | no |
-| `make compose-smoke-call` | Compose smoke plus one `list_emails` call | yes |
+| `make compose-up` / `make compose-down` | optional: manage the configured Docker container | no, until a tool call arrives |
+| `make compose-smoke` | optional: disposable Compose protocol smoke | no |
+| `make compose-smoke-call` | optional: Compose smoke plus one `list_emails` call | yes |
 
 Each target delegates to a correspondingly named executable in `scripts/`.
 `scripts/lib/common.sh` loads `.env`, resolves repository-relative paths, and
@@ -53,6 +60,24 @@ the native MCP HTTP server, checks authenticated `/healthz`, and keeps both
 processes attached to one terminal. Press Ctrl-C to stop the processes started
 by that command. If a broker was already running, it is reused and is not
 stopped by the supervisor.
+
+Native local agents connect to the shared endpoint at
+`http://127.0.0.1:8787/mcp` with an `Authorization: Bearer` header whose value
+comes from `.secrets/mcp-bearer-token`. The default Host allowlist is exactly
+`127.0.0.1:8787`; a supplied Origin must be
+`http://127.0.0.1:8787`, while an omitted Origin is accepted by the MCP
+transport. If a client uses `localhost:8787`, add matching host and origin
+values to `.env` explicitly.
+
+The native broker and TUI must run under the same user so the broker can use the
+same SQLite database, runtime socket, and OS keyring session. Every local agent that
+can read the bearer token shares the same single-operator access. The server
+exposes only the read-only `list_emails` tool and always uses the one account
+selected with `t` in the TUI; remote callers cannot choose another account.
+
+Use authenticated `GET /healthz` for HTTP liveness and `GET /readyz` for local
+broker/database/target/protected-credential readiness. `/readyz` does not call Gmail. A
+successful `list_emails` call is the first live provider check.
 
 Use `make backend ARQEN_BACKEND_ARGS=--usurp` to skip the stale-socket prompt.
 This only takes over a stale Unix socket; active or unknown resources remain
@@ -107,7 +132,7 @@ Press `a` in the remote TUI, open the displayed URL in the laptop browser, and
 keep the SSH connection open until the callback completes. The callback port
 is loopback-only on both ends and must not be opened in a firewall.
 
-## Unattended user services
+## Unattended local user services
 
 `make quickstart` installs the release binary under `~/.local/bin`, creates
 `~/.config/arqen/arqen.env` and the user-only bearer token file, installs
@@ -116,18 +141,85 @@ user systemd manager. It does not enable or start them unless explicitly
 requested:
 
 ```bash
-make quickstart ARQEN_QUICKSTART_ARGS='--enable --enable-linger'
-make compose-up
+make quickstart ARQEN_QUICKSTART_ARGS='--enable --enable-native-mcp --enable-linger'
 ```
 
-For the locked first-pass VPS deployment, use `make vps-up`; it enables only
-the host broker and starts the Docker MCP service. The native MCP unit is an
-alternative for hosts that do not use Docker. The Docker MCP process remains
-live while the broker recovers. Authenticated
-`/healthz` reports HTTP liveness; `/readyz` reports local broker/database/
-target/keyring readiness without calling Gmail. A service restart requires MCP
-clients to initialize again, but account and target configuration remain in
-SQLite.
+This builds and installs the release binary, creates the user-only config and
+token paths, enables both native services, and enables user lingering so the
+loopback MCP endpoint can remain available after logout. It does not create
+OAuth credentials or select an account; complete those steps in the TUI. A
+foreground `make backend` session remains the simpler choice when persistence
+is not needed. Authenticated `/healthz` reports HTTP liveness; `/readyz` reports
+local broker/database/target/keyring readiness without calling Gmail. A service
+restart requires MCP clients to initialize again, but account and target
+configuration remain in SQLite.
+
+## Docker-native local stack
+
+For a clean-slate deployment with no native Arqen processes, initialize and
+start the complete Compose stack:
+
+```bash
+make docker-setup   # first run only; creates protected local setup secrets
+make docker-up
+```
+
+The stack runs OpenBao, the credential broker, the streamed TUI, and the MCP
+server in Docker. OpenBao is internal-only; only loopback ports for the TUI
+(`7681`), OAuth callback (`8765`), and MCP (`8787`) are published. OpenBao
+refresh-token references use separate control and broker AppRoles. The TUI is
+available at `http://127.0.0.1:7681`; read the generated control password from
+`.secrets/arqen-control-password`, complete OAuth there, and press `t` to set
+the target.
+The MCP container receives only the bearer-token file and broker socket. OAuth
+client JSON and all OpenBao role credentials stay in the control or broker
+containers.
+
+Run `make docker-up` from the graphical host session that owns the clipboard.
+The startup script prefers Wayland and falls back to X11, validates the
+selected socket, and adds only that display interface to `arqen-control`.
+The local Arqen app containers run as the invoking non-root host UID/GID so
+the shared SQLite, broker socket, and compositor authorization stay coherent.
+Press `c` on the authorization screen to use Arqen's native clipboard path;
+the exact URL is copied without inspecting ttyd output. Broker, MCP, and
+OpenBao remain display-isolated. A headless Docker host should use the native
+TUI/manual OAuth workflow instead.
+
+The Docker control terminal pins ttyd's DOM renderer because the pinned ttyd
+1.7.7 WebGL preference can leave stale cell measurements on first load. The
+DOM renderer makes the streamed terminal fill the browser viewport immediately;
+the small inset inside the Arqen TUI is part of its intentional layout.
+
+Inspect or stop the stack without deleting its persistent volumes:
+
+```bash
+make docker-status
+make docker-down
+```
+
+The explicit reset path removes the fresh Docker profile and generated
+OpenBao/control secrets:
+
+```bash
+make docker-reset ARQEN_DOCKER_RESET_CONFIRM=YES
+```
+
+This profile intentionally starts with a new SQLite/OpenBao data volume; it
+does not migrate older native keyring accounts.
+
+## Deferred Docker/VPS workflow
+
+The Docker and VPS path remains available without being the local default:
+
+```bash
+make vps-up
+```
+
+This enables the host broker and starts the Docker MCP service. Use
+`make compose-up` and `make compose-down` when managing the configured container
+directly. The Compose, systemd, and Nginx files are deployment templates; they
+do not create secrets, issue certificates, change DNS/firewall state, activate
+services, or deploy a live endpoint by themselves.
 
 ## Disposable smoke checks
 
