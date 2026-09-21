@@ -125,7 +125,7 @@ pub(crate) fn disconnect_spec(email: &str, retry: bool, compact: bool) -> ModalS
             Line::from(email.to_owned()).alignment(Alignment::Center),
             Line::from(""),
             Line::from(if retry {
-                "Arqen will retry provider revocation and keyring cleanup."
+                "Arqen will retry provider revocation and protected credential cleanup."
             } else {
                 "Google access will be revoked and the local refresh token removed."
             }),
