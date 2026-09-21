@@ -398,7 +398,7 @@ fn target_ineligibility(account: &Account) -> Option<&'static str> {
         return Some("the configured MCP target has no recorded Gmail read-only grant");
     }
     if account.token_key.is_none() {
-        return Some("the configured MCP target has no protected keyring reference");
+        return Some("the configured MCP target has no protected credential reference");
     }
     None
 }
