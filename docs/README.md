@@ -7,9 +7,10 @@ or Google account has been deployed or exercised live.
 
 **Verification state:** `verified-repository` for the Rust code, tests, and
 checked-in examples; `verified-external` for the linked MCP and Gmail API
-contracts; `deployment-ready example` for the container, systemd, and Nginx
-templates. User-service activation, keyring persistence, remote OAuth, and
-public deployment remain operator-owned. Last reviewed: 2026-09-12.
+contracts; `deployment-ready example` for the Docker-native, legacy Compose,
+systemd, and Nginx templates. User-service activation, keyring/OpenBao
+persistence, OAuth, and public deployment remain operator-owned. Last
+reviewed: 2026-09-21.
 
 ## Document tree
 
@@ -59,7 +60,7 @@ docs/
   data flow.
 - [MCP API](api/mcp.md) is the client-facing Streamable HTTP contract.
 - [Gmail broker](components/gmail-broker.md) explains why refresh tokens stay
-  on the host with the TUI.
+  outside the MCP HTTP process in both native and Docker-native modes.
 - [Target-account decision](decisions/ADR-001-target-account.md) records the
   one-account-at-a-time policy.
 - [Verification](development/verification.md) separates source/build proof
@@ -83,16 +84,18 @@ remain the visual source of truth for the account dashboard. The root
   compact-layout footer affordances.
 - **Target configuration:** one persisted MCP target, selected explicitly in
   the TUI, with eligibility checks and fail-closed stale-target handling.
-- **Credential boundary:** host-only keyring broker with in-memory access-token
-  caching; no token values cross the broker protocol or enter SQLite.
+- **Credential boundary:** OpenBao-backed Docker broker or native keyring broker
+  with in-memory access-token caching; no token values cross the broker protocol
+  or enter SQLite.
 - **Gmail listing:** bounded inbox/search pagination, metadata-only headers,
   labels, and Unicode-safe snippet truncation.
 - **MCP transport:** Streamable HTTP `/mcp`, authenticated health probe,
   readiness probe, bearer gate, Host/Origin allowlists, and one advertised
   read-only tool.
-- **Operations:** host broker plus Docker MCP first-pass deployment, native
-  systemd alternative, and Nginx examples; activation, TLS, and public
-  deployment remain operator-owned.
+- **Operations:** native loopback services plus a Docker-native OpenBao/broker/
+  streamed-TUI/MCP profile for clean-slate local deployment, with the legacy
+  VPS and Nginx examples retained as deferred alternatives; activation, TLS,
+  and public deployment remain operator-owned.
 - **Local workflows:** `.env.example`, Make targets, Nix-aware Cargo wrappers,
   remote SSH OAuth instructions, quickstart installation, and disposable
   native/Compose smoke paths.
