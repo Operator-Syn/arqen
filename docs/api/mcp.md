@@ -16,9 +16,10 @@ specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/tr
 - Liveness: `GET /healthz` with the same bearer token returns `204 No Content`
   when the HTTP process is running.
 - Readiness: `GET /readyz` with the same bearer token returns `204 No Content`
-  only when the broker, account database, selected target, and local keyring
-  credential are usable. It returns `503` with a stable `{code,message}` JSON
-  body otherwise. It does not call Gmail or refresh a token.
+  only when the broker, account database, selected target, and configured
+  protected credential are usable. It returns `503` with a stable
+  `{code,message}` JSON body otherwise. It does not call Gmail or refresh a
+  token.
 
 The MCP SDK negotiates the protocol version and may return JSON or a
 request-scoped SSE stream according to the request and response needs. Clients
