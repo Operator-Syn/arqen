@@ -1,6 +1,7 @@
 # ADR-005: Docker MCP first-pass VPS deployment
 
-- **Status:** Accepted for the first-pass VPS build.
+- **Status:** Accepted for the first-pass VPS build; retained as the deferred
+  legacy path after the Docker-native local profile was added.
 - **Decision:** Run the TUI, SQLite account store, OS keyring, and credential
   broker on the VPS host. Run only `mcp-server` in Docker Compose with a
   read-only broker-socket mount and `restart: unless-stopped`.
