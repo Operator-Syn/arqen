@@ -21,12 +21,19 @@ requests do not mutate these UI states.
 
 ## Docker streamed surface
 
-The Docker-native stack serves this TUI through ttyd on `127.0.0.1:7681`. Its
-control service forces ttyd's DOM renderer because the pinned ttyd 1.7.7
-frontend can measure the initial DOM renderer and then switch to WebGL without a
-second fit, leaving unused space until the browser is resized. The workaround
-makes the terminal fill the browser viewport on first load. It does not remove
-the TUI's small intentional inset around its panels.
+The Docker-native stack serves this TUI through an Arqen control gateway on
+`127.0.0.1:7681`. Open that URL to use the branded local sign-in page, enter
+username `arqen` and the generated control password, then continue into the
+terminal. The gateway keeps ttyd on loopback port `7682`, stores only an
+in-memory 12-hour session cookie, and forwards a fixed internal auth header;
+the generated password is never placed in a browser URL or proxy request.
+
+The gateway owns the ttyd child process. ttyd still uses its DOM renderer
+because the pinned ttyd 1.7.7 frontend can measure the initial DOM renderer and
+then switch to WebGL without a second fit, leaving unused space until the
+browser is resized. The workaround makes the terminal fill the browser
+viewport on first load. It does not remove the TUI's small intentional inset
+around its panels.
 
 Docker mode uses the same native clipboard path as a local TUI session. The
 startup script detects Wayland or X11 and mounts only the selected native
