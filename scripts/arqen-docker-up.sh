@@ -49,6 +49,18 @@ docker compose "${compose_args[@]}" \
 docker compose "${compose_args[@]}" \
     up --build -d arqen-broker arqen-control arqen-mcp
 
+control_url="http://127.0.0.1:${ARQEN_CONTROL_HOST_PORT:-7681}"
+control_status=''
+for attempt in $(seq 1 120); do
+    control_status="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' \
+        "$control_url/" 2>/dev/null || true)"
+    if [[ "$control_status" == 200 ]]; then
+        break
+    fi
+    sleep 0.5
+done
+[[ "$control_status" == 200 ]] || arqen_die "Arqen control gateway did not become reachable at $control_url"
+
 openbao_status=''
 for attempt in $(seq 1 120); do
     openbao_status="$(docker compose "${compose_args[@]}" \
