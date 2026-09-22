@@ -24,6 +24,7 @@ docs/
 │   ├── overview.md
 │   └── runtime-topology.md
 ├── audits/
+│   ├── code-modularization.md
 │   ├── documentation-gaps.md
 │   └── repository-map.md
 ├── components/
@@ -40,6 +41,7 @@ docs/
 │   ├── ADR-004-always-on-user-services.md
 │   └── ADR-005-docker-mcp-first-pass.md
 ├── development/
+│   ├── code-organization.md
 │   ├── local-workflows.md
 │   └── verification.md
 ├── operations/
@@ -65,12 +67,19 @@ docs/
   one-account-at-a-time policy.
 - [Verification](development/verification.md) separates source/build proof
   from deployment and live Google behavior.
+- [Code organization](development/code-organization.md) defines module
+  boundaries and Unix-oriented maintainability conventions.
+- [Code modularization audit](audits/code-modularization.md) records the
+  baseline hotspots and resulting source boundaries.
 - [Local workflows](development/local-workflows.md) documents `.env`, named
   scripts, and native/container smoke checks.
 
 The existing [UI style guide](ui-style.md) and [TUI mockup notes](ui-mockups/README.md)
 remain the visual source of truth for the account dashboard. The root
 [README](../README.md) is the user-facing quick start.
+
+The repository-local [`arqen-modularization` skill](../.agents/skills/arqen-modularization/SKILL.md)
+is the reusable agent workflow for future source-boundary audits and refactors.
 
 ## Feature and responsibility index
 
