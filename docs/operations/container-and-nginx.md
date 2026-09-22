@@ -44,13 +44,14 @@ performed by repository tests.
 The separate `deploy/containers/docker-native-compose.yml` profile is the
 primary same-computer deployment. `make docker-setup` initializes a fresh
 OpenBao volume and generated Docker secrets; `make docker-up` then starts the
-OpenBao-backed broker, streamed TUI, and MCP service. It publishes only
-loopback ports 7681 (TUI), 8765 (OAuth callback), and 8787 (MCP). OpenBao is
-not published, and the MCP container receives only its bearer token and broker
-socket. Run `make docker-up` from a Wayland or X11 graphical session: only the
-control container receives the detected native clipboard interface. The
-control container is session-owned and must not be restored by the system
-Docker daemon before the graphical socket exists. Use the installed
+OpenBao-backed broker, control gateway/TUI, and MCP service. It publishes only
+loopback ports 7681 (control gateway), 8765 (OAuth callback), and 8787 (MCP);
+ttyd stays on control-container loopback port 7682. OpenBao is not published,
+and the MCP container receives only its bearer token and broker socket. Run
+`make docker-up` from a Wayland or X11 graphical session: only the control
+container receives the detected native clipboard interface. The control
+container is session-owned and must not be restored by the system Docker daemon
+before the graphical socket exists. Use the installed
 `arqen-docker-control.service` user unit for session-bound automatic startup.
 Use `make docker-down` to stop without deleting volumes or the explicit
 `make docker-reset ARQEN_DOCKER_RESET_CONFIRM=YES` path to remove the fresh
