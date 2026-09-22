@@ -23,8 +23,8 @@ eligible account that should be exposed to local agents.
 | Command | Purpose | Live Google request? |
 | --- | --- | --- |
 | `make docker-setup` | initialize the clean-slate Docker-native OpenBao profile and protected local setup files | no |
-| `make docker-up` | start the Docker-native TUI, broker, and MCP stack and wait for MCP liveness | no |
-| `make docker-status` | report container, OpenBao, MCP liveness, and MCP readiness without printing secrets | no |
+| `make docker-up` | start the Docker-native control gateway/TUI, broker, and MCP stack and wait for control/MCP liveness | no |
+| `make docker-status` | report container, control gateway, OpenBao, MCP liveness, and MCP readiness without printing secrets | no |
 | `make docker-down` | stop the Docker-native stack while preserving its volumes | no |
 | `make docker-reset ARQEN_DOCKER_RESET_CONFIRM=YES` | explicitly delete the fresh Docker-native volumes and generated setup secrets | no |
 | `make quickstart` | build/install the binary and prepare native user units without activation | no |
@@ -164,13 +164,16 @@ make docker-setup   # first run only; creates protected local setup secrets
 make docker-up
 ```
 
-The stack runs OpenBao, the credential broker, the streamed TUI, and the MCP
-server in Docker. OpenBao is internal-only; only loopback ports for the TUI
-(`7681`), OAuth callback (`8765`), and MCP (`8787`) are published. OpenBao
-refresh-token references use separate control and broker AppRoles. The TUI is
-available at `http://127.0.0.1:7681`; read the generated control password from
-`.secrets/arqen-control-password`, complete OAuth there, and press `t` to set
-the target.
+The stack runs OpenBao, the credential broker, the control gateway/TUI, and the
+MCP server in Docker. OpenBao is internal-only; only loopback ports for the
+control gateway (`7681`), OAuth callback (`8765`), and MCP (`8787`) are
+published. ttyd stays on the control container's loopback port `7682`.
+OpenBao refresh-token references use separate control and broker AppRoles. Open
+`http://127.0.0.1:7681`, enter username `arqen` and the generated control
+password from `.secrets/arqen-control-password`, complete OAuth in the TUI, and
+press `t` to set the target. The gateway has no `WWW-Authenticate` challenge;
+failed credentials stay on the themed page and successful login receives a
+memory-only 12-hour session cookie.
 The MCP container receives only the bearer-token file and broker socket. OAuth
 client JSON and all OpenBao role credentials stay in the control or broker
 containers.
