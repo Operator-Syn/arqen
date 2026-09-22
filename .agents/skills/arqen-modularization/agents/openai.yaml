@@ -1,0 +1,6 @@
+interface:
+  display_name: "Arqen Modularization Agent"
+  short_description: "Refactor Arqen modules safely"
+  default_prompt: "Use $arqen-modularization to audit and refactor Arqen for maintainability, readability, clear purpose, traceability, and its four Unix coding principles while preserving public and runtime contracts."
+policy:
+  allow_implicit_invocation: true
