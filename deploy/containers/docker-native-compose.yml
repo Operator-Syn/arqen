@@ -125,20 +125,14 @@ services:
       context: ../..
       dockerfile: Dockerfile.docker-native
       network: host
+    # The gateway owns the browser-facing port and starts ttyd on loopback.
     # ttyd 1.7.7 can retain stale first-load dimensions after switching to
-    # WebGL; the DOM renderer fits the streamed control surface immediately.
-    command:
-      - /bin/sh
-      - -c
-      - >-
-        exec /usr/local/bin/ttyd -W -O -i 0.0.0.0 -p 7681
-        -t rendererType=dom
-        -c "arqen:$$(cat /run/arqen-secrets/arqen-control-password)"
-        /usr/local/bin/arqen
-    entrypoint: []
+    # WebGL; the DOM renderer still fits the streamed control surface immediately.
+    command: ["control-gateway"]
     environment:
       XDG_DATA_HOME: /var/lib/arqen
       XDG_RUNTIME_DIR: /run
+      ARQEN_CONTROL_PASSWORD_FILE: /run/arqen-secrets/arqen-control-password
       GOOGLE_CLIENT_SECRET: /run/arqen-secrets/google-client-secret
       ARQEN_SECRET_BACKEND: openbao
       ARQEN_OPENBAO_ADDR: http://openbao:8200
