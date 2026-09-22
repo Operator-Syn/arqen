@@ -15,3 +15,15 @@ pub(crate) const SUCCESS: Color = Color::Rgb(165, 224, 194); // #A5E0C2
 pub(crate) const WARNING: Color = Color::Rgb(244, 210, 155); // #F4D29B
 pub(crate) const DANGER: Color = Color::Rgb(243, 169, 184); // #F3A9B8
 pub(crate) const BORDER: Color = Color::Rgb(74, 91, 108); // #4A5B6C
+
+// Web surfaces use the same tokens as the terminal renderer.
+pub(crate) const BACKGROUND_HEX: &str = "#05080C";
+pub(crate) const SURFACE_HEX: &str = "#090E15";
+pub(crate) const SURFACE_RAISED_HEX: &str = "#121D2B";
+pub(crate) const PRIMARY_HEX: &str = "#9DD9F7";
+pub(crate) const PRIMARY_STRONG_HEX: &str = "#6FBEE7";
+pub(crate) const TEXT_HEX: &str = "#DEEBF4";
+pub(crate) const MUTED_HEX: &str = "#8495A3";
+pub(crate) const SUCCESS_HEX: &str = "#A5E0C2";
+pub(crate) const DANGER_HEX: &str = "#F3A9B8";
+pub(crate) const BORDER_HEX: &str = "#4A5B6C";
