@@ -1,7 +1,6 @@
 # Account TUI
 
-**Source:** `src/main.rs`, `src/ui/accounts.rs`, `src/ui/chrome.rs`,
-`src/ui/mod.rs`.
+**Source:** `src/tui/`, `src/ui/accounts/`, `src/ui/chrome/`, and `src/ui/`.
 
 The TUI owns human authorization and account choice. Press `t` on a selected
 eligible account to persist it as the one MCP target. The card marks the
