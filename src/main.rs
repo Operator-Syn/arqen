@@ -23,6 +23,7 @@ use std::{
 };
 
 mod callback;
+mod control;
 mod server;
 
 const APP_DATA_DIRECTORY: &str = "arqen";
@@ -1252,6 +1253,7 @@ fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
 fn main() -> Result<()> {
     match env::args().nth(1).as_deref() {
         Some("credential-broker") => return run_credential_broker(),
+        Some("control-gateway") => return run_control_gateway(),
         Some("mcp-server") => return run_mcp_server(),
         Some("--help") | Some("-h") => {
             print_help();
@@ -1288,6 +1290,11 @@ fn run_mcp_server() -> Result<()> {
     server::run(options)
 }
 
+fn run_control_gateway() -> Result<()> {
+    let options = control::ControlGatewayOptions::from_env()?;
+    control::run(options)
+}
+
 fn configured_broker_socket() -> Result<PathBuf> {
     match env::var_os("ARQEN_GMAIL_BROKER_SOCKET") {
         Some(path) if !path.is_empty() => Ok(PathBuf::from(path)),
@@ -1298,7 +1305,7 @@ fn configured_broker_socket() -> Result<PathBuf> {
 
 fn print_help() {
     println!(
-        "Arqen\n\nCommands:\n  credential-broker  Serve protected-store-backed Gmail access over a Unix socket\n  mcp-server         Serve the Streamable HTTP MCP endpoint\n\nWith no command, start the interactive account TUI."
+        "Arqen\n\nCommands:\n  credential-broker  Serve protected-store-backed Gmail access over a Unix socket\n  control-gateway    Serve the branded local TUI sign-in gateway\n  mcp-server         Serve the Streamable HTTP MCP endpoint\n\nWith no command, start the interactive account TUI."
     );
 }
 
