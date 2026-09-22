@@ -10,7 +10,7 @@ checked-in examples; `verified-external` for the linked MCP and Gmail API
 contracts; `deployment-ready example` for the Docker-native, legacy Compose,
 systemd, and Nginx templates. User-service activation, keyring/OpenBao
 persistence, OAuth, and public deployment remain operator-owned. Last
-reviewed: 2026-09-21.
+reviewed: 2026-09-22.
 
 ## Document tree
 
@@ -82,6 +82,8 @@ remain the visual source of truth for the account dashboard. The root
 - **Responsive TUI:** focusable account/details panes, keyboard and wheel
   scrolling, persistent visual scrollbar gutters, target/status markers, and
   compact-layout footer affordances.
+- **Control sign-in:** loopback gateway with shared TUI tokens, generated
+  password validation, memory-only sessions, and ttyd HTTP/WebSocket proxying.
 - **Target configuration:** one persisted MCP target, selected explicitly in
   the TUI, with eligibility checks and fail-closed stale-target handling.
 - **Credential boundary:** OpenBao-backed Docker broker or native keyring broker
