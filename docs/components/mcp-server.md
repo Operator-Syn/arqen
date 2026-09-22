@@ -1,6 +1,6 @@
 # Streamable HTTP MCP server
 
-**Source:** `src/server.rs`, protocol wire types: `src/mcp.rs`.
+**Source:** `src/server/`, protocol wire types: `src/mcp.rs`.
 
 `arqen mcp-server` exposes one endpoint at `/mcp` using the official Rust MCP
 SDK’s Streamable HTTP server. The current deployment mode uses JSON responses
