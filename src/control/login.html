@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
+  <title>Arqen / Control</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --background: __BACKGROUND__;
+      --surface: __SURFACE__;
+      --surface-raised: __SURFACE_RAISED__;
+      --primary: __PRIMARY__;
+      --primary-strong: __PRIMARY_STRONG__;
+      --text: __TEXT__;
+      --muted: __MUTED__;
+      --danger: __DANGER__;
+      --border: __BORDER__;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-height: 100%;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      align-items: center;
+      background: var(--background);
+      color: var(--text);
+      display: grid;
+      font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      justify-items: center;
+      margin: 0;
+      min-height: 100svh;
+      padding: clamp(1rem, 4vw, 2.5rem);
+    }
+
+    .shell {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      max-width: 32rem;
+      width: 100%;
+    }
+
+    .header {
+      border-bottom: 1px solid var(--border);
+      padding: 0.9rem 1.25rem;
+    }
+
+    .brand {
+      color: var(--primary);
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-weight: 400;
+      letter-spacing: 0;
+    }
+
+    .content {
+      padding: 1.5rem 1.25rem 1.35rem;
+    }
+
+    h1 {
+      font-size: 1.55rem;
+      line-height: 1.2;
+      margin: 0 0 1.35rem;
+    }
+
+    form {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .field {
+      display: grid;
+      gap: 0.4rem;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    input {
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: 0;
+      color: var(--text);
+      font: inherit;
+      min-height: 2.65rem;
+      padding: 0.6rem 0.75rem;
+      width: 100%;
+    }
+
+    input::placeholder {
+      color: var(--muted);
+      opacity: 1;
+    }
+
+    input:focus-visible,
+    button:focus-visible {
+      border-color: var(--primary-strong);
+      outline: 2px solid var(--primary-strong);
+      outline-offset: 2px;
+    }
+
+    button {
+      background: var(--primary);
+      border: 1px solid var(--primary);
+      border-radius: 0;
+      color: var(--background);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      min-height: 2.65rem;
+      padding: 0.6rem 1rem;
+      text-align: center;
+      transition: background-color 120ms ease, color 120ms ease;
+    }
+
+    button:hover {
+      background: transparent;
+      color: var(--primary);
+    }
+
+    .error {
+      border-left: 2px solid var(--danger);
+      color: var(--danger);
+      line-height: 1.45;
+      margin: 0 0 1rem;
+      padding-left: 0.7rem;
+    }
+
+    #login-error[hidden] {
+      display: none;
+    }
+
+    @media (max-width: 32rem) {
+      .header {
+        padding-inline: 1rem;
+      }
+
+      .content {
+        padding: 1.35rem 1rem 1.2rem;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      button {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <div class="brand">ARQEN <span>/ Identity Vault</span></div>
+    </header>
+
+    <section class="content" aria-labelledby="title">
+      <h1 id="title">Sign in</h1>
+      <p class="error" id="login-error" role="alert" __ERROR_HIDDEN__>__ERROR__</p>
+      <form method="post" action="/auth/login">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" placeholder="arqen" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Control password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+        </div>
+        <button type="submit">[ Enter ] Sign in</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>
