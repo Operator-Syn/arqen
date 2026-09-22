@@ -10,6 +10,16 @@ The original image includes a decorative tagline in the header. The live TUI
 intentionally omits that non-actionable copy and keeps only the product
 identity, local-session status, and connected-account count.
 
+## Control sign-in reference
+
+![Arqen control sign-in mockup](arqen-control-login.png)
+
+This generated image is a visual reference for the browser control gateway. It
+applies the same compact modal language as the TUI: a near-black canvas, a
+single restrained border, monospaced type, and pastel-blue focus and action
+treatment. The runtime page remains a deterministic Rust-served HTML template;
+the image is documentation only.
+
 ## Component map
 
 - Header: product identity, local-session status, and connected-account count.
