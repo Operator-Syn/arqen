@@ -20,6 +20,11 @@ docker compose \
     --file "$compose_file" \
     ps
 
+control_url="http://127.0.0.1:${ARQEN_CONTROL_HOST_PORT:-7681}"
+printf '\nControl gateway: '
+curl -sS --max-time 2 -o /dev/null -w '%{http_code}\n' \
+    "$control_url/" 2>/dev/null || true
+
 printf '\nOpenBao status:\n'
 docker compose \
     --project-name "$compose_project" \
