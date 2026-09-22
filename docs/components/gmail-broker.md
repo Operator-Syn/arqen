@@ -1,6 +1,6 @@
 # Gmail credential broker
 
-**Source:** `src/broker.rs`, `src/gmail.rs`, `src/mcp.rs`.
+**Source:** `src/broker/`, `src/gmail/`, `src/mcp.rs`.
 
 The native host broker, or the Docker-native broker container, accepts one
 bounded JSON request per Unix-socket connection. It reads the persisted target
