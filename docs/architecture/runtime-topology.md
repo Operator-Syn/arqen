@@ -36,12 +36,15 @@ mounts that socket read-only and binds its HTTP port to loopback; Nginx is the
 public TLS boundary. The service templates do not create certificates, DNS,
 firewall rules, users, or secret files.
 
-The Docker-native path publishes only loopback ports 7681 (streamed TUI), 8765
-(OAuth callback), and 8787 (MCP); OpenBao is internal-only and the MCP
-container receives only its bearer-token file and broker socket. `make docker-up`
-mounts a detected Wayland or X11 clipboard interface only into the control
-container. The locked first-pass VPS path keeps the TUI, SQLite, OS keyring,
-and credential broker on the host, and runs only `mcp-server` in Docker Compose.
+The Docker-native path publishes only loopback ports 7681 (Arqen control
+gateway), 8765 (OAuth callback), and 8787 (MCP); ttyd stays on control-container
+loopback port 7682, and OpenBao is internal-only. The gateway owns the generated
+control-password check and forwards an internal auth header to ttyd; it keeps
+browser sessions in memory and does not persist credentials. The MCP container
+receives only its bearer-token file and broker socket. `make docker-up` mounts a
+detected Wayland or X11 clipboard interface only into the control container.
+The locked first-pass VPS path keeps the TUI, SQLite, OS keyring, and credential
+broker on the host, and runs only `mcp-server` in Docker Compose.
 In both paths,
 `/healthz` reports HTTP liveness and `/readyz` reports broker/database/target
 readiness without calling Gmail. The native `arqen-mcp.service` remains an
