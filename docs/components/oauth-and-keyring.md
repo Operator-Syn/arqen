@@ -1,6 +1,6 @@
 # OAuth and protected credential-store boundary
 
-**Source:** `src/auth.rs`; metadata consumer: `src/lib.rs`.
+**Source:** `src/auth/`; metadata consumer: `src/store/` and `src/lib.rs`.
 
 Google login uses authorization code + PKCE. The token exchange requires a
 non-empty `scope` response; Arqen canonicalizes that exact set and stores it
