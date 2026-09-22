@@ -1,6 +1,6 @@
 # Gmail upstream contract
 
-**Source:** `src/gmail.rs`; external contract: [Gmail
+**Source:** `src/gmail/`; external contract: [Gmail
 `users.messages.list`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)
 and [`users.messages.get`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get).
 
@@ -20,4 +20,3 @@ The configured OAuth grant must contain
 Google classifies this as a restricted scope; public deployment therefore
 requires the operator to review Google’s current verification and user-data
 policy requirements before exposing the service.
-
