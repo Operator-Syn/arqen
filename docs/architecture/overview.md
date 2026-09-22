@@ -2,14 +2,14 @@
 
 **Status:** `verified-repository` for the components and paths below.
 
-Arqen has one Rust package and one binary with three runtime entry points:
-the default TUI, `credential-broker`, and `mcp-server`. The Docker-native local
-profile runs all three roles as separate containers, with OpenBao as the
-refresh-token store and the TUI streamed through `ttyd`. Native user services
-and the host-broker/VPS Compose path remain compatibility alternatives. The
-MCP server never reads a credential store directly. It asks the broker to
-resolve the one explicitly selected Google subject and to call Gmail with a
-short-lived access token.
+Arqen has one Rust package and one binary with four runtime entry points:
+the default TUI, `control-gateway`, `credential-broker`, and `mcp-server`.
+The Docker-native local profile runs the gateway/TUI, broker, and MCP roles in
+one Compose project, with OpenBao as the refresh-token store and ttyd kept
+behind the gateway. Native user services and the host-broker/VPS Compose path
+remain compatibility alternatives. The MCP server never reads a credential
+store directly. It asks the broker to resolve the one explicitly selected
+Google subject and to call Gmail with a short-lived access token.
 
 ```mermaid
 flowchart LR
@@ -19,7 +19,10 @@ flowchart LR
     broker --> db[(SQLite metadata)]
     broker --> store[(OpenBao KV or native keyring)]
     broker -->|HTTPS Gmail API| gmail[Google Gmail]
-    tui[Arqen TUI / streamed ttyd] --> db
+    browser[Local browser] --> gateway[control-gateway :7681]
+    gateway --> ttyd[ttyd :7682 loopback]
+    ttyd --> tui[Arqen TUI]
+    tui --> db
     tui --> store
     tui -->|target subject configuration| db
 ```
@@ -28,6 +31,7 @@ Responsibilities are intentionally narrow:
 
 | Boundary | Owns | Does not own |
 | --- | --- | --- |
+| Control gateway (`src/control.rs`) | Local password page, memory-only browser sessions, ttyd HTTP/WebSocket proxy | OAuth, account choice, password persistence, public exposure |
 | TUI (`src/main.rs`, `src/ui/`) | Account login/logout, loopback or container-published OAuth callback, target selection, presentation | MCP HTTP, service lifecycle, access-token caching |
 | Store (`src/lib.rs`) | Account metadata, exact granted scopes, singleton target subject | Refresh/access token values |
 | OAuth (`src/auth.rs`) | PKCE, callback exchange, refresh, protected-store coordinates | Gmail message presentation |
