@@ -1,6 +1,6 @@
 # SQLite data model
 
-**Source:** `src/lib.rs`.
+**Source:** `src/store/` and the public re-export facade in `src/lib.rs`.
 
 The existing `google_accounts` table remains the identity source of truth. A
 row is keyed by Arqen’s local `id` and has a unique Google `google_subject`,
