@@ -31,13 +31,13 @@ Responsibilities are intentionally narrow:
 
 | Boundary | Owns | Does not own |
 | --- | --- | --- |
-| Control gateway (`src/control.rs`) | Local password page, memory-only browser sessions, ttyd HTTP/WebSocket proxy | OAuth, account choice, password persistence, public exposure |
-| TUI (`src/main.rs`, `src/ui/`) | Account login/logout, loopback or container-published OAuth callback, target selection, presentation | MCP HTTP, service lifecycle, access-token caching |
-| Store (`src/lib.rs`) | Account metadata, exact granted scopes, singleton target subject | Refresh/access token values |
-| OAuth (`src/auth.rs`) | PKCE, callback exchange, refresh, protected-store coordinates | Gmail message presentation |
-| Broker (`src/broker.rs`) | Target validation, refresh-token read, access-token cache, Gmail call | Public network listener, MCP sessions |
-| Gmail client (`src/gmail.rs`) | Bounded list/get metadata requests and summaries | Token persistence |
-| MCP server (`src/server.rs`, `src/mcp.rs`) | Streamable HTTP, bearer gate, tool schema, wire errors | Credential-store access and account choice |
+| Control gateway (`src/control/`) | Local password page, memory-only browser sessions, ttyd HTTP/WebSocket proxy | OAuth, account choice, password persistence, public exposure |
+| TUI (`src/tui/`, `src/ui/`) | Account login/logout, loopback or container-published OAuth callback, target selection, presentation | MCP HTTP, service lifecycle, access-token caching |
+| Store (`src/store/`, `src/lib.rs`) | Account metadata, exact granted scopes, singleton target subject | Refresh/access token values |
+| OAuth (`src/auth/`) | PKCE, callback exchange, refresh, protected-store coordinates | Gmail message presentation |
+| Broker (`src/broker/`) | Target validation, refresh-token read, access-token cache, Gmail call | Public network listener, MCP sessions |
+| Gmail client (`src/gmail/`) | Bounded list/get metadata requests and summaries | Token persistence |
+| MCP server (`src/server/`, `src/mcp.rs`) | Streamable HTTP, bearer gate, tool schema, wire errors | Credential-store access and account choice |
 | systemd user units (`deploy/systemd/`) | Host broker restart and optional all-native MCP lifecycle | OAuth consent, secret creation, public deployment |
 | Docker-native Compose (`deploy/containers/docker-native-compose.yml`) | OpenBao, control TUI, broker, and loopback MCP lifecycle; native display access is limited to the control override | Public exposure, live OAuth consent, account migration |
 | Legacy Docker Compose (`deploy/containers/docker-compose.yml`) | First-pass always-on MCP HTTP boundary | SQLite, native keyring, OAuth, account choice |
