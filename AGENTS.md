@@ -9,15 +9,21 @@ Hermes or another agent runtime.
 
 ### Source map
 
-- `src/main.rs` owns the terminal UI, screen state, account flow, browser
-  launching, and clipboard actions.
-- `src/auth.rs` owns Google OAuth authorization-code flow with PKCE, callback
-  parsing and state validation, profile retrieval, and OS-keyring refresh-token
-  storage.
-- `src/lib.rs` owns the SQLite account store, schema migration, and account
-  metadata CRUD/upsert behavior.
-- `src/theme.rs` contains shared Ratatui color tokens. Keep UI changes aligned
-  with [`docs/ui-style.md`](docs/ui-style.md).
+- `src/main.rs`, `src/cli.rs`, and `src/config.rs` own process dispatch and
+  configuration; `src/tui/` owns TUI state, account flow, browser lifecycle,
+  input, and terminal runtime.
+- `src/auth/` owns Google OAuth authorization-code flow with PKCE, callback
+  parsing/state validation, profile retrieval, and token-store coordination.
+- `src/store/` owns SQLite models, schema migration, and account metadata
+  CRUD/upsert behavior; `src/lib.rs` preserves the public re-export facade.
+- `src/ui/` contains focused Ratatui layout, rendering, dialogs, and
+  interaction modules. Keep UI changes aligned with
+  [`docs/ui-style.md`](docs/ui-style.md).
+
+The canonical responsibility and Unix-oriented code conventions are in
+[`docs/development/code-organization.md`](docs/development/code-organization.md).
+The repository-only reusable refactor workflow is
+[`arqen-modularization`](.agents/skills/arqen-modularization/SKILL.md).
 
 ## Development workflow
 
