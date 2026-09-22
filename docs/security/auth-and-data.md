@@ -26,6 +26,12 @@ linked.
    socket nor clipboard access. The app containers use the invoking non-root
    host UID/GID for local volume and Unix-socket ownership; this does not grant
    them a display socket.
+9. The Docker-native control gateway is the only host-published TUI boundary.
+   It validates the generated `arqen` control credential server-side, applies
+   a short-lived memory-only session cookie, rejects cross-origin auth and
+   WebSocket requests, and forwards only a fixed internal header to ttyd on
+   loopback. ttyd's internal port is not published and no password is passed
+   in a command-line argument, URL, cookie, or log message.
 
 The Gmail read-only scope is restricted under Google’s current scope policy;
 see the [Gmail scope documentation](https://developers.google.com/workspace/gmail/api/auth/scopes)
