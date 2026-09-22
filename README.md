@@ -119,11 +119,12 @@ account implicitly or accepts a subject from the remote caller. The tool lists
 message IDs and fetches `From`, `Subject`, `Date`, labels, and a snippet (at
 most 300 Unicode characters), with a public page-size cap of 50.
 
-The server is split into two processes so refresh tokens stay outside the MCP
-HTTP process:
+The MCP server is split into two processes so refresh tokens stay outside its
+HTTP process. The Docker control surface adds a local gateway in front of ttyd
+so the browser never shows ttyd's native Basic Auth prompt:
 
 ```text
-Docker control TUI + SQLite ── OpenBao ── credential-broker
+Browser ── control-gateway ── ttyd ── Arqen TUI + SQLite ── OpenBao ── credential-broker
                                              │
                                      mcp-server (HTTP)
 ```
@@ -214,6 +215,7 @@ The direct commands remain useful for manual or non-local deployments:
 
 ```bash
 cargo run -- credential-broker
+cargo run -- control-gateway
 cargo run -- mcp-server
 ```
 
@@ -272,19 +274,21 @@ make docker-setup   # first run only
 make docker-up
 ```
 
-Open `http://127.0.0.1:7681`, read the generated control password from
-`.secrets/arqen-control-password`, complete OAuth, and press `t` to select the
-single MCP target. The stack publishes only loopback ports for the streamed
-TUI, OAuth callback, and MCP endpoint; OpenBao is internal-only. Inspect or
+Open `http://127.0.0.1:7681`, enter username `arqen`, and use the generated
+control password from `.secrets/arqen-control-password`. The Arqen-branded
+gateway then opens the streamed TUI; complete OAuth there and press `t` to
+select the single MCP target. The stack publishes only loopback ports for the
+gateway/TUI, OAuth callback, and MCP endpoint; OpenBao is internal-only. Inspect or
 stop it with `make docker-status` and `make docker-down`. Use
 `make docker-reset ARQEN_DOCKER_RESET_CONFIRM=YES` only to delete the fresh
 Docker profile and generated OpenBao/control secrets.
 
-The streamed control terminal uses ttyd's DOM renderer in Docker mode. This is
-intentional: ttyd 1.7.7 can retain stale cell measurements when its initial DOM
-renderer is replaced by WebGL, leaving blank space until the browser is
-resized. The DOM renderer makes the terminal fill the browser viewport on its
-first load; Arqen's small inner terminal inset remains intentional.
+The control gateway owns host port `7681` and keeps ttyd on loopback port
+`7682`. It validates the generated password, issues a memory-only 12-hour
+session cookie, and forwards only an internal auth header to ttyd. ttyd still
+uses its DOM renderer because the pinned 1.7.7 WebGL preference can leave stale
+cell measurements on first load; Arqen's small inner terminal inset remains
+intentional.
 
 Run `make docker-up` from the graphical host session that owns the clipboard.
 The command detects Wayland first and X11 second, then gives only the control
