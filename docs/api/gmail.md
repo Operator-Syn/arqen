@@ -30,8 +30,22 @@ stable `message_too_large` error rather than a truncated body.
 labels. Arqen preserves the IDs exactly so callers can select a label by name
 and pass its ID as `list_emails.label_ids` in a separate call.
 
-The configured OAuth grant must contain
-[`https://www.googleapis.com/auth/gmail.readonly`](https://developers.google.com/workspace/gmail/api/auth/scopes).
-Google classifies this as a restricted scope; public deployment therefore
-requires the operator to review Google’s current verification and user-data
-policy requirements before exposing the service.
+The read-state tools use Gmail's
+[`users.messages.modify`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/modify)
+method on `users/me/messages/{messageId}/modify`, with `addLabelIds: ["UNREAD"]`
+or `removeLabelIds: ["UNREAD"]` and a response projection of `id,labelIds`.
+They return only the message ID and whether Gmail's returned labels indicate
+the message is read. The method requires `gmail.modify` (or the broader
+`mail.google.com`); Arqen requests only `gmail.modify`, not `gmail.labels` or
+`mail.google.com`.
+
+The selected account's recorded OAuth grants must contain
+[`gmail.readonly`](https://developers.google.com/workspace/gmail/api/auth/scopes)
+for target eligibility; the two read-state tools additionally require
+`gmail.modify`. Both scopes are restricted. Google's `gmail.modify` description
+includes reading, composing, and sending email. After Arqen begins requesting
+that new scope, the selected account must be reauthorized to record the actual
+grant; a refresh of its existing token does not retroactively add the scope.
+For external OAuth apps in Testing, Google expires refresh tokens after seven
+days when Gmail scopes are requested. Review the current Gmail scope policy
+before any public deployment.
