@@ -66,3 +66,9 @@ pub struct EmailReadResponse {
     pub body_text: Option<String>,
     pub body_status: EmailBodyStatus,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct EmailReadState {
+    pub message_id: String,
+    pub is_read: bool,
+}
