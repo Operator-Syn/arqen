@@ -4,7 +4,10 @@ mod tests {
         ServerOptions, build_router, request_is_authorized, split_values, validate_read_email_result_size,
         validate_secret,
     };
-    use arqen::gmail::{EmailBodyStatus, EmailListResponse, EmailReadResponse, EmailRecipients};
+    use arqen::gmail::{
+        EmailBodyStatus, EmailLabel, EmailLabelType, EmailListResponse, EmailReadResponse,
+        EmailRecipients, LabelListResponse,
+    };
     #[cfg(unix)]
     use arqen::mcp::{BrokerRequest, BrokerResponse};
     use axum::http::Request;
@@ -245,6 +248,34 @@ mod tests {
         assert!(read_properties.get("account_id").is_none());
         assert!(read_properties.get("email").is_none());
 
+        let labels_tool = tools
+            .iter()
+            .find(|tool| tool["name"] == "list_labels")
+            .unwrap();
+        let labels_schema = &labels_tool["inputSchema"];
+        assert_eq!(labels_schema["type"], "object");
+        assert!(labels_schema["properties"]
+            .as_object()
+            .is_none_or(serde_json::Map::is_empty));
+        let labels_description = labels_tool["description"].as_str().unwrap();
+        for phrase in [
+            "takes no inputs",
+            "single account currently selected in Arqen",
+            "id",
+            "human-readable name",
+            "system or user",
+            "user-created labels",
+            "pass its id unchanged as list_emails.label_ids",
+            "separate tool call",
+        ] {
+            assert!(
+                labels_description.contains(phrase),
+                "missing list_labels description phrase: {phrase}"
+            );
+        }
+        assert!(labels_schema["properties"].get("account_id").is_none());
+        assert!(labels_schema["properties"].get("email").is_none());
+
         let rejected_host = client
             .post(format!("{base}/mcp"))
             .bearer_auth("test-secret")
@@ -427,6 +458,74 @@ mod tests {
         assert_eq!(
             body["result"]["structuredContent"]["body_status"],
             "complete"
+        );
+        broker_thread.join().unwrap();
+        cancellation.cancel();
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn list_labels_takes_no_arguments_and_returns_broker_labels() {
+        use std::{
+            io::{BufRead, BufReader, Write},
+            os::unix::net::UnixListener,
+            thread,
+        };
+
+        let socket_path = std::env::temp_dir().join(format!(
+            "arqen-server-list-labels-test-{}.sock",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let broker_thread = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let request: BrokerRequest = serde_json::from_str(&line).unwrap();
+            assert!(matches!(request.validate().unwrap(), BrokerRequest::ListLabels));
+            let response = BrokerResponse::Labels {
+                result: LabelListResponse {
+                    labels: vec![EmailLabel {
+                        id: "Label_7".into(),
+                        name: "Project Atlas".into(),
+                        label_type: EmailLabelType::User,
+                    }],
+                },
+            };
+            let mut stream = reader.into_inner();
+            serde_json::to_writer(&mut stream, &response).unwrap();
+            stream.write_all(b"\n").unwrap();
+        });
+
+        let tcp_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = tcp_listener.local_addr().unwrap();
+        let cancellation = CancellationToken::new();
+        let mut options = test_options(address);
+        options.broker_socket = socket_path.clone();
+        let router = build_router(options, cancellation.clone());
+        let shutdown = cancellation.clone();
+        tokio::spawn(async move {
+            let _ = axum::serve(tcp_listener, router)
+                .with_graceful_shutdown(shutdown.cancelled_owned())
+                .await;
+        });
+        let response = reqwest::Client::new()
+            .post(format!("http://{address}/mcp"))
+            .bearer_auth("test-secret")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .body(r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"list_labels","arguments":{}}}"#)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(
+            body["result"]["structuredContent"]["labels"][0],
+            serde_json::json!({"id":"Label_7", "name":"Project Atlas", "type":"user"})
         );
         broker_thread.join().unwrap();
         cancellation.cancel();
