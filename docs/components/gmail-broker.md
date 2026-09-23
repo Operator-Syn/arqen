@@ -31,3 +31,13 @@ unchanged with their display names and `system`/`user` types, including custom
 labels. Agents select a record by name, then pass its ID explicitly to
 `list_emails.label_ids` in a separate request. `list_emails` does not depend on
 or call `list_labels`; its message `labels` remain Gmail IDs.
+
+`mark_email_read` and `mark_email_unread` are separate broker operations. Each
+resolves the persisted target, first requires its connected/read-only target
+eligibility and then checks that target's recorded `gmail.modify` grant before
+credential acquisition or a Gmail call. Missing local grant evidence returns
+`insufficient_scope`; other Gmail 403 responses remain `gmail_unavailable`.
+The Gmail client sends only the requested `UNREAD` addition or removal for one
+message and asks for `id,labelIds`; it returns a typed `{message_id,is_read}`
+result based on Gmail's response. No other message labels are changed or
+returned.
