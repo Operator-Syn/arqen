@@ -406,6 +406,12 @@ for symbol search, call-path tracing, architecture discovery, and impact
 analysis. It is registered over stdio in `.mcp.json` and `.codex/config.toml`;
 neither configuration changes a global agent setup.
 
+After running the setup and validation commands below, restart or reconnect the
+agent session. You can use the MCP once its tool list contains the namespaced
+`codebase_memory_mcp` tools; a successful local setup alone does not load tools
+into an already-running client. The full copy/paste bootstrap prompt for a
+fresh agent is in [Local workflows](docs/development/local-workflows.md#repository-code-knowledge-mcp).
+
 Docker is required. Initial setup needs network access to build the pinned
 image and download its verified `codebase-memory-mcp@0.10.8` runtime:
 
