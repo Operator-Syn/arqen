@@ -1,13 +1,17 @@
 use anyhow::{Context, Result};
+use base64::Engine;
+use encoding_rs::{Encoding, UTF_8};
 use reqwest::{StatusCode, blocking::Client};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::{fmt, time::Duration};
+use std::{fmt, io::Read, time::Duration};
 use url::Url;
 
 pub const GMAIL_API_BASE_URL: &str = "https://gmail.googleapis.com/gmail/v1/";
 pub const DEFAULT_MAX_RESULTS: u32 = 20;
 pub const MAX_MAX_RESULTS: u32 = 50;
+pub const MAX_READ_EMAIL_BODY_BYTES: usize = 256 * 1024;
+pub const MAX_READ_EMAIL_GMAIL_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_QUERY_LENGTH: usize = 1_024;
 const MAX_PAGE_TOKEN_LENGTH: usize = 4_096;
 const MAX_LABEL_IDS: usize = 20;
@@ -48,6 +52,29 @@ pub struct ListEmailsRequest {
     /// Whether to include messages from Gmail spam and trash. Defaults to false.
     #[serde(default)]
     pub include_spam_trash: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
+pub struct ReadEmailRequest {
+    /// The ID returned by `list_emails`. Supply only the message ID, not an account identifier.
+    #[schemars(length(min = 1, max = 256), regex(pattern = r"^[A-Za-z0-9_-]+$"))]
+    pub message_id: String,
+}
+
+impl ReadEmailRequest {
+    pub fn validate(self) -> Result<Self> {
+        anyhow::ensure!(
+            (1..=256).contains(&self.message_id.len())
+                && self
+                    .message_id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'),
+            "message_id must be 1–256 ASCII letters, digits, hyphens, or underscores"
+        );
+        Ok(self)
+    }
 }
 
 fn default_max_results() -> u32 {
