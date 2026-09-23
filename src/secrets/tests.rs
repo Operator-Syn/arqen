@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use super::{OPENBAO_REFERENCE_PREFIX, OpenBaoClient, validate_path};
+    use super::{OPENBAO_REFERENCE_PREFIX, OpenBaoClient, OpenBaoFailure, validate_path};
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
@@ -95,7 +95,10 @@ mod tests {
         let forbidden = OpenBaoClient::for_test(forbidden_address)
             .get(Some("openbao:arqen/google/subject"), "subject")
             .unwrap_err();
-        assert!(forbidden.to_string().contains("HTTP 403"));
+        assert_eq!(
+            forbidden.downcast_ref::<OpenBaoFailure>(),
+            Some(&OpenBaoFailure::CredentialReadFailed(403))
+        );
     }
 
     #[test]
@@ -104,6 +107,83 @@ mod tests {
         let error = OpenBaoClient::for_test(address)
             .get(Some("openbao:arqen/google/subject"), "subject")
             .unwrap_err();
-        assert!(error.to_string().contains("parse OpenBao AppRole response"));
+        assert_eq!(
+            error.downcast_ref::<OpenBaoFailure>(),
+            Some(&OpenBaoFailure::InvalidResponse)
+        );
+    }
+
+    #[test]
+    fn openbao_client_classifies_rejected_approle_without_provider_body() {
+        let address = mock_openbao(vec![(400, r#"{"errors":["role_id=private-detail"]}"#)]);
+        let error = OpenBaoClient::for_test(address)
+            .get(Some("openbao:arqen/google/subject"), "subject")
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<OpenBaoFailure>(),
+            Some(&OpenBaoFailure::AppRoleRejected)
+        );
+        assert!(!error.to_string().contains("private-detail"));
+    }
+
+    #[test]
+    fn openbao_client_keeps_other_login_statuses_separate_from_approle_rejection() {
+        let address = mock_openbao(vec![(403, r#"{"errors":["private provider body"]}"#)]);
+        let error = OpenBaoClient::for_test(address)
+            .get(Some("openbao:arqen/google/subject"), "subject")
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<OpenBaoFailure>(),
+            Some(&OpenBaoFailure::LoginFailed(403))
+        );
+        assert!(!error.to_string().contains("private provider body"));
+    }
+
+    #[test]
+    fn openbao_server_errors_map_to_unavailable() {
+        let address = mock_openbao(vec![(503, r#"{"errors":["private provider body"]}"#)]);
+        let error = OpenBaoClient::for_test(address)
+            .get(Some("openbao:arqen/google/subject"), "subject")
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<OpenBaoFailure>(),
+            Some(&OpenBaoFailure::Unavailable)
+        );
+        assert!(!error.to_string().contains("private provider body"));
+    }
+
+    #[test]
+    fn openbao_client_classifies_unavailable_service_without_transport_details() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let error = OpenBaoClient::for_test(address)
+            .get(Some("openbao:arqen/google/subject"), "subject")
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<OpenBaoFailure>(),
+            Some(&OpenBaoFailure::Unavailable)
+        );
+        assert!(!error.to_string().contains("Connection refused"));
+    }
+
+    #[test]
+    fn openbao_client_classifies_credential_write_failures() {
+        let address = mock_openbao(vec![
+            (200, r#"{"auth":{"client_token":"test-only"}}"#),
+            (403, r#"{"errors":["private provider body"]}"#),
+        ]);
+        let error = OpenBaoClient::for_test(address)
+            .put(
+                Some("openbao:arqen/google/subject"),
+                "subject",
+                "test-only-refresh-token",
+            )
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<OpenBaoFailure>(),
+            Some(&OpenBaoFailure::CredentialWriteFailed(403))
+        );
+        assert!(!error.to_string().contains("private provider body"));
     }
 }
