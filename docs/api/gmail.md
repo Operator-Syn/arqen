@@ -25,6 +25,11 @@ status. The full Gmail response is capped at 2 MiB, decoded body text at 256
 KiB, and the serialized MCP result at 1 MiB. Oversized content returns the
 stable `message_too_large` error rather than a truncated body.
 
+`list_labels` calls `users/me/labels` and requests only each label's immutable
+`id`, display `name`, and `type`. Gmail returns both system and user-created
+labels. Arqen preserves the IDs exactly so callers can select a label by name
+and pass its ID as `list_emails.label_ids` in a separate call.
+
 The configured OAuth grant must contain
 [`https://www.googleapis.com/auth/gmail.readonly`](https://developers.google.com/workspace/gmail/api/auth/scopes).
 Google classifies this as a restricted scope; public deployment therefore
