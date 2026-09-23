@@ -1,3 +1,49 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum OpenBaoFailure {
+    Unavailable,
+    AppRoleRejected,
+    LoginFailed(u16),
+    CredentialReadFailed(u16),
+    CredentialWriteFailed(u16),
+    CredentialDeleteFailed(u16),
+    InvalidResponse,
+}
+
+impl std::fmt::Display for OpenBaoFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unavailable => formatter.write_str(
+                "OpenBao is unavailable; Arqen could not reach the protected credential store",
+            ),
+            Self::AppRoleRejected => {
+                formatter.write_str("OpenBao rejected Arqen's AppRole credentials")
+            }
+            Self::LoginFailed(status) => write!(
+                formatter,
+                "OpenBao could not authenticate Arqen's service role (HTTP {status})"
+            ),
+            Self::CredentialReadFailed(status) => write!(
+                formatter,
+                "OpenBao could not read the protected Google credential (HTTP {status})"
+            ),
+            Self::CredentialWriteFailed(status) => write!(
+                formatter,
+                "OpenBao could not save the protected Google credential (HTTP {status})"
+            ),
+            Self::CredentialDeleteFailed(status) => write!(
+                formatter,
+                "OpenBao could not delete the protected Google credential (HTTP {status})"
+            ),
+            Self::InvalidResponse => {
+                formatter.write_str("OpenBao returned an invalid protected-credential response")
+            }
+        }
+    }
+}
+
+impl std::error::Error for OpenBaoFailure {}
+
 #[derive(Debug, Clone)]
 pub(crate) struct OpenBaoClient {
     client: Client,
@@ -88,18 +134,24 @@ impl OpenBaoClient {
                 "secret_id": self.secret_id,
             }))
             .send()
-            .context("authenticate to OpenBao with AppRole")?;
+            .map_err(|_| OpenBaoFailure::Unavailable)?;
         let status = response.status();
         if !status.is_success() {
-            anyhow::bail!("OpenBao AppRole authentication failed with HTTP {status}");
+            if status == reqwest::StatusCode::BAD_REQUEST {
+                return Err(OpenBaoFailure::AppRoleRejected.into());
+            }
+            if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                return Err(OpenBaoFailure::Unavailable.into());
+            }
+            return Err(OpenBaoFailure::LoginFailed(status.as_u16()).into());
         }
         let payload: AppRoleLoginResponse =
-            response.json().context("parse OpenBao AppRole response")?;
+            response.json().map_err(|_| OpenBaoFailure::InvalidResponse)?;
         let token = payload
             .auth
             .map(|auth| auth.client_token)
             .filter(|token| !token.is_empty())
-            .context("OpenBao AppRole response did not contain a client token")?;
+            .ok_or(OpenBaoFailure::InvalidResponse)?;
         Ok(token)
     }
 
@@ -120,21 +172,23 @@ impl OpenBaoClient {
             .get(format!("{}/v1/{}/data/{}", self.address, self.mount, path))
             .header("X-Vault-Token", token)
             .send()
-            .context("read Google refresh token from OpenBao")?;
+            .map_err(|_| OpenBaoFailure::Unavailable)?;
         let status = response.status();
         if status == reqwest::StatusCode::NOT_FOUND {
             anyhow::bail!("no stored Google refresh token; reauthenticate the selected MCP target");
         }
         if !status.is_success() {
-            anyhow::bail!("OpenBao secret read failed with HTTP {status}");
+            return Err(OpenBaoFailure::CredentialReadFailed(status.as_u16()).into());
         }
-        let payload: KvReadResponse = response.json().context("parse OpenBao secret response")?;
+        let payload: KvReadResponse = response
+            .json()
+            .map_err(|_| OpenBaoFailure::InvalidResponse)?;
         payload
             .data
             .and_then(|data| data.data)
             .and_then(|data| data.refresh_token)
             .filter(|token| !token.is_empty())
-            .context("OpenBao secret did not contain a refresh token")
+            .ok_or(OpenBaoFailure::InvalidResponse.into())
     }
 
     fn put(&self, token_key: Option<&str>, subject: &str, refresh_token: &str) -> Result<()> {
@@ -148,12 +202,11 @@ impl OpenBaoClient {
                 "data": {"refresh_token": refresh_token},
             }))
             .send()
-            .context("write Google refresh token to OpenBao")?;
+            .map_err(|_| OpenBaoFailure::Unavailable)?;
         let status = response.status();
-        anyhow::ensure!(
-            status.is_success(),
-            "OpenBao secret write failed with HTTP {status}"
-        );
+        if !status.is_success() {
+            return Err(OpenBaoFailure::CredentialWriteFailed(status.as_u16()).into());
+        }
         Ok(())
     }
 
@@ -168,12 +221,11 @@ impl OpenBaoClient {
             ))
             .header("X-Vault-Token", token)
             .send()
-            .context("delete Google refresh token from OpenBao")?;
+            .map_err(|_| OpenBaoFailure::Unavailable)?;
         let status = response.status();
-        anyhow::ensure!(
-            status.is_success() || status == reqwest::StatusCode::NOT_FOUND,
-            "OpenBao secret deletion failed with HTTP {status}"
-        );
+        if !status.is_success() && status != reqwest::StatusCode::NOT_FOUND {
+            return Err(OpenBaoFailure::CredentialDeleteFailed(status.as_u16()).into());
+        }
         Ok(())
     }
 }
