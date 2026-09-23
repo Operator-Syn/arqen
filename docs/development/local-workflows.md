@@ -226,6 +226,16 @@ password from `.secrets/arqen-control-password`, complete OAuth in the TUI, and
 press `t` to set the target. The gateway has no `WWW-Authenticate` challenge;
 failed credentials stay on the themed page and successful login receives a
 memory-only 12-hour session cookie.
+
+Each `make docker-up` run checks the control and broker AppRole credentials
+independently before refreshing the containers' secret caches. If OpenBao
+rejects one role's credentials, the one-shot bootstrap replaces that role's
+RoleID and SecretID, reapplies its policy and lifetime settings, and verifies
+the replacement. It leaves a working role unchanged and preserves OpenBao KV
+data. A network or OpenBao availability failure stops startup without rotating
+either role. OAuth error dialogs identify the failed stage and state whether
+the protected refresh token and account-scope metadata were saved.
+
 The MCP container receives only the bearer-token file and broker socket. OAuth
 client JSON and all OpenBao role credentials stay in the control or broker
 containers.
