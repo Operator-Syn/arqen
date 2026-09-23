@@ -72,7 +72,8 @@ docs/
 - [Code modularization audit](audits/code-modularization.md) records the
   baseline hotspots and resulting source boundaries.
 - [Local workflows](development/local-workflows.md) documents `.env`, named
-  scripts, and native/container smoke checks.
+  scripts, native/container smoke checks, and the repository code-knowledge MCP
+  bootstrap prompt.
 
 The existing [UI style guide](ui-style.md) and [TUI mockup notes](ui-mockups/README.md)
 remain the visual source of truth for the account dashboard. The root
