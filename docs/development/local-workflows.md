@@ -235,7 +235,10 @@ The headless OpenBao, broker, and MCP services may be restored by the system
 Docker daemon, but `arqen-control` is deliberately not a boot-restarted
 container: its native display socket is session-owned. `make quickstart`
 installs `arqen-docker-control.service`; enable that user unit when the control
-container should start automatically after the graphical session is ready.
+container should start automatically after the graphical session is ready. The
+session startup runs the one-shot OpenBao unseal helper before starting the
+control container, so a headless OpenBao restored sealed by Docker is available
+again without moving its unseal key into a long-running container.
 The local Arqen app containers run as the invoking non-root host UID/GID so
 the shared SQLite, broker socket, and compositor authorization stay coherent.
 Press `c` on the authorization screen to use Arqen's native clipboard path;
