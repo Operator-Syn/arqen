@@ -26,12 +26,29 @@ curl -sS --max-time 2 -o /dev/null -w '%{http_code}\n' \
     "$control_url/" 2>/dev/null || true
 
 printf '\nOpenBao status:\n'
-docker compose \
+openbao_status="$(docker compose \
     --project-name "$compose_project" \
     --file "$compose_file" \
-    exec -T -e BAO_ADDR=http://openbao:8200 openbao bao status -format=json 2>/dev/null \
-    | sed -E 's/("(root_token|client_token|secret_id|unseal_keys_b64)"[[:space:]]*:[[:space:]]*)"[^"]*"/\1"<redacted>"/g' \
-    || printf '%s\n' 'OpenBao is not running.'
+    exec -T -e BAO_ADDR=http://openbao:8200 openbao bao status -format=json 2>/dev/null || true)"
+if [[ -z "$openbao_status" ]]; then
+    printf '%s\n' 'OpenBao is down or unavailable.'
+else
+    printf '%s\n' "$openbao_status" \
+        | sed -E 's/("(root_token|client_token|secret_id|unseal_keys_b64)"[[:space:]]*:[[:space:]]*)"[^"]*"/\1"<redacted>"/g'
+    if printf '%s' "$openbao_status" | grep -Eq '"initialized"[[:space:]]*:[[:space:]]*true'; then
+        if printf '%s' "$openbao_status" | grep -Eq '"sealed"[[:space:]]*:[[:space:]]*true'; then
+            printf '%s\n' 'OpenBao is running but sealed.'
+        elif printf '%s' "$openbao_status" | grep -Eq '"sealed"[[:space:]]*:[[:space:]]*false'; then
+            printf '%s\n' 'OpenBao is running and unsealed.'
+        else
+            printf '%s\n' 'OpenBao is running; seal state is unknown.'
+        fi
+    elif printf '%s' "$openbao_status" | grep -Eq '"initialized"[[:space:]]*:[[:space:]]*false'; then
+        printf '%s\n' 'OpenBao is running but not initialized.'
+    else
+        printf '%s\n' 'OpenBao responded with an unrecognized status.'
+    fi
+fi
 
 printf 'Broker socket: '
 if docker compose \
@@ -50,5 +67,5 @@ printf '\nMCP liveness: '
 curl -sS --max-time 2 -o /dev/null -w '%{http_code}\n' \
     -H "Authorization: Bearer $token" "$base_url/healthz" 2>/dev/null || true
 printf 'MCP readiness: '
-curl -sS --max-time 2 -o /dev/null -w '%{http_code}\n' \
+curl -sS --max-time 2 -w '\nHTTP %{http_code}\n' \
     -H "Authorization: Bearer $token" "$base_url/readyz" 2>/dev/null || true
