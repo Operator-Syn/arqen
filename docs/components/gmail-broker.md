@@ -12,8 +12,15 @@ generic error.
 `GmailApi::list_emails` first lists message IDs, then fetches only metadata
 headers (`From`, `Subject`, `Date`), labels, and the Gmail snippet. Snippets
 are truncated to 300 Unicode characters and the response is bounded by the
-caller’s hard page-size limit. The broker maps provider failures to stable
-codes (`gmail_rate_limited`, `gmail_unavailable`, `credential_unavailable`, or
-`reauthentication_required`) without forwarding upstream secrets, raw provider
-response bodies, or token contents. Credential acquisition failures are kept
-distinct from failures returned by Gmail's mail-list API.
+caller’s hard page-size limit. `read_email` resolves the same persisted MCP
+target, then fetches one `users/me/messages/{id}` resource with `format=full`;
+the caller cannot supply another account. It decodes nested MIME text parts,
+prefers plain text, converts HTML-only content, and does not download
+attachments. The Gmail response is capped at 2 MiB, decoded body text at 256
+KiB, and the serialized MCP result at 1 MiB. Oversized messages fail with
+`message_too_large`, never as a claimed-complete truncation. The broker maps
+provider failures to stable codes (`invalid_message_id`, `message_not_found`,
+`message_too_large`, `gmail_rate_limited`, `gmail_unavailable`,
+`credential_unavailable`, or `reauthentication_required`) without forwarding
+upstream secrets, raw provider response bodies, or token contents. Credential
+acquisition failures are kept distinct from Gmail API failures.
