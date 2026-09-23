@@ -30,6 +30,21 @@ impl fmt::Display for GmailApiError {
 
 impl std::error::Error for GmailApiError {}
 
+#[derive(Debug)]
+pub(crate) struct ReadEmailTooLarge;
+
+impl fmt::Display for ReadEmailTooLarge {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Gmail message exceeds the configured read limit")
+    }
+}
+
+impl std::error::Error for ReadEmailTooLarge {}
+
+pub(crate) fn is_read_email_too_large(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<ReadEmailTooLarge>().is_some()
+}
+
 pub fn is_unauthorized(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<GmailApiError>()
@@ -68,8 +83,24 @@ struct MessageResource {
 
 #[derive(Debug, Clone, Deserialize)]
 struct MessagePayload {
+    #[serde(default, rename = "mimeType")]
+    mime_type: String,
+    #[serde(default)]
+    filename: String,
     #[serde(default)]
     headers: Vec<MessageHeader>,
+    #[serde(default)]
+    body: Option<MessagePartBody>,
+    #[serde(default)]
+    parts: Vec<MessagePayload>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MessagePartBody {
+    #[serde(default)]
+    data: Option<String>,
+    #[serde(default)]
+    size: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -172,5 +203,27 @@ impl GmailApi {
             next_page_token: listed.next_page_token,
             result_size_estimate: listed.result_size_estimate,
         })
+    }
+
+    pub fn read_email(
+        &self,
+        access_token: &str,
+        request: crate::gmail::ReadEmailRequest,
+    ) -> Result<crate::gmail::EmailReadResponse> {
+        let request = request.validate()?;
+        let mut message_url = self.base_url.join("users/me/messages")?;
+        message_url
+            .path_segments_mut()
+            .map_err(|_| anyhow::anyhow!("Gmail API base URL cannot accept path segments"))?
+            .push(&request.message_id);
+        let message: MessageResource = self
+            .client
+            .get(message_url)
+            .bearer_auth(access_token)
+            .query(&[("format", "full"), ("fields", "id,threadId,labelIds,payload")])
+            .send()
+            .context("request Gmail message")
+            .and_then(parse_read_email_response)?;
+        email_read_response(message)
     }
 }
