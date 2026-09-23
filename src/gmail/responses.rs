@@ -3,13 +3,7 @@ fn parse_json_response<T: for<'de> Deserialize<'de>>(
 ) -> Result<T> {
     let status = response.status();
     if !status.is_success() {
-        let message = response
-            .json::<GoogleErrorResponse>()
-            .ok()
-            .and_then(|error| error.error)
-            .and_then(|error| error.message)
-            .unwrap_or_else(|| "the upstream request failed".into());
-        return Err(anyhow::Error::new(GmailApiError { status, message }));
+        return Err(anyhow::Error::new(GmailApiError { status }));
     }
     response.json().context("parse Gmail API response")
 }
@@ -19,10 +13,7 @@ fn parse_read_email_response(
 ) -> Result<MessageResource> {
     let status = response.status();
     if !status.is_success() {
-        return Err(anyhow::Error::new(GmailApiError {
-            status,
-            message: "the upstream request failed".into(),
-        }));
+        return Err(anyhow::Error::new(GmailApiError { status }));
     }
     if response
         .content_length()
@@ -44,16 +35,6 @@ fn parse_read_email_response(
         return Err(anyhow::Error::new(ReadEmailTooLarge));
     }
     serde_json::from_slice(&body).context("parse Gmail message response")
-}
-
-#[derive(Debug, Deserialize)]
-struct GoogleErrorResponse {
-    error: Option<GoogleErrorBody>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GoogleErrorBody {
-    message: Option<String>,
 }
 
 fn email_summary(detail: MessageResource, reference: &MessageReference) -> EmailSummary {
