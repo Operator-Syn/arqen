@@ -63,6 +63,51 @@ fn handle_list_labels(state: &BrokerState) -> BrokerResponse {
     }
 }
 
+fn handle_mark_email_read(
+    request: crate::gmail::ReadEmailRequest,
+    state: &BrokerState,
+) -> BrokerResponse {
+    handle_mark_email_state(request, true, state)
+}
+
+fn handle_mark_email_unread(
+    request: crate::gmail::ReadEmailRequest,
+    state: &BrokerState,
+) -> BrokerResponse {
+    handle_mark_email_state(request, false, state)
+}
+
+fn handle_mark_email_state(
+    request: crate::gmail::ReadEmailRequest,
+    is_read: bool,
+    state: &BrokerState,
+) -> BrokerResponse {
+    let store = match AccountStore::open(&state.database_path) {
+        Ok(store) => store,
+        Err(_) => return account_database_unavailable(),
+    };
+    let account = match selected_target_account(&store) {
+        Ok(account) => account,
+        Err(error) => return error.into_response(),
+    };
+    if let Some(reason) = target_ineligibility(&account) {
+        return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
+    }
+    if !account.granted_scopes.as_deref().is_some_and(|scopes| {
+        scopes.iter().any(|scope| scope == crate::GMAIL_MODIFY_SCOPE)
+    }) {
+        return BrokerResponse::error(
+            BrokerErrorCode::InsufficientScope,
+            "reauthorize the selected Arqen account to grant Gmail modify access",
+        );
+    }
+    match mark_email_with_refresh(&account, request, is_read, state) {
+        Ok(result) => BrokerResponse::MessageReadState { result },
+        Err(MarkEmailFailure::Credential(error)) => map_credential_error(&error),
+        Err(MarkEmailFailure::Gmail(error)) => map_mark_email_error(&error),
+    }
+}
+
 fn account_database_unavailable() -> BrokerResponse {
     BrokerResponse::error(
         BrokerErrorCode::Internal,
@@ -157,6 +202,12 @@ enum ListLabelsFailure {
     Gmail(anyhow::Error),
 }
 
+#[derive(Debug)]
+enum MarkEmailFailure {
+    Credential(anyhow::Error),
+    Gmail(anyhow::Error),
+}
+
 fn list_with_refresh(
     account: &Account,
     request: crate::gmail::ListEmailsRequest,
@@ -209,6 +260,35 @@ fn list_labels_with_refresh(
             api.list_labels(&token).map_err(ListLabelsFailure::Gmail)
         }
         Err(error) => Err(ListLabelsFailure::Gmail(error)),
+    }
+}
+
+fn mark_email_with_refresh(
+    account: &Account,
+    request: crate::gmail::ReadEmailRequest,
+    is_read: bool,
+    state: &BrokerState,
+) -> std::result::Result<crate::gmail::EmailReadState, MarkEmailFailure> {
+    let api = GmailApi::new().map_err(MarkEmailFailure::Gmail)?;
+    let token = cached_or_refresh_token(account, state).map_err(MarkEmailFailure::Credential)?;
+    let result = if is_read {
+        api.mark_email_read(&token, request.clone())
+    } else {
+        api.mark_email_unread(&token, request.clone())
+    };
+    match result {
+        Ok(result) => Ok(result),
+        Err(error) if is_unauthorized(&error) => {
+            invalidate_token(&account.subject, state);
+            let token = refresh_token(account, state).map_err(MarkEmailFailure::Credential)?;
+            let result = if is_read {
+                api.mark_email_read(&token, request)
+            } else {
+                api.mark_email_unread(&token, request)
+            };
+            result.map_err(MarkEmailFailure::Gmail)
+        }
+        Err(error) => Err(MarkEmailFailure::Gmail(error)),
     }
 }
 
@@ -325,6 +405,42 @@ fn map_read_email_error(error: &anyhow::Error) -> BrokerResponse {
     BrokerResponse::error(
         BrokerErrorCode::GmailUnavailable,
         "Gmail could not complete the message-read request",
+    )
+}
+
+fn map_mark_email_error(error: &anyhow::Error) -> BrokerResponse {
+    if let Some(error) = error.downcast_ref::<GmailApiError>() {
+        match error.status().as_u16() {
+            400 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::InvalidRequest,
+                    "Gmail rejected the message-state request",
+                );
+            }
+            401 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::ReauthenticationRequired,
+                    "reauthenticate the selected MCP target account in Arqen",
+                );
+            }
+            404 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::MessageNotFound,
+                    "Message not found in the currently selected account. Use an ID returned by list_emails.",
+                );
+            }
+            429 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::GmailRateLimited,
+                    "Gmail is rate limiting requests; try again shortly",
+                );
+            }
+            _ => {}
+        }
+    }
+    BrokerResponse::error(
+        BrokerErrorCode::GmailUnavailable,
+        "Gmail could not update the message read state",
     )
 }
 
