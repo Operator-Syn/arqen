@@ -42,8 +42,10 @@ Responsibilities are intentionally narrow:
 | Docker-native Compose (`deploy/containers/docker-native-compose.yml`) | OpenBao, control TUI, broker, and loopback MCP lifecycle; native display access is limited to the control override | Public exposure, live OAuth consent, account migration |
 | Legacy Docker Compose (`deploy/containers/docker-compose.yml`) | First-pass always-on MCP HTTP boundary | SQLite, native keyring, OAuth, account choice |
 
-The MCP exposes read-only `list_emails` and `read_email` tools for the
-configured target. `list_emails` returns bounded metadata/snippets only; an
-agent can pass one result's `id` to `read_email` to retrieve decoded body text.
-Neither tool accepts an account-selection parameter, and attachments are not
-downloaded.
+The MCP exposes read-only `list_labels`, `list_emails`, and `read_email` tools
+for the configured target. Agents can call `list_labels`, choose a label by
+name, and pass its ID explicitly to `list_emails.label_ids`; list results
+continue to return Gmail IDs. `list_emails` returns bounded metadata/snippets
+only, and an agent can pass one result's `id` to `read_email` to retrieve
+decoded body text. The tools accept no account-selection parameter, and
+attachments are not downloaded.
