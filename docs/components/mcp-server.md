@@ -26,6 +26,11 @@ HTTP body is capped at 1 MiB. This bearer gate is intentionally a private
 single-operator control for v1; MCP-native OAuth authorization is a later
 decision, not implied by the current route.
 
-The server advertises only `list_emails`. Tool failures are returned as
-stable broker-code-prefixed messages while the broker keeps provider and
-credential details private.
+The server advertises only `list_emails`. Its schema describes the optional
+query, labels, page size, page token, and spam/trash flag, including their
+defaults and limits. The tool reads bounded metadata for the one account
+selected in Arqen, returns a page token when more results are available, and
+does not return message bodies or attachments. Invalid arguments return a
+stable `invalid_request` code with a useful constraint message; other tool
+failures use stable broker-code-prefixed messages while the broker keeps
+provider and credential details private.
