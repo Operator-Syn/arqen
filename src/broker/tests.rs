@@ -3,7 +3,7 @@ mod tests {
     #[cfg(unix)]
     use super::prepare_socket_path;
     use super::{read_bounded_line, target_ineligibility};
-    use crate::gmail::GmailApiError;
+    use crate::{auth::GoogleTokenError, gmail::GmailApiError};
     use crate::{Account, ConnectionState, GMAIL_READONLY_SCOPE};
     use reqwest::StatusCode;
     use std::io::BufReader;
@@ -82,6 +82,69 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn gmail_http_and_transport_failures_remain_gmail_unavailable() {
+        for error in [
+            anyhow::Error::new(GmailApiError::for_test(
+                StatusCode::FORBIDDEN,
+                "private provider response detail",
+            )),
+            anyhow::anyhow!("upstream connection timed out"),
+        ] {
+            let response = super::map_gmail_error(&error);
+            let encoded = serde_json::to_string(&response).unwrap();
+            assert!(matches!(
+                response,
+                crate::mcp::BrokerResponse::Error {
+                    code: crate::mcp::BrokerErrorCode::GmailUnavailable,
+                    ..
+                }
+            ));
+            assert!(!encoded.contains("private provider response detail"));
+            assert!(!encoded.contains("upstream connection timed out"));
+        }
+    }
+
+    #[test]
+    fn credential_failures_are_separate_from_gmail_failures() {
+        let unavailable = super::map_credential_error(&anyhow::anyhow!("OpenBao is sealed"));
+        let missing = super::map_credential_error(&anyhow::anyhow!(
+            "no stored Google refresh token; reauthenticate the selected MCP target"
+        ));
+        let invalid_grant = super::map_credential_error(&anyhow::Error::new(
+            GoogleTokenError::for_test(
+                StatusCode::BAD_REQUEST,
+                Some("invalid_grant"),
+                "revoked refresh token",
+            ),
+        ));
+        let unavailable_text = serde_json::to_string(&unavailable).unwrap();
+
+        assert!(matches!(
+            &unavailable,
+            crate::mcp::BrokerResponse::Error {
+                code: crate::mcp::BrokerErrorCode::CredentialUnavailable,
+                message,
+            } if message == "the selected account credential is temporarily unavailable"
+        ));
+        assert!(matches!(
+            missing,
+            crate::mcp::BrokerResponse::Error {
+                code: crate::mcp::BrokerErrorCode::ReauthenticationRequired,
+                ..
+            }
+        ));
+        assert!(matches!(
+            invalid_grant,
+            crate::mcp::BrokerResponse::Error {
+                code: crate::mcp::BrokerErrorCode::ReauthenticationRequired,
+                ..
+            }
+        ));
+        assert!(!unavailable_text.contains("sealed"));
+        assert!(!unavailable_text.contains("refresh_token"));
     }
 
     #[cfg(unix)]
