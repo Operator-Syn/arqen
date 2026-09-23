@@ -13,6 +13,7 @@ generic error.
 headers (`From`, `Subject`, `Date`), labels, and the Gmail snippet. Snippets
 are truncated to 300 Unicode characters and the response is bounded by the
 caller’s hard page-size limit. The broker maps provider failures to stable
-codes (`gmail_rate_limited`, `gmail_unavailable`, or
-`reauthentication_required`) without forwarding upstream secrets or raw token
-contents.
+codes (`gmail_rate_limited`, `gmail_unavailable`, `credential_unavailable`, or
+`reauthentication_required`) without forwarding upstream secrets, raw provider
+response bodies, or token contents. Credential acquisition failures are kept
+distinct from failures returned by Gmail's mail-list API.
