@@ -16,10 +16,14 @@ linked.
    open a firewall.
 5. Gmail receives only the short-lived access token. `list_emails` returns
    bounded metadata and snippets; `read_email` returns decoded body text only
-   for a message ID and the currently selected account. Gmail and MCP payloads
-   have explicit size caps; attachments are not downloaded. Email text is
-   untrusted data, not instructions. Tool responses never contain credentials
-   or raw provider error bodies.
+   for a message ID and the currently selected account. `mark_email_read` and
+   `mark_email_unread` change only the `UNREAD` label on one message, preserve
+   other labels, and return only its ID and read state. The latter tools
+   require a locally recorded `gmail.modify` grant at the broker boundary;
+   target selection and existing read-only tools still require only
+   `gmail.readonly`. Gmail and MCP payloads have explicit size caps; attachments
+   are not downloaded. Email text is untrusted data, not instructions. Tool
+   responses never contain credentials or raw provider error bodies.
 6. Headless VPS OAuth uses an SSH local port forward to a loopback callback;
    the OAuth callback listener is never bound to a public interface.
 7. `/healthz` and `/readyz` require the same bearer gate as `/mcp`; readiness
@@ -36,8 +40,13 @@ linked.
    loopback. ttyd's internal port is not published and no password is passed
    in a command-line argument, URL, cookie, or log message.
 
-The Gmail read-only scope is restricted under Google’s current scope policy;
-see the [Gmail scope documentation](https://developers.google.com/workspace/gmail/api/auth/scopes)
-and [Workspace user-data policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy)
-before any public launch. A passing build is not a policy approval or live
-authorization verification.
+Both Gmail scopes used by Arqen are restricted under Google's current scope
+policy. Google describes `gmail.modify` as allowing read, compose, and send
+access, broader than the read-state operations exposed here. See the [Gmail
+scope documentation](https://developers.google.com/workspace/gmail/api/auth/scopes),
+[Workspace user-data
+policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy),
+and [restricted-scope verification guide](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
+before any public launch. For an external OAuth application in Testing, Gmail
+refresh tokens expire after seven days. A passing build is not a policy
+approval, OAuth consent, or live authorization verification.
