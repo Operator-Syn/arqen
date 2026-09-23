@@ -1,10 +1,13 @@
 #[cfg(test)]
 mod tests {
+    use super::{read_bounded_line, selected_target_account, target_ineligibility};
     #[cfg(unix)]
     use super::prepare_socket_path;
-    use super::{read_bounded_line, target_ineligibility};
-    use crate::{auth::GoogleTokenError, gmail::GmailApiError};
-    use crate::{Account, ConnectionState, GMAIL_READONLY_SCOPE};
+    use crate::{
+        Account, AccountStore, ConnectionState, GMAIL_READONLY_SCOPE,
+        auth::GoogleTokenError,
+        gmail::{GmailApiError, ReadEmailTooLarge},
+    };
     use reqwest::StatusCode;
     use std::io::BufReader;
 
@@ -30,6 +33,59 @@ mod tests {
         let mut unverified = eligible.clone();
         unverified.granted_scopes = None;
         assert!(target_ineligibility(&unverified).is_some());
+    }
+
+    #[test]
+    fn read_email_resolves_only_the_persisted_mcp_target_account() {
+        let store = AccountStore::in_memory().unwrap();
+        for (subject, email) in [
+            ("selected-subject", "selected@example.com"),
+            ("other-subject", "other@example.com"),
+        ] {
+            store
+                .upsert_google_account(&Account {
+                    id: format!("account-{subject}"),
+                    subject: subject.into(),
+                    email: email.into(),
+                    display_name: None,
+                    token_key: Some(format!("keyring:arqen:{subject}")),
+                    granted_scopes: Some(vec![GMAIL_READONLY_SCOPE.into()]),
+                    connection_state: ConnectionState::Connected,
+                })
+                .unwrap();
+        }
+        store
+            .set_mcp_target_subject(Some("selected-subject"))
+            .unwrap();
+
+        let selected = selected_target_account(&store).unwrap();
+
+        assert_eq!(selected.subject, "selected-subject");
+        assert_eq!(selected.email, "selected@example.com");
+    }
+
+    #[test]
+    fn read_email_account_store_failures_use_the_stable_internal_code() {
+        let state = super::BrokerState {
+            database_path: std::env::temp_dir()
+                .join(format!("arqen-missing-parent-{}", uuid::Uuid::new_v4()))
+                .join("accounts.sqlite3"),
+            credentials_path: std::path::PathBuf::from("unused"),
+            access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        };
+        let response = super::handle_read_email(
+            crate::gmail::ReadEmailRequest {
+                message_id: "message-123".into(),
+            },
+            &state,
+        );
+        assert!(matches!(
+            response,
+            crate::mcp::BrokerResponse::Error {
+                code: crate::mcp::BrokerErrorCode::Internal,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -82,6 +138,100 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn read_email_failures_map_to_stable_codes_without_provider_details() {
+        use crate::mcp::{BrokerErrorCode, BrokerResponse};
+
+        let cases = [
+            (
+                anyhow::Error::new(GmailApiError::for_test(
+                    StatusCode::BAD_REQUEST,
+                    "private invalid id detail",
+                )),
+                BrokerErrorCode::InvalidRequest,
+            ),
+            (
+                anyhow::Error::new(GmailApiError::for_test(
+                    StatusCode::NOT_FOUND,
+                    "private missing message detail",
+                )),
+                BrokerErrorCode::MessageNotFound,
+            ),
+            (
+                anyhow::Error::new(GmailApiError::for_test(
+                    StatusCode::UNAUTHORIZED,
+                    "private authentication detail",
+                )),
+                BrokerErrorCode::ReauthenticationRequired,
+            ),
+            (
+                anyhow::Error::new(GmailApiError::for_test(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "private rate limit detail",
+                )),
+                BrokerErrorCode::GmailRateLimited,
+            ),
+            (
+                anyhow::Error::new(GmailApiError::for_test(
+                    StatusCode::BAD_GATEWAY,
+                    "private provider detail",
+                )),
+                BrokerErrorCode::GmailUnavailable,
+            ),
+            (
+                anyhow::Error::new(ReadEmailTooLarge),
+                BrokerErrorCode::MessageTooLarge,
+            ),
+            (
+                anyhow::anyhow!("private transport detail"),
+                BrokerErrorCode::GmailUnavailable,
+            ),
+        ];
+
+        for (error, expected_code) in cases {
+            let response = super::map_read_email_error(&error);
+            assert!(matches!(
+                response,
+                BrokerResponse::Error { code, .. } if code == expected_code
+            ));
+            let encoded = serde_json::to_value(&response).unwrap();
+            assert_eq!(encoded["code"], expected_code.as_str());
+            let encoded = encoded.to_string();
+            assert!(!encoded.contains("private"));
+            assert!(!encoded.contains("transport detail"));
+        }
+    }
+
+    #[test]
+    fn valid_message_id_with_gmail_not_found_maps_to_message_not_found() {
+        use crate::mcp::{BrokerErrorCode, BrokerResponse};
+
+        let request = crate::gmail::ReadEmailRequest {
+            message_id: "18abc_123-ef".into(),
+        }
+        .validate()
+        .expect("the test message ID is syntactically valid");
+        let response = super::map_read_email_error(&anyhow::Error::new(
+            GmailApiError::for_test(
+                StatusCode::NOT_FOUND,
+                "private Gmail response detail",
+            ),
+        ));
+
+        assert!(matches!(
+            &response,
+            BrokerResponse::Error {
+                code: BrokerErrorCode::MessageNotFound,
+                message,
+            } if message == "Message not found in the currently selected account. Use an ID returned by list_emails."
+        ));
+        let encoded = serde_json::to_string(&response).unwrap();
+        assert!(!encoded.contains("private Gmail response detail"));
+        assert_ne!(BrokerErrorCode::MessageNotFound, BrokerErrorCode::InvalidMessageId);
+        assert_ne!(BrokerErrorCode::MessageNotFound, BrokerErrorCode::Internal);
+        assert_eq!(request.message_id, "18abc_123-ef");
     }
 
     #[test]
