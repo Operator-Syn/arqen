@@ -14,6 +14,20 @@ run_check() {
 }
 
 run_check 'shell script syntax' bash -n scripts/lib/common.sh scripts/*.sh
+if command -v nix >/dev/null 2>&1; then
+    run_check 'shellcheck OpenBao startup scripts' \
+        nix develop "$ARQEN_ROOT#arqen" -c shellcheck -e SC1091 \
+        deploy/containers/openbao/bootstrap.sh \
+        scripts/arqen-docker-up.sh \
+        scripts/arqen-openbao-smoke.sh
+elif command -v shellcheck >/dev/null 2>&1; then
+    run_check 'shellcheck OpenBao startup scripts' shellcheck -e SC1091 \
+        deploy/containers/openbao/bootstrap.sh \
+        scripts/arqen-docker-up.sh \
+        scripts/arqen-openbao-smoke.sh
+else
+    printf '== shellcheck OpenBao startup scripts ==\nNOT RUN (install ShellCheck or Nix)\n'
+fi
 run_check 'cargo fmt --check' arqen_cargo fmt --check
 run_check 'cargo test' arqen_cargo test --locked
 run_check 'cargo clippy' arqen_cargo clippy --locked --all-targets --all-features -- -D warnings
