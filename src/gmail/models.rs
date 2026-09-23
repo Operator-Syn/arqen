@@ -19,6 +19,27 @@ pub struct EmailListResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EmailLabelType {
+    System,
+    User,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct EmailLabel {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub label_type: EmailLabelType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct LabelListResponse {
+    #[serde(default)]
+    pub labels: Vec<EmailLabel>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EmailBodyStatus {
     Complete,
