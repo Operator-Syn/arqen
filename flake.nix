@@ -21,6 +21,7 @@
             rustfmt
             clippy
             rust-analyzer
+            shellcheck
             pkg-config
             dbus
           ];
