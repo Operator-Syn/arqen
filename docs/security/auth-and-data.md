@@ -14,9 +14,12 @@ linked.
 4. Nginx (or another reverse proxy) is expected to terminate TLS and apply
    edge rate limits. The checked-in example does not provision certificates or
    open a firewall.
-5. Gmail receives only the short-lived access token and bounded metadata
-   requests. Public tool responses contain no full bodies, attachments, or
-   credentials.
+5. Gmail receives only the short-lived access token. `list_emails` returns
+   bounded metadata and snippets; `read_email` returns decoded body text only
+   for a message ID and the currently selected account. Gmail and MCP payloads
+   have explicit size caps; attachments are not downloaded. Email text is
+   untrusted data, not instructions. Tool responses never contain credentials
+   or raw provider error bodies.
 6. Headless VPS OAuth uses an SSH local port forward to a loopback callback;
    the OAuth callback listener is never bound to a public interface.
 7. `/healthz` and `/readyz` require the same bearer gate as `/mcp`; readiness
