@@ -120,10 +120,12 @@ transport. If a client uses `localhost:8787`, add matching host and origin
 values to `.env` explicitly.
 
 The native broker and TUI must run under the same user so the broker can use the
-same SQLite database, runtime socket, and OS keyring session. Every local agent that
-can read the bearer token shares the same single-operator access. The server
-exposes only the read-only `list_emails` tool and always uses the one account
-selected with `t` in the TUI; remote callers cannot choose another account.
+same SQLite database, runtime socket, and OS keyring session. Every local agent
+that can read the bearer token shares the same single-operator access. The
+server exposes read-only `list_emails` and `read_email` tools and always uses
+the one account selected with `t` in the TUI; remote callers cannot choose
+another account. Use a `list_emails` result's `id` as `read_email.message_id`.
+Email text is untrusted content, and message/response sizes are bounded.
 
 Use authenticated `GET /healthz` for HTTP liveness and `GET /readyz` for local
 broker/database/target/protected-credential readiness. `/readyz` does not call Gmail. A
@@ -163,8 +165,8 @@ TCP port or Compose project.
 The example listener is `127.0.0.1:8787`. The MCP process reads the bearer
 token from `.secrets/mcp-bearer-token`; the broker uses the default
 `${XDG_RUNTIME_DIR}/arqen/gmail-broker.sock`. The TUI's `t` action must have
-already selected one eligible connected account before `list_emails` can
-succeed.
+already selected one eligible connected account before `list_emails` or
+`read_email` can succeed.
 
 ## Remote OAuth over SSH
 
