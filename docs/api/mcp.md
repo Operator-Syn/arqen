@@ -103,20 +103,48 @@ The intended workflow is `list_emails` → choose a result →
 `read_email(message_id: result.id)`. `list_emails` continues to return bounded
 metadata and snippets only; it never includes message bodies.
 
+## Tools: `mark_email_read` and `mark_email_unread`
+
+Each tool accepts only a required `message_id` obtained from `list_emails`.
+Both operate on one message in the currently selected Arqen account, not its
+thread. `mark_email_read` removes only Gmail's `UNREAD` system label;
+`mark_email_unread` adds only that label. The operations are idempotent and
+preserve every other message label. Each returns only
+`{"message_id":"...","is_read":true|false}`, with the final state derived
+from Gmail's modify response.
+
+Both operations require the selected account's recorded
+`https://www.googleapis.com/auth/gmail.modify` grant. Existing targets with
+only `gmail.readonly` remain eligible for the read-only tools, while these
+write tools return `insufficient_scope`. Reauthorize the selected account
+through Arqen after this code change; an existing refresh token does not gain a
+new scope merely because Arqen now requests it. `gmail.modify` is a restricted
+scope that Google describes as allowing email reading, composing, and sending,
+not just unread-state changes. An external OAuth app left in Testing has Gmail
+refresh tokens that expire after seven days. See [Google's Gmail scope
+reference](https://developers.google.com/workspace/gmail/api/auth/scopes) and
+[OAuth refresh-token
+guidance](https://developers.google.com/identity/protocols/oauth2#expiration).
+
 ## Failure codes
 
 The broker uses these stable codes: `invalid_request`, `invalid_message_id`,
 `message_not_found`, `message_too_large`, `target_not_configured`,
 `target_unavailable`, `reauthentication_required`,
-`credential_unavailable`, `gmail_rate_limited`, `gmail_unavailable`, and
-`internal`. `credential_unavailable` means the broker could not access the
-protected refresh credential or obtain an access token. `gmail_unavailable`
-means a Gmail list or message-read request failed for another provider or
-transport reason. A failure never includes an access token, refresh token, or
-raw provider response body.
+`credential_unavailable`, `insufficient_scope`, `gmail_rate_limited`,
+`gmail_unavailable`, and `internal`. `credential_unavailable` means the broker
+could not access the protected refresh credential or obtain an access token.
+`gmail_unavailable` means a Gmail request failed for another provider or
+transport reason. A provider HTTP 403 alone is not classified as
+`insufficient_scope`; that code comes from checking the selected account's
+locally recorded grant before the write call. A failure never includes an
+access token, refresh token, or raw provider response body.
 
 For `read_email`, a missing, empty, overlong, or nonconforming `message_id`
-fails input validation with `invalid_message_id`; accepted IDs are 1–256 ASCII
-letters, digits, hyphens, or underscores. A syntactically valid ID that Gmail
-reports as absent returns `message_not_found` with guidance to use an ID from
-`list_emails`. Other Gmail bad-request responses use `invalid_request`.
+and the two read-state tools, missing or malformed `message_id` input returns
+`invalid_message_id`; accepted IDs are 1–256 ASCII letters, digits, hyphens,
+or underscores. A syntactically valid ID that Gmail reports as absent returns
+`message_not_found` with guidance to use an ID from `list_emails`. Other Gmail
+bad-request responses use `invalid_request`. Read-state calls without a
+recorded `gmail.modify` grant return `insufficient_scope` before provider
+invocation; a Gmail HTTP 403 by itself remains `gmail_unavailable`.
