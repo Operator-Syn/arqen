@@ -2,7 +2,7 @@ use anyhow::Context;
 use arqen::{
     broker::BrokerClient,
     gmail::{
-        EmailListResponse, EmailReadResponse, LabelListResponse, ListEmailsRequest,
+        EmailListResponse, EmailReadResponse, EmailReadState, LabelListResponse, ListEmailsRequest,
         ReadEmailRequest,
     },
     mcp::BrokerFailure,
