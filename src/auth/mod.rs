@@ -19,8 +19,7 @@ const REDIRECT_URI: &str = "http://localhost";
 const REVOCATION_URI: &str = "https://oauth2.googleapis.com/revoke";
 pub const SUBJECT_MISMATCH_MESSAGE: &str =
     "Google account does not match the account selected for reauthentication";
-const REQUESTED_SCOPES: &str =
-    "openid email profile https://www.googleapis.com/auth/gmail.readonly";
+const REQUESTED_SCOPES: &str = "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify";
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Callback {
