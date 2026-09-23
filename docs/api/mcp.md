@@ -51,5 +51,8 @@ message bodies and attachments are intentionally outside this milestone.
 
 The broker uses these stable codes: `invalid_request`,
 `target_not_configured`, `target_unavailable`, `reauthentication_required`,
-`gmail_rate_limited`, `gmail_unavailable`, and `internal`. A failure never
-includes an access token or refresh token.
+`credential_unavailable`, `gmail_rate_limited`, `gmail_unavailable`, and
+`internal`. `credential_unavailable` means the broker could not access the
+protected refresh credential or obtain an access token; `gmail_unavailable`
+means the Gmail mail-list request failed. A failure never includes an access
+token, refresh token, or raw provider response body.
