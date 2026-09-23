@@ -10,6 +10,12 @@ fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState
             Ok(crate::mcp::BrokerRequest::ReadEmail { request }) => {
                 handle_read_email(request, state)
             }
+            Ok(crate::mcp::BrokerRequest::MarkEmailRead { request }) => {
+                handle_mark_email_read(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::MarkEmailUnread { request }) => {
+                handle_mark_email_unread(request, state)
+            }
             Ok(crate::mcp::BrokerRequest::Readiness { .. }) => handle_readiness(state),
             Err(failure) => BrokerResponse::error(failure.code, failure.message),
         },
