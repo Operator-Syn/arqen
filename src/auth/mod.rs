@@ -85,6 +85,21 @@ pub(crate) struct GoogleTokenError {
     message: String,
 }
 
+#[cfg(test)]
+impl GoogleTokenError {
+    pub(crate) fn for_test(
+        status: StatusCode,
+        code: Option<&str>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            status,
+            code: code.map(str::to_owned),
+            message: message.into(),
+        }
+    }
+}
+
 impl std::fmt::Display for GoogleTokenError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(code) = &self.code {
