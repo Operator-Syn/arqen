@@ -46,6 +46,56 @@ uses `nix develop .#arqen -c cargo ...` when `ARQEN_USE_NIX=auto` and Nix is
 available. Set `ARQEN_USE_NIX=never` in `.env` to use the system Cargo
 toolchain, or `always` to require Nix.
 
+## Repository code-knowledge MCP
+
+This is separate from Arqen's Gmail `/mcp` service. The project-scoped
+`codebase-memory-mcp` gives coding agents graph-backed symbol search,
+call-path, architecture, and impact queries for this checkout. It is registered
+in [`.mcp.json`](../../.mcp.json) and [`.codex/config.toml`](../../.codex/config.toml);
+it does not change an agent's global MCP configuration.
+
+The one-time setup requires Docker and network access to build the pinned image,
+then creates the ignored local graph state and indexes the repository:
+
+```bash
+bash .codex/mcp/codebase-memory/setup.sh
+```
+
+After setup, restart or reconnect the MCP client. The agent is ready when its
+tool list includes `mcp__codebase_memory_mcp__...` (or the equivalent client
+namespaced tools). Validate the local image, stdio handshake, tool surface,
+repository boundary, and current index with:
+
+```bash
+bash .codex/mcp/codebase-memory/test.sh
+bash .codex/mcp/codebase-memory/run.sh cli list_projects
+bash .codex/mcp/codebase-memory/run.sh cli index_status --project workspace-project
+bash .codex/mcp/codebase-memory/run.sh cli check_index_coverage \
+  --project workspace-project --paths Cargo.toml
+```
+
+Use this prompt when opening a fresh coding-agent session in this repository:
+
+```text
+You are working in this Git checkout. Set up and use only the repository-scoped
+codebase-memory-mcp. Read AGENTS.md and the repository MCP instructions first.
+If Docker or the pinned image is missing, run
+`bash .codex/mcp/codebase-memory/setup.sh`; do not install a host-global runtime
+or edit global MCP configuration. Run
+`bash .codex/mcp/codebase-memory/test.sh`, then verify `list_projects`,
+`index_status --project workspace-project`, and
+`check_index_coverage --project workspace-project --paths Cargo.toml`.
+If the MCP tools are not listed after setup, stop and ask me to restart or
+reconnect this agent session. Once loaded, call `list_projects` and
+`index_status` before non-trivial discovery. Use direct source inspection when
+coverage is partial or stale, and do not expose secrets or run graph-mutating
+tools without the required approval.
+```
+
+The graph is best-effort evidence, not a replacement for source inspection or
+tests. Setup and indexing do not prove that the separate Gmail MCP endpoint,
+OAuth flow, or any live service is available.
+
 ## One-command backend
 
 When the TUI is treated as the frontend, use the backend supervisor:
