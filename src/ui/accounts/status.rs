@@ -50,6 +50,7 @@ fn friendly_scope(scope: &str) -> Option<&'static str> {
         "email" | EMAIL_SCOPE => Some("Email address"),
         "profile" | PROFILE_SCOPE => Some("Basic profile"),
         GMAIL_READONLY_SCOPE => Some("Gmail read-only"),
+        GMAIL_MODIFY_SCOPE => Some("Gmail read, compose, and send"),
         _ => None,
     }
 }
@@ -91,6 +92,12 @@ fn scope_lines(account: &Account) -> Vec<Line<'static>> {
     if !scopes.iter().any(|scope| scope == GMAIL_READONLY_SCOPE) {
         lines.push(Line::from(Span::styled(
             "Gmail read-only — not granted",
+            Style::default().fg(theme::WARNING),
+        )));
+    }
+    if !scopes.iter().any(|scope| scope == GMAIL_MODIFY_SCOPE) {
+        lines.push(Line::from(Span::styled(
+            "Gmail modify — not granted",
             Style::default().fg(theme::WARNING),
         )));
     }
