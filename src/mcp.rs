@@ -47,6 +47,7 @@ pub enum BrokerErrorCode {
     TargetNotConfigured,
     TargetUnavailable,
     ReauthenticationRequired,
+    CredentialUnavailable,
     GmailRateLimited,
     GmailUnavailable,
     Internal,
@@ -59,6 +60,7 @@ impl BrokerErrorCode {
             Self::TargetNotConfigured => "target_not_configured",
             Self::TargetUnavailable => "target_unavailable",
             Self::ReauthenticationRequired => "reauthentication_required",
+            Self::CredentialUnavailable => "credential_unavailable",
             Self::GmailRateLimited => "gmail_rate_limited",
             Self::GmailUnavailable => "gmail_unavailable",
             Self::Internal => "internal",
@@ -139,6 +141,18 @@ mod tests {
         );
         let encoded = serde_json::to_string(&response).unwrap();
         assert!(encoded.contains("reauthentication_required"));
+        assert!(!encoded.contains("refresh_token"));
+        assert!(!encoded.contains("access_token"));
+    }
+
+    #[test]
+    fn credential_unavailable_uses_a_stable_public_code() {
+        let response = BrokerResponse::error(
+            BrokerErrorCode::CredentialUnavailable,
+            "the selected account credential is temporarily unavailable",
+        );
+        let encoded = serde_json::to_string(&response).unwrap();
+        assert!(encoded.contains("credential_unavailable"));
         assert!(!encoded.contains("refresh_token"));
         assert!(!encoded.contains("access_token"));
     }
