@@ -51,16 +51,10 @@ fn handle_list_emails(
     if let Some(reason) = target_ineligibility(&account) {
         return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
     }
-    let result = list_with_refresh(&account, request, state);
-    match result {
+    match list_with_refresh(&account, request, state) {
         Ok(result) => BrokerResponse::Ok { result },
-        Err(error) if is_invalid_grant(&error) || is_missing_refresh_token(&error) => {
-            BrokerResponse::error(
-                BrokerErrorCode::ReauthenticationRequired,
-                "reauthenticate the selected MCP target account in Arqen",
-            )
-        }
-        Err(error) => map_gmail_error(&error),
+        Err(ListEmailsFailure::Credential(error)) => map_credential_error(&error),
+        Err(ListEmailsFailure::Gmail(error)) => map_gmail_error(&error),
     }
 }
 
@@ -83,21 +77,28 @@ fn target_ineligibility(account: &Account) -> Option<&'static str> {
     None
 }
 
+#[derive(Debug)]
+enum ListEmailsFailure {
+    Credential(anyhow::Error),
+    Gmail(anyhow::Error),
+}
+
 fn list_with_refresh(
     account: &Account,
     request: crate::gmail::ListEmailsRequest,
     state: &BrokerState,
-) -> Result<EmailListResponse> {
-    let api = GmailApi::new()?;
-    let token = cached_or_refresh_token(account, state)?;
+) -> std::result::Result<EmailListResponse, ListEmailsFailure> {
+    let api = GmailApi::new().map_err(ListEmailsFailure::Gmail)?;
+    let token = cached_or_refresh_token(account, state).map_err(ListEmailsFailure::Credential)?;
     match api.list_emails(&token, &account.email, request.clone()) {
         Ok(result) => Ok(result),
         Err(error) if is_unauthorized(&error) => {
             invalidate_token(&account.subject, state);
-            let token = refresh_token(account, state)?;
+            let token = refresh_token(account, state).map_err(ListEmailsFailure::Credential)?;
             api.list_emails(&token, &account.email, request)
+                .map_err(ListEmailsFailure::Gmail)
         }
-        Err(error) => Err(error),
+        Err(error) => Err(ListEmailsFailure::Gmail(error)),
     }
 }
 
@@ -172,5 +173,18 @@ fn map_gmail_error(error: &anyhow::Error) -> BrokerResponse {
     BrokerResponse::error(
         BrokerErrorCode::GmailUnavailable,
         "Gmail could not complete the mail-list request",
+    )
+}
+
+fn map_credential_error(error: &anyhow::Error) -> BrokerResponse {
+    if is_invalid_grant(error) || is_missing_refresh_token(error) {
+        return BrokerResponse::error(
+            BrokerErrorCode::ReauthenticationRequired,
+            "reauthenticate the selected MCP target account in Arqen",
+        );
+    }
+    BrokerResponse::error(
+        BrokerErrorCode::CredentialUnavailable,
+        "the selected account credential is temporarily unavailable",
     )
 }
