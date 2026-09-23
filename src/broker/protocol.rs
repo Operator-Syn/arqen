@@ -2,19 +2,15 @@
 fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState) {
     let mut reader = BufReader::new(stream);
     let response = match read_request(&mut reader) {
-        Ok(request) if request.operation == "readiness" => match request.validate_readiness() {
-            Ok(()) => handle_readiness(state),
-            Err(_) => BrokerResponse::error(
-                BrokerErrorCode::InvalidRequest,
-                "the broker request is invalid",
-            ),
-        },
         Ok(request) => match request.validate() {
-            Ok(request) => handle_list_emails(request, state),
-            Err(_) => BrokerResponse::error(
-                BrokerErrorCode::InvalidRequest,
-                "the broker request is invalid",
-            ),
+            Ok(crate::mcp::BrokerRequest::ListEmails { request }) => {
+                handle_list_emails(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::ReadEmail { request }) => {
+                handle_read_email(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::Readiness { .. }) => handle_readiness(state),
+            Err(failure) => BrokerResponse::error(failure.code, failure.message),
         },
         Err(_) => BrokerResponse::error(
             BrokerErrorCode::InvalidRequest,
