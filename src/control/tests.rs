@@ -184,6 +184,9 @@ mod tests {
     #[allow(clippy::result_large_err)]
     #[tokio::test]
     async fn websocket_proxy_round_trips_binary_data_and_injects_auth_header() {
+        type HandshakeRequest = tokio_tungstenite::tungstenite::handshake::server::Request;
+        type HandshakeResponse = tokio_tungstenite::tungstenite::handshake::server::Response;
+
         let upstream_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let upstream_addr = upstream_listener.local_addr().unwrap();
         let (auth_sender, auth_receiver) = tokio::sync::oneshot::channel();
@@ -191,10 +194,7 @@ mod tests {
             let (stream, _) = upstream_listener.accept().await.unwrap();
             let upstream = tokio_tungstenite::accept_hdr_async(
                 stream,
-                move |
-                    request: &tokio_tungstenite::tungstenite::handshake::server::Request,
-                    mut response: tokio_tungstenite::tungstenite::handshake::server::Response,
-                | {
+                move |request: &HandshakeRequest, mut response: HandshakeResponse| {
                     let auth = request
                         .headers()
                         .get(AUTH_HEADER)
