@@ -1,4 +1,6 @@
-use crate::gmail::{EmailListResponse, EmailReadResponse, ListEmailsRequest, ReadEmailRequest};
+use crate::gmail::{
+    EmailListResponse, EmailReadResponse, LabelListResponse, ListEmailsRequest, ReadEmailRequest,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -8,6 +10,7 @@ pub enum BrokerRequest {
         #[serde(flatten)]
         request: ListEmailsRequest,
     },
+    ListLabels,
     ReadEmail {
         #[serde(flatten)]
         request: ReadEmailRequest,
@@ -21,6 +24,10 @@ pub enum BrokerRequest {
 impl BrokerRequest {
     pub fn list_emails(request: ListEmailsRequest) -> Self {
         Self::ListEmails { request }
+    }
+
+    pub fn list_labels() -> Self {
+        Self::ListLabels
     }
 
     pub fn read_email(request: ReadEmailRequest) -> Self {
@@ -42,6 +49,7 @@ impl BrokerRequest {
                     code: BrokerErrorCode::InvalidRequest,
                     message: "the mail-list request is invalid",
                 }),
+            Self::ListLabels => Ok(Self::ListLabels),
             Self::ReadEmail { request } => request
                 .validate()
                 .map(|request| Self::ReadEmail { request })
@@ -122,6 +130,9 @@ pub enum BrokerResponse {
     Ok {
         result: EmailListResponse,
     },
+    Labels {
+        result: LabelListResponse,
+    },
     ReadEmail {
         result: EmailReadResponse,
     },
@@ -144,7 +155,9 @@ impl BrokerResponse {
 #[cfg(test)]
 mod tests {
     use super::{BrokerErrorCode, BrokerRequest, BrokerResponse};
-    use crate::gmail::{ListEmailsRequest, ReadEmailRequest};
+    use crate::gmail::{
+        EmailLabel, EmailLabelType, LabelListResponse, ListEmailsRequest, ReadEmailRequest,
+    };
 
     #[test]
     fn broker_request_round_trips_the_list_contract() {
@@ -155,6 +168,36 @@ mod tests {
             decoded.validate().unwrap(),
             BrokerRequest::ListEmails { request } if request.effective_query() == "in:inbox"
         ));
+    }
+
+    #[test]
+    fn broker_request_round_trips_list_labels_without_inputs() {
+        let request = BrokerRequest::list_labels();
+        let encoded = serde_json::to_value(&request).unwrap();
+        assert_eq!(encoded, serde_json::json!({"operation": "list_labels"}));
+        let decoded: BrokerRequest = serde_json::from_value(encoded).unwrap();
+        assert!(matches!(
+            decoded.validate().unwrap(),
+            BrokerRequest::ListLabels
+        ));
+    }
+
+    #[test]
+    fn broker_label_response_preserves_label_ids_and_types() {
+        let response = BrokerResponse::Labels {
+            result: LabelListResponse {
+                labels: vec![EmailLabel {
+                    id: "Label_7".into(),
+                    name: "Project Atlas".into(),
+                    label_type: EmailLabelType::User,
+                }],
+            },
+        };
+        let encoded = serde_json::to_value(response).unwrap();
+        assert_eq!(encoded["status"], "labels");
+        assert_eq!(encoded["result"]["labels"][0]["id"], "Label_7");
+        assert_eq!(encoded["result"]["labels"][0]["name"], "Project Atlas");
+        assert_eq!(encoded["result"]["labels"][0]["type"], "user");
     }
 
     #[test]
