@@ -43,6 +43,8 @@ next page.
 
 The server always applies these arguments to the one target selected in the
 Arqen TUI. It does not accept a Google subject or email as a tool argument.
+`label_ids` contains Gmail label IDs, not display names; each message's
+`labels` field also remains a list of Gmail label IDs.
 
 Successful results contain `target_email`, `messages`, `next_page_token`, and
 `result_size_estimate`. Each message contains its Gmail `id`, `thread_id`,
@@ -56,6 +58,20 @@ it unchanged as `page_token`. Optional header fields (`from`, `subject`, and
 Invalid argument values return `invalid_request` with the relevant validation
 constraint in the message. For example, `max_results` outside 1–50 reports
 `max_results must be between 1 and 50`.
+
+## Tool: `list_labels`
+
+This tool takes no inputs. It lists labels for the currently selected Arqen
+account and returns a `labels` array. Each record contains the Gmail `id`
+unchanged, its human-readable `name`, and `type` (`system` or `user`). The
+result includes system and custom/user-created labels. Callers cannot choose
+an account.
+
+To filter by a label, use two independent calls: call `list_labels`, choose
+the desired record by `name`, then pass its `id` unchanged as one value in
+`list_emails.label_ids`. `list_emails` does not call `list_labels`, translate
+names, or use hidden shared state; it remains independently usable with an
+explicit label ID or without a label filter.
 
 ## Tool: `read_email`
 
