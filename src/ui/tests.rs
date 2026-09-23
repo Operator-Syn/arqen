@@ -420,6 +420,7 @@ mod tests {
         missing_gmail.granted_scopes = Some(vec!["openid".into()]);
         let missing_output = rendered(180, 40, Screen::Accounts, &[missing_gmail]);
         assert!(missing_output.contains("Gmail read-only — not granted"));
+        assert!(missing_output.contains("Gmail modify — not granted"));
 
         let mut unknown = account("Unknown", "unknown@example.com");
         unknown.granted_scopes = Some(vec!["https://example.test/future".into()]);
@@ -440,6 +441,16 @@ mod tests {
             canonical_output
                 .contains("Basic profile — https://www.googleapis.com/auth/userinfo.profile")
         );
+
+        let mut mail_modify = account("Mail modify", "modify@example.com");
+        mail_modify.granted_scopes = Some(vec![
+            "https://www.googleapis.com/auth/gmail.readonly".into(),
+            "https://www.googleapis.com/auth/gmail.modify".into(),
+        ]);
+        let modify_output = rendered(180, 40, Screen::Accounts, &[mail_modify]);
+        assert!(modify_output.contains(
+            "Gmail read, compose, and send — https://www.googleapis.com/auth/gmail.modify"
+        ));
 
         let mut disconnected = account("Disconnected", "disconnected@example.com");
         disconnected.connection_state = ConnectionState::Disconnected;
