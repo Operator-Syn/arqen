@@ -11,42 +11,9 @@ fn handle_list_emails(
             );
         }
     };
-    let target_subject = match store.mcp_configuration() {
-        Ok(configuration) => match configuration.target_google_subject {
-            Some(subject) => subject,
-            None => {
-                return BrokerResponse::error(
-                    BrokerErrorCode::TargetNotConfigured,
-                    "select an eligible MCP target account in Arqen first",
-                );
-            }
-        },
-        Err(_) => {
-            return BrokerResponse::error(
-                BrokerErrorCode::Internal,
-                "the account database configuration is unavailable",
-            );
-        }
-    };
-    let account = match store.list_accounts() {
-        Ok(accounts) => match accounts
-            .into_iter()
-            .find(|account| account.subject == target_subject)
-        {
-            Some(account) => account,
-            None => {
-                return BrokerResponse::error(
-                    BrokerErrorCode::TargetUnavailable,
-                    "the configured MCP target account is no longer available",
-                );
-            }
-        },
-        Err(_) => {
-            return BrokerResponse::error(
-                BrokerErrorCode::Internal,
-                "the account database could not be read",
-            );
-        }
+    let account = match selected_target_account(&store) {
+        Ok(account) => account,
+        Err(error) => return error.into_response(),
     };
     if let Some(reason) = target_ineligibility(&account) {
         return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
@@ -55,6 +22,82 @@ fn handle_list_emails(
         Ok(result) => BrokerResponse::Ok { result },
         Err(ListEmailsFailure::Credential(error)) => map_credential_error(&error),
         Err(ListEmailsFailure::Gmail(error)) => map_gmail_error(&error),
+    }
+}
+
+fn handle_read_email(request: crate::gmail::ReadEmailRequest, state: &BrokerState) -> BrokerResponse {
+    let store = match AccountStore::open(&state.database_path) {
+        Ok(store) => store,
+        Err(_) => return account_database_unavailable(),
+    };
+    let account = match selected_target_account(&store) {
+        Ok(account) => account,
+        Err(error) => return error.into_response(),
+    };
+    if let Some(reason) = target_ineligibility(&account) {
+        return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
+    }
+    match read_with_refresh(&account, request, state) {
+        Ok(result) => BrokerResponse::ReadEmail { result },
+        Err(ReadEmailFailure::Credential(error)) => map_credential_error(&error),
+        Err(ReadEmailFailure::Gmail(error)) => map_read_email_error(&error),
+    }
+}
+
+fn account_database_unavailable() -> BrokerResponse {
+    BrokerResponse::error(
+        BrokerErrorCode::Internal,
+        "the account database is unavailable",
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TargetAccountFailure {
+    NotConfigured,
+    ConfigurationUnavailable,
+    AccountUnavailable,
+    AccountsUnavailable,
+}
+
+impl TargetAccountFailure {
+    fn into_response(self) -> BrokerResponse {
+        match self {
+            Self::NotConfigured => BrokerResponse::error(
+                BrokerErrorCode::TargetNotConfigured,
+                "select an eligible MCP target account in Arqen first",
+            ),
+            Self::ConfigurationUnavailable => BrokerResponse::error(
+                BrokerErrorCode::Internal,
+                "the account database configuration is unavailable",
+            ),
+            Self::AccountUnavailable => BrokerResponse::error(
+                BrokerErrorCode::TargetUnavailable,
+                "the configured MCP target account is no longer available",
+            ),
+            Self::AccountsUnavailable => BrokerResponse::error(
+                BrokerErrorCode::Internal,
+                "the account database could not be read",
+            ),
+        }
+    }
+}
+
+fn selected_target_account(
+    store: &AccountStore,
+) -> std::result::Result<Account, TargetAccountFailure> {
+    let target_subject = match store.mcp_configuration() {
+        Ok(configuration) => match configuration.target_google_subject {
+            Some(subject) => subject,
+            None => return Err(TargetAccountFailure::NotConfigured),
+        },
+        Err(_) => return Err(TargetAccountFailure::ConfigurationUnavailable),
+    };
+    match store.list_accounts() {
+        Ok(accounts) => accounts
+            .into_iter()
+            .find(|account| account.subject == target_subject)
+            .ok_or(TargetAccountFailure::AccountUnavailable),
+        Err(_) => Err(TargetAccountFailure::AccountsUnavailable),
     }
 }
 
@@ -83,6 +126,12 @@ enum ListEmailsFailure {
     Gmail(anyhow::Error),
 }
 
+#[derive(Debug)]
+enum ReadEmailFailure {
+    Credential(anyhow::Error),
+    Gmail(anyhow::Error),
+}
+
 fn list_with_refresh(
     account: &Account,
     request: crate::gmail::ListEmailsRequest,
@@ -99,6 +148,25 @@ fn list_with_refresh(
                 .map_err(ListEmailsFailure::Gmail)
         }
         Err(error) => Err(ListEmailsFailure::Gmail(error)),
+    }
+}
+
+fn read_with_refresh(
+    account: &Account,
+    request: crate::gmail::ReadEmailRequest,
+    state: &BrokerState,
+) -> std::result::Result<crate::gmail::EmailReadResponse, ReadEmailFailure> {
+    let api = GmailApi::new().map_err(ReadEmailFailure::Gmail)?;
+    let token = cached_or_refresh_token(account, state).map_err(ReadEmailFailure::Credential)?;
+    match api.read_email(&token, request.clone()) {
+        Ok(result) => Ok(result),
+        Err(error) if is_unauthorized(&error) => {
+            invalidate_token(&account.subject, state);
+            let token = refresh_token(account, state).map_err(ReadEmailFailure::Credential)?;
+            api.read_email(&token, request)
+                .map_err(ReadEmailFailure::Gmail)
+        }
+        Err(error) => Err(ReadEmailFailure::Gmail(error)),
     }
 }
 
@@ -173,6 +241,48 @@ fn map_gmail_error(error: &anyhow::Error) -> BrokerResponse {
     BrokerResponse::error(
         BrokerErrorCode::GmailUnavailable,
         "Gmail could not complete the mail-list request",
+    )
+}
+
+fn map_read_email_error(error: &anyhow::Error) -> BrokerResponse {
+    if is_read_email_too_large(error) {
+        return BrokerResponse::error(
+            BrokerErrorCode::MessageTooLarge,
+            "the message exceeds the 256 KiB readable-body limit",
+        );
+    }
+    if let Some(error) = error.downcast_ref::<GmailApiError>() {
+        match error.status().as_u16() {
+            400 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::InvalidRequest,
+                    "Gmail rejected the message-read request",
+                );
+            }
+            401 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::ReauthenticationRequired,
+                    "reauthenticate the selected MCP target account in Arqen",
+                );
+            }
+            404 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::MessageNotFound,
+                    "Message not found in the currently selected account. Use an ID returned by list_emails.",
+                );
+            }
+            429 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::GmailRateLimited,
+                    "Gmail is rate limiting requests; try again shortly",
+                );
+            }
+            _ => {}
+        }
+    }
+    BrokerResponse::error(
+        BrokerErrorCode::GmailUnavailable,
+        "Gmail could not complete the message-read request",
     )
 }
 
