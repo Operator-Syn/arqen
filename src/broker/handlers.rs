@@ -44,6 +44,25 @@ fn handle_read_email(request: crate::gmail::ReadEmailRequest, state: &BrokerStat
     }
 }
 
+fn handle_list_labels(state: &BrokerState) -> BrokerResponse {
+    let store = match AccountStore::open(&state.database_path) {
+        Ok(store) => store,
+        Err(_) => return account_database_unavailable(),
+    };
+    let account = match selected_target_account(&store) {
+        Ok(account) => account,
+        Err(error) => return error.into_response(),
+    };
+    if let Some(reason) = target_ineligibility(&account) {
+        return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
+    }
+    match list_labels_with_refresh(&account, state) {
+        Ok(result) => BrokerResponse::Labels { result },
+        Err(ListLabelsFailure::Credential(error)) => map_credential_error(&error),
+        Err(ListLabelsFailure::Gmail(error)) => map_gmail_error(&error),
+    }
+}
+
 fn account_database_unavailable() -> BrokerResponse {
     BrokerResponse::error(
         BrokerErrorCode::Internal,
@@ -132,6 +151,12 @@ enum ReadEmailFailure {
     Gmail(anyhow::Error),
 }
 
+#[derive(Debug)]
+enum ListLabelsFailure {
+    Credential(anyhow::Error),
+    Gmail(anyhow::Error),
+}
+
 fn list_with_refresh(
     account: &Account,
     request: crate::gmail::ListEmailsRequest,
@@ -167,6 +192,23 @@ fn read_with_refresh(
                 .map_err(ReadEmailFailure::Gmail)
         }
         Err(error) => Err(ReadEmailFailure::Gmail(error)),
+    }
+}
+
+fn list_labels_with_refresh(
+    account: &Account,
+    state: &BrokerState,
+) -> std::result::Result<crate::gmail::LabelListResponse, ListLabelsFailure> {
+    let api = GmailApi::new().map_err(ListLabelsFailure::Gmail)?;
+    let token = cached_or_refresh_token(account, state).map_err(ListLabelsFailure::Credential)?;
+    match api.list_labels(&token) {
+        Ok(result) => Ok(result),
+        Err(error) if is_unauthorized(&error) => {
+            invalidate_token(&account.subject, state);
+            let token = refresh_token(account, state).map_err(ListLabelsFailure::Credential)?;
+            api.list_labels(&token).map_err(ListLabelsFailure::Gmail)
+        }
+        Err(error) => Err(ListLabelsFailure::Gmail(error)),
     }
 }
 
@@ -240,7 +282,7 @@ fn map_gmail_error(error: &anyhow::Error) -> BrokerResponse {
     }
     BrokerResponse::error(
         BrokerErrorCode::GmailUnavailable,
-        "Gmail could not complete the mail-list request",
+        "Gmail could not complete the request",
     )
 }
 
