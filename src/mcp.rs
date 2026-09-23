@@ -1,10 +1,11 @@
 use crate::gmail::{
-    EmailListResponse, EmailReadResponse, LabelListResponse, ListEmailsRequest, ReadEmailRequest,
+    EmailListResponse, EmailReadResponse, EmailReadState, LabelListResponse, ListEmailsRequest,
+    ReadEmailRequest,
 };
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "operation", rename_all = "snake_case")]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BrokerRequest {
     ListEmails {
         #[serde(flatten)]
@@ -12,6 +13,14 @@ pub enum BrokerRequest {
     },
     ListLabels,
     ReadEmail {
+        #[serde(flatten)]
+        request: ReadEmailRequest,
+    },
+    MarkEmailRead {
+        #[serde(flatten)]
+        request: ReadEmailRequest,
+    },
+    MarkEmailUnread {
         #[serde(flatten)]
         request: ReadEmailRequest,
     },
@@ -34,6 +43,14 @@ impl BrokerRequest {
         Self::ReadEmail { request }
     }
 
+    pub fn mark_email_read(request: ReadEmailRequest) -> Self {
+        Self::MarkEmailRead { request }
+    }
+
+    pub fn mark_email_unread(request: ReadEmailRequest) -> Self {
+        Self::MarkEmailUnread { request }
+    }
+
     pub fn readiness() -> Self {
         Self::Readiness {
             request: ListEmailsRequest::default(),
@@ -53,6 +70,20 @@ impl BrokerRequest {
             Self::ReadEmail { request } => request
                 .validate()
                 .map(|request| Self::ReadEmail { request })
+                .map_err(|_| BrokerValidationFailure {
+                    code: BrokerErrorCode::InvalidMessageId,
+                    message: "message_id must be 1–256 ASCII letters, digits, hyphens, or underscores",
+                }),
+            Self::MarkEmailRead { request } => request
+                .validate()
+                .map(|request| Self::MarkEmailRead { request })
+                .map_err(|_| BrokerValidationFailure {
+                    code: BrokerErrorCode::InvalidMessageId,
+                    message: "message_id must be 1–256 ASCII letters, digits, hyphens, or underscores",
+                }),
+            Self::MarkEmailUnread { request } => request
+                .validate()
+                .map(|request| Self::MarkEmailUnread { request })
                 .map_err(|_| BrokerValidationFailure {
                     code: BrokerErrorCode::InvalidMessageId,
                     message: "message_id must be 1–256 ASCII letters, digits, hyphens, or underscores",
@@ -82,6 +113,7 @@ pub enum BrokerErrorCode {
     InvalidRequest,
     InvalidMessageId,
     MessageNotFound,
+    InsufficientScope,
     MessageTooLarge,
     TargetNotConfigured,
     TargetUnavailable,
@@ -98,6 +130,7 @@ impl BrokerErrorCode {
             Self::InvalidRequest => "invalid_request",
             Self::InvalidMessageId => "invalid_message_id",
             Self::MessageNotFound => "message_not_found",
+            Self::InsufficientScope => "insufficient_scope",
             Self::MessageTooLarge => "message_too_large",
             Self::TargetNotConfigured => "target_not_configured",
             Self::TargetUnavailable => "target_unavailable",
@@ -136,6 +169,9 @@ pub enum BrokerResponse {
     ReadEmail {
         result: EmailReadResponse,
     },
+    MessageReadState {
+        result: EmailReadState,
+    },
     Ready,
     Error {
         code: BrokerErrorCode,
@@ -156,7 +192,8 @@ impl BrokerResponse {
 mod tests {
     use super::{BrokerErrorCode, BrokerRequest, BrokerResponse};
     use crate::gmail::{
-        EmailLabel, EmailLabelType, LabelListResponse, ListEmailsRequest, ReadEmailRequest,
+        EmailLabel, EmailLabelType, EmailReadState, LabelListResponse, ListEmailsRequest,
+        ReadEmailRequest,
     };
 
     #[test]
@@ -226,6 +263,52 @@ mod tests {
             BrokerRequest::ReadEmail { request }
                 if request.message_id == "18abc_123-ef"
         ));
+    }
+
+    #[test]
+    fn broker_read_state_operations_are_distinct_and_require_only_message_id() {
+        for (request, operation) in [
+            (
+                BrokerRequest::mark_email_read(ReadEmailRequest {
+                    message_id: "message-123".into(),
+                }),
+                "mark_email_read",
+            ),
+            (
+                BrokerRequest::mark_email_unread(ReadEmailRequest {
+                    message_id: "message-123".into(),
+                }),
+                "mark_email_unread",
+            ),
+        ] {
+            let encoded = serde_json::to_value(&request).unwrap();
+            assert_eq!(encoded["operation"], operation);
+            assert_eq!(encoded["message_id"], "message-123");
+            assert_eq!(encoded.as_object().unwrap().len(), 2);
+            assert!(request.validate().is_ok());
+        }
+        for input in [
+            r#"{"operation":"mark_email_read","message_id":"message-123","account_id":"other"}"#,
+            r#"{"operation":"mark_email_unread","message_id":"message-123","thread_id":"thread-456"}"#,
+        ] {
+            assert!(serde_json::from_str::<BrokerRequest>(input).is_err());
+        }
+    }
+
+    #[test]
+    fn broker_message_read_state_response_is_small_and_typed() {
+        let response = BrokerResponse::MessageReadState {
+            result: EmailReadState {
+                message_id: "message-123".into(),
+                is_read: false,
+            },
+        };
+        let encoded = serde_json::to_value(response).unwrap();
+        assert_eq!(encoded["status"], "message_read_state");
+        assert_eq!(
+            encoded["result"],
+            serde_json::json!({"message_id":"message-123","is_read":false})
+        );
     }
 
     #[test]
