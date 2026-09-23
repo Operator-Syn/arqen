@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_MAX_RESULTS, EmailBodyStatus, GmailApi, ListEmailsRequest, MAX_MAX_RESULTS,
+        DEFAULT_MAX_RESULTS, EmailBodyStatus, EmailLabelType, GmailApi, ListEmailsRequest,
+        MAX_MAX_RESULTS,
         MAX_READ_EMAIL_BODY_BYTES, MessagePayload, MessageResource,
         ReadEmailRequest, ReadEmailTooLarge, email_read_response, read_body_text, truncate_snippet,
     };
@@ -97,6 +98,114 @@ mod tests {
             reqwest::StatusCode::NOT_FOUND
         );
         assert!(!error.to_string().contains("private provider detail"));
+    }
+
+    #[test]
+    fn list_labels_returns_system_and_custom_labels_with_opaque_ids() {
+        let (base_url, server) = mock_gmail_response(
+            r#"{"labels":[{"id":"INBOX","name":"Inbox","type":"system"},{"id":"Label_7","name":"Project Atlas","type":"user"}]}"#.into(),
+            "200 OK",
+        );
+        let api = GmailApi::with_base_url(&base_url).unwrap();
+
+        let result = api.list_labels("test-access-token").unwrap();
+        let request = server.join().unwrap();
+
+        assert!(request.starts_with("GET /users/me/labels?fields=labels%28id%2Cname%2Ctype%29"));
+        assert!(request
+            .to_ascii_lowercase()
+            .contains("authorization: bearer test-access-token"));
+        assert_eq!(result.labels.len(), 2);
+        assert_eq!(result.labels[0].id, "INBOX");
+        assert_eq!(result.labels[0].name, "Inbox");
+        assert_eq!(result.labels[0].label_type, EmailLabelType::System);
+        assert_eq!(
+            serde_json::to_value(&result).unwrap()["labels"][0]["type"],
+            "system"
+        );
+        assert_eq!(result.labels[1].id, "Label_7");
+        assert_eq!(result.labels[1].name, "Project Atlas");
+        assert_eq!(result.labels[1].label_type, EmailLabelType::User);
+        assert_eq!(
+            serde_json::to_value(&result).unwrap()["labels"][1],
+            json!({"id":"Label_7", "name":"Project Atlas", "type":"user"})
+        );
+    }
+
+    #[test]
+    fn label_id_can_be_passed_unchanged_to_filter_list_emails() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let responses = [
+                (
+                    r#"{"labels":[{"id":"Label_7","name":"Project Atlas","type":"user"}]}"#,
+                    "200 OK",
+                ),
+                (
+                    r#"{"messages":[{"id":"message-7","threadId":"thread-7"}],"resultSizeEstimate":1}"#,
+                    "200 OK",
+                ),
+                (
+                    r#"{"id":"message-7","threadId":"thread-7","labelIds":["Label_7"],"snippet":"Filtered result","payload":{"headers":[]}}"#,
+                    "200 OK",
+                ),
+            ];
+            let mut captured = Vec::new();
+            for (body, status) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 4096];
+                loop {
+                    let read = stream.read(&mut buffer).unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                captured.push(String::from_utf8(request).unwrap());
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+            captured
+        });
+        let api = GmailApi::with_base_url(&format!("http://{address}/")).unwrap();
+
+        let labels = api.list_labels("test-access-token").unwrap();
+        let selected_id = labels
+            .labels
+            .iter()
+            .find(|label| label.name == "Project Atlas")
+            .unwrap()
+            .id
+            .clone();
+        let result = api
+            .list_emails(
+                "test-access-token",
+                "selected@example.com",
+                ListEmailsRequest {
+                    label_ids: vec![selected_id.clone()],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let requests = server.join().unwrap();
+
+        assert_eq!(selected_id, "Label_7");
+        assert_eq!(result.messages.len(), 1);
+        assert_eq!(result.messages[0].labels, vec!["Label_7"]);
+        assert!(requests[0].starts_with("GET /users/me/labels?"));
+        assert!(requests[1].starts_with("GET /users/me/messages?"));
+        assert!(requests[1].contains("labelIds=Label_7"));
+        assert!(!requests[1].contains("Project%20Atlas"));
+        assert!(requests[2].starts_with("GET /users/me/messages/message-7?"));
     }
 
     #[test]
