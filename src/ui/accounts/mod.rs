@@ -1,5 +1,5 @@
 use super::{UiMode, theme};
-use arqen::{Account, ConnectionState, GMAIL_READONLY_SCOPE};
+use arqen::{Account, ConnectionState, GMAIL_MODIFY_SCOPE, GMAIL_READONLY_SCOPE};
 use ratatui::{
     Frame,
     layout::Rect,
