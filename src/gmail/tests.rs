@@ -209,6 +209,109 @@ mod tests {
     }
 
     #[test]
+    fn marking_read_and_unread_changes_only_unread_and_is_idempotent() {
+        let responses = vec![
+            (
+                r#"{"id":"message-123","labelIds":["INBOX","STARRED"]}"#.to_owned(),
+                "200 OK".to_owned(),
+            ),
+            (
+                r#"{"id":"message-123","labelIds":["INBOX","STARRED"]}"#.to_owned(),
+                "200 OK".to_owned(),
+            ),
+            (
+                r#"{"id":"message-123","labelIds":["INBOX","STARRED","UNREAD"]}"#.to_owned(),
+                "200 OK".to_owned(),
+            ),
+            (
+                r#"{"id":"message-123","labelIds":["INBOX","STARRED","UNREAD"]}"#.to_owned(),
+                "200 OK".to_owned(),
+            ),
+        ];
+        let (base_url, server) = mock_gmail_responses(responses);
+        let api = GmailApi::with_base_url(&base_url).unwrap();
+        let request = || ReadEmailRequest {
+            message_id: "message-123".into(),
+        };
+
+        let read = api.mark_email_read("test-access-token", request()).unwrap();
+        let read_again = api
+            .mark_email_read("test-access-token", request())
+            .unwrap();
+        let unread = api
+            .mark_email_unread("test-access-token", request())
+            .unwrap();
+        let unread_again = api
+            .mark_email_unread("test-access-token", request())
+            .unwrap();
+        let requests = server.join().unwrap();
+
+        assert_eq!(read, super::EmailReadState {
+            message_id: "message-123".into(),
+            is_read: true,
+        });
+        assert_eq!(read_again, read);
+        assert_eq!(unread, super::EmailReadState {
+            message_id: "message-123".into(),
+            is_read: false,
+        });
+        assert_eq!(unread_again, unread);
+
+        for request in &requests {
+            assert!(request.starts_with(
+                "POST /users/me/messages/message-123/modify?fields=id%2ClabelIds HTTP/1.1"
+            ));
+            assert!(request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer test-access-token"));
+            let (_, body) = request.split_once("\r\n\r\n").unwrap();
+            assert!(body.starts_with('{'));
+        }
+        for request in &requests[..2] {
+            let (_, body) = request.split_once("\r\n\r\n").unwrap();
+            assert_eq!(serde_json::from_str::<Value>(body).unwrap(), json!({
+                "removeLabelIds": ["UNREAD"]
+            }));
+        }
+        for request in &requests[2..] {
+            let (_, body) = request.split_once("\r\n\r\n").unwrap();
+            assert_eq!(serde_json::from_str::<Value>(body).unwrap(), json!({
+                "addLabelIds": ["UNREAD"]
+            }));
+        }
+    }
+
+    #[test]
+    fn mark_email_preserves_gmail_not_found_status_without_provider_details() {
+        let (base_url, server) = mock_gmail_response(
+            r#"{"error":{"code":404,"message":"private provider detail"}}"#.into(),
+            "404 Not Found",
+        );
+        let api = GmailApi::with_base_url(&base_url).unwrap();
+        let error = api
+            .mark_email_read(
+                "test-access-token",
+                ReadEmailRequest {
+                    message_id: "valid-message-id".into(),
+                },
+            )
+            .unwrap_err();
+        let request = server.join().unwrap();
+
+        assert!(request.starts_with(
+            "POST /users/me/messages/valid-message-id/modify?fields=id%2ClabelIds"
+        ));
+        assert_eq!(
+            error
+                .downcast_ref::<super::GmailApiError>()
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::NOT_FOUND
+        );
+        assert!(!error.to_string().contains("private provider detail"));
+    }
+
+    #[test]
     fn reads_selected_message_with_nested_mime_and_prefers_plain_text() {
         let plain = URL_SAFE_NO_PAD.encode("The plain message body.");
         let html = URL_SAFE_NO_PAD.encode("<p>The <b>HTML alternative</b>.</p>");
@@ -477,7 +580,7 @@ mod tests {
             .unwrap_err();
         server.join().unwrap();
         assert!(super::is_unauthorized(&error));
-        assert!(error.to_string().contains("token rejected"));
+        assert!(!error.to_string().contains("token rejected"));
         assert!(!error.to_string().contains("secret-access-token"));
     }
 
@@ -518,6 +621,53 @@ mod tests {
                 body.len()
             );
             String::from_utf8(request).unwrap()
+        });
+        (format!("http://{address}/"), server)
+    }
+
+    fn mock_gmail_responses(
+        responses: Vec<(String, String)>,
+    ) -> (String, thread::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let mut requests = Vec::with_capacity(responses.len());
+            for (body, status) in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 4096];
+                loop {
+                    let read = stream.read(&mut buffer).unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&buffer[..read]);
+                    let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n") else {
+                        continue;
+                    };
+                    let headers = String::from_utf8_lossy(&request[..header_end]);
+                    let content_length = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().ok())
+                                .flatten()
+                        })
+                        .unwrap_or(0);
+                    if request.len() >= header_end + 4 + content_length {
+                        break;
+                    }
+                }
+                requests.push(String::from_utf8(request).unwrap());
+                write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                )
+                .unwrap();
+            }
+            requests
         });
         (format!("http://{address}/"), server)
     }
