@@ -1,7 +1,6 @@
 #[derive(Debug)]
 pub struct GmailApiError {
     status: StatusCode,
-    message: String,
 }
 
 impl GmailApiError {
@@ -10,21 +9,14 @@ impl GmailApiError {
     }
 
     #[cfg(test)]
-    pub(crate) fn for_test(status: StatusCode, message: impl Into<String>) -> Self {
-        Self {
-            status,
-            message: message.into(),
-        }
+    pub(crate) fn for_test(status: StatusCode, _message: impl Into<String>) -> Self {
+        Self { status }
     }
 }
 
 impl fmt::Display for GmailApiError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "Gmail API returned HTTP {}: {}",
-            self.status, self.message
-        )
+        write!(formatter, "Gmail API returned HTTP {}", self.status)
     }
 }
 
@@ -79,6 +71,13 @@ struct MessageResource {
     snippet: String,
     #[serde(default)]
     payload: Option<MessagePayload>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModifiedMessageResource {
+    id: String,
+    #[serde(rename = "labelIds")]
+    label_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -236,5 +235,58 @@ impl GmailApi {
             .context("request Gmail message")
             .and_then(parse_read_email_response)?;
         email_read_response(message)
+    }
+
+    pub fn mark_email_read(
+        &self,
+        access_token: &str,
+        request: crate::gmail::ReadEmailRequest,
+    ) -> Result<crate::gmail::EmailReadState> {
+        self.modify_unread_label(access_token, request, true)
+    }
+
+    pub fn mark_email_unread(
+        &self,
+        access_token: &str,
+        request: crate::gmail::ReadEmailRequest,
+    ) -> Result<crate::gmail::EmailReadState> {
+        self.modify_unread_label(access_token, request, false)
+    }
+
+    fn modify_unread_label(
+        &self,
+        access_token: &str,
+        request: crate::gmail::ReadEmailRequest,
+        is_read: bool,
+    ) -> Result<crate::gmail::EmailReadState> {
+        let request = request.validate()?;
+        let mut message_url = self.base_url.join("users/me/messages")?;
+        message_url
+            .path_segments_mut()
+            .map_err(|_| anyhow::anyhow!("Gmail API base URL cannot accept path segments"))?
+            .push(&request.message_id)
+            .push("modify");
+        let label_change = if is_read {
+            serde_json::json!({"removeLabelIds": ["UNREAD"]})
+        } else {
+            serde_json::json!({"addLabelIds": ["UNREAD"]})
+        };
+        let message: ModifiedMessageResource = self
+            .client
+            .post(message_url)
+            .bearer_auth(access_token)
+            .query(&[("fields", "id,labelIds")])
+            .json(&label_change)
+            .send()
+            .context("modify Gmail message unread label")
+            .and_then(parse_json_response)?;
+        anyhow::ensure!(
+            !message.id.is_empty() && message.id == request.message_id,
+            "Gmail modify response has an unexpected message ID"
+        );
+        Ok(crate::gmail::EmailReadState {
+            message_id: message.id,
+            is_read: !message.label_ids.iter().any(|label| label == "UNREAD"),
+        })
     }
 }
