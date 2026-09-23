@@ -39,7 +39,7 @@ mod tests {
         let url = oauth.authorization_url().unwrap();
         assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A43123%2Foauth2%2Fcallback"));
         assert!(url.contains(
-            "scope=openid+email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.readonly"
+            "scope=openid+email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.modify"
         ));
     }
 
@@ -67,13 +67,18 @@ mod tests {
             r#"{
                 "access_token": "access-token",
                 "refresh_token": "refresh-token",
-                "scope": "profile openid"
+                "scope": "profile openid https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.modify"
             }"#,
         )
         .unwrap();
         assert_eq!(
             granted_scopes(token.scope.as_deref()).unwrap(),
-            vec!["openid", "profile"]
+            vec![
+                "https://www.googleapis.com/auth/gmail.modify",
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "openid",
+                "profile"
+            ]
         );
     }
 
