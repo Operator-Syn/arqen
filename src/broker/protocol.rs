@@ -81,11 +81,9 @@ fn handle_readiness(state: &BrokerState) -> BrokerResponse {
     if let Some(reason) = target_ineligibility(&account) {
         return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
     }
-    if check_google_refresh_token(account.token_key.as_deref(), &account.subject).is_err() {
-        return BrokerResponse::error(
-            BrokerErrorCode::TargetUnavailable,
-            "the configured MCP target has no available local refresh credential",
-        );
+    if let Err(error) = check_google_refresh_token(account.token_key.as_deref(), &account.subject)
+    {
+        return map_credential_error(&error);
     }
     BrokerResponse::Ready
 }
