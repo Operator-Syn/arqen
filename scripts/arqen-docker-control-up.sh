@@ -19,11 +19,16 @@ compose_args=(
     --file "$ARQEN_DOCKER_DISPLAY_COMPOSE_FILE"
 )
 export ARQEN_ROOT GOOGLE_CLIENT_SECRET ARQEN_MCP_BEARER_TOKEN_FILE
-export ARQEN_DOCKER_SECRETS_DIR="${ARQEN_DOCKER_SECRETS_DIR:-$ARQEN_ROOT/.secrets}"
+export ARQEN_DOCKER_SECRETS_DIR="$ARQEN_ROOT/.secrets"
 export ARQEN_DOCKER_HOST_UID ARQEN_DOCKER_HOST_GID
 
-# Headless services are restored by Docker independently. This session unit
-# only starts the display-dependent control container and never builds or
-# restarts the rest of the stack.
+# Headless services may be restored by Docker while OpenBao remains sealed.
+# Reuse the one-shot helper before starting the display-dependent control
+# container; the unseal key stays mounted only in that helper.
+docker compose "${compose_args[@]}" \
+    --profile ops \
+    run --rm openbao-unseal
+
+# This session unit never builds or restarts the rest of the stack.
 docker compose "${compose_args[@]}" \
     up --no-deps --no-build -d arqen-control
