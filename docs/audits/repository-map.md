@@ -1,6 +1,6 @@
 # Repository map
 
-**Reviewed:** 2026-09-22. **Confidence:** `verified-repository` unless noted.
+**Reviewed:** 2026-09-23. **Confidence:** `verified-repository` unless noted.
 
 | Path | Role | Key contract |
 | --- | --- | --- |
@@ -16,10 +16,10 @@
 | `src/ui/theme.rs` | Shared Ratatui color tokens | consistent status/focus colors |
 | `src/ui/` | Layout, rendering composition, pane focus, and mouse routing | responsive geometry and scroll state |
 | `src/callback/` | Loopback OAuth listener/helper, request parsing, and pages | callback and optional launcher routes |
-| `src/gmail/` | Gmail REST models, validation, client, and response mapping | bounded list + metadata get |
-| `src/broker/` | Unix credential broker/client, framing, handlers, and cache | eligibility, refresh, stable errors |
-| `src/mcp.rs` | Broker wire types | operation/result/error serialization |
-| `src/server/` | Streamable HTTP MCP process, auth, routes, and runtime | bearer/Host/Origin gate and `list_emails` |
+| `src/gmail/` | Gmail REST models, validation, client, and response mapping | bounded metadata list + bounded full-message text read |
+| `src/broker/` | Unix credential broker/client, framing, handlers, and cache | selected target, eligibility, refresh, stable errors |
+| `src/mcp.rs` | Broker wire types | list/readiness/read operations and result/error serialization |
+| `src/server/` | Streamable HTTP MCP process, auth, routes, and runtime | bearer/Host/Origin gate and list/read tools |
 | `Dockerfile` | legacy MCP container image | non-root runtime |
 | `Dockerfile.docker-native` | Docker-native control/broker image with pinned ttyd | non-root runtime; control command is the gateway-owned TUI process |
 | `deploy/` | Docker-native OpenBao stack, legacy Docker MCP, systemd alternatives, Nginx examples | operator-owned deployment boundary |
