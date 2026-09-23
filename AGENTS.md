@@ -55,6 +55,16 @@ This checkout provides a project-scoped `codebase-memory-mcp` server through
 named `mcp__codebase_memory_mcp__...`), use them for non-trivial structural
 discovery before broad text search:
 
+- If the image or local index is missing, run
+  `bash .codex/mcp/codebase-memory/setup.sh`. This requires Docker and network
+  access for the pinned image build; it changes only the ignored local MCP state
+  and Docker image, not global agent configuration.
+- After setup, restart or reconnect the agent session. Do not claim the MCP is
+  usable until the namespaced tools are present in the session; if they are not,
+  ask the operator to reconnect the client.
+- The canonical self-setup and verification prompt is in
+  [`docs/development/local-workflows.md`](docs/development/local-workflows.md#repository-code-knowledge-mcp).
+
 - Start with `list_projects` and `index_status` for the current project.
 - Use `search_graph`, `trace_path`, `get_architecture`, and `get_code_snippet`
   for symbol, call-path, architecture, and impact questions.
