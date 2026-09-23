@@ -1,0 +1,4 @@
+interface:
+  display_name: "Arqen MCP Contracts"
+  short_description: "Audit Arqen MCP tool contracts end to end"
+  default_prompt: "Use $arqen-mcp-contracts to audit or change an Arqen product MCP tool contract."
