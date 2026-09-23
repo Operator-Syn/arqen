@@ -4,7 +4,7 @@ mod tests {
     #[cfg(unix)]
     use super::prepare_socket_path;
     use crate::{
-        Account, AccountStore, ConnectionState, GMAIL_READONLY_SCOPE,
+        Account, AccountStore, ConnectionState, GMAIL_MODIFY_SCOPE, GMAIL_READONLY_SCOPE,
         auth::GoogleTokenError,
         gmail::{GmailApiError, ReadEmailTooLarge},
     };
@@ -27,12 +27,74 @@ mod tests {
     fn target_eligibility_requires_connected_verified_gmail_access() {
         let eligible = account();
         assert_eq!(target_ineligibility(&eligible), None);
+        assert!(!eligible
+            .granted_scopes
+            .as_deref()
+            .unwrap()
+            .iter()
+            .any(|scope| scope == GMAIL_MODIFY_SCOPE));
         let mut disconnected = eligible.clone();
         disconnected.connection_state = ConnectionState::Disconnected;
         assert!(target_ineligibility(&disconnected).is_some());
         let mut unverified = eligible.clone();
         unverified.granted_scopes = None;
         assert!(target_ineligibility(&unverified).is_some());
+    }
+
+    #[test]
+    fn write_operations_require_modify_on_selected_account_before_credentials() {
+        use crate::mcp::{BrokerErrorCode, BrokerResponse};
+
+        let directory = std::env::temp_dir()
+            .join(format!("arqen-write-scope-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let database_path = directory.join("accounts.sqlite3");
+        let store = AccountStore::open(&database_path).unwrap();
+        let mut selected = account();
+        selected.id = "selected-account".into();
+        selected.subject = "selected-subject".into();
+        selected.email = "selected@example.com".into();
+        let mut another = account();
+        another.id = "other-account".into();
+        another.subject = "other-subject".into();
+        another.email = "other@example.com".into();
+        another.granted_scopes = Some(vec![
+            GMAIL_READONLY_SCOPE.into(),
+            GMAIL_MODIFY_SCOPE.into(),
+        ]);
+        store.upsert_google_account(&selected).unwrap();
+        store.upsert_google_account(&another).unwrap();
+        store
+            .set_mcp_target_subject(Some("selected-subject"))
+            .unwrap();
+        drop(store);
+
+        let state = super::BrokerState {
+            database_path,
+            credentials_path: directory.join("missing-credentials"),
+            access_tokens: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+        };
+        let request = || crate::gmail::ReadEmailRequest {
+            message_id: "message-123".into(),
+        };
+        for response in [
+            super::handle_mark_email_read(request(), &state),
+            super::handle_mark_email_unread(request(), &state),
+        ] {
+            assert!(matches!(
+                &response,
+                BrokerResponse::Error {
+                    code: BrokerErrorCode::InsufficientScope,
+                    ..
+                }
+            ));
+            let encoded = serde_json::to_string(&response).unwrap();
+            assert!(encoded.contains("insufficient_scope"));
+            assert!(!encoded.contains("missing-credentials"));
+        }
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -98,6 +160,32 @@ mod tests {
             access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
         let response = super::handle_list_labels(&state);
+        assert!(matches!(
+            response,
+            crate::mcp::BrokerResponse::Error {
+                code: crate::mcp::BrokerErrorCode::Internal,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn mark_email_account_store_failures_use_the_stable_internal_code() {
+        let state = super::BrokerState {
+            database_path: std::env::temp_dir()
+                .join(format!("arqen-missing-parent-{}", uuid::Uuid::new_v4()))
+                .join("accounts.sqlite3"),
+            credentials_path: std::path::PathBuf::from("unused"),
+            access_tokens: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+        };
+        let response = super::handle_mark_email_read(
+            crate::gmail::ReadEmailRequest {
+                message_id: "message-123".into(),
+            },
+            &state,
+        );
         assert!(matches!(
             response,
             crate::mcp::BrokerResponse::Error {
@@ -265,6 +353,45 @@ mod tests {
             assert!(!encoded.contains("private"));
             assert!(!encoded.contains("transport detail"));
         }
+    }
+
+    #[test]
+    fn mark_email_provider_failures_map_stably_without_treating_every_403_as_scope() {
+        use crate::mcp::{BrokerErrorCode, BrokerResponse};
+
+        for (status, expected_code) in [
+            (StatusCode::BAD_REQUEST, BrokerErrorCode::InvalidRequest),
+            (StatusCode::UNAUTHORIZED, BrokerErrorCode::ReauthenticationRequired),
+            (StatusCode::NOT_FOUND, BrokerErrorCode::MessageNotFound),
+            (StatusCode::TOO_MANY_REQUESTS, BrokerErrorCode::GmailRateLimited),
+            (StatusCode::FORBIDDEN, BrokerErrorCode::GmailUnavailable),
+            (StatusCode::BAD_GATEWAY, BrokerErrorCode::GmailUnavailable),
+        ] {
+            let error = anyhow::Error::new(GmailApiError::for_test(
+                status,
+                "private provider response body",
+            ));
+            let response = super::map_mark_email_error(&error);
+            assert!(matches!(
+                &response,
+                BrokerResponse::Error { code, .. } if *code == expected_code
+            ));
+            let encoded = serde_json::to_string(&response).unwrap();
+            assert!(!encoded.contains("private provider response body"));
+            if status == StatusCode::FORBIDDEN {
+                assert!(!encoded.contains("insufficient_scope"));
+            }
+        }
+        let response = super::map_mark_email_error(&anyhow::anyhow!("private transport detail"));
+        let encoded = serde_json::to_string(&response).unwrap();
+        assert!(matches!(
+            response,
+            BrokerResponse::Error {
+                code: BrokerErrorCode::GmailUnavailable,
+                ..
+            }
+        ));
+        assert!(!encoded.contains("private transport detail"));
     }
 
     #[test]
