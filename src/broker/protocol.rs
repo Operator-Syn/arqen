@@ -6,6 +6,7 @@ fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState
             Ok(crate::mcp::BrokerRequest::ListEmails { request }) => {
                 handle_list_emails(request, state)
             }
+            Ok(crate::mcp::BrokerRequest::ListLabels) => handle_list_labels(state),
             Ok(crate::mcp::BrokerRequest::ReadEmail { request }) => {
                 handle_read_email(request, state)
             }
