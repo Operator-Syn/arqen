@@ -24,3 +24,10 @@ provider failures to stable codes (`invalid_message_id`, `message_not_found`,
 `credential_unavailable`, or `reauthentication_required`) without forwarding
 upstream secrets, raw provider response bodies, or token contents. Credential
 acquisition failures are kept distinct from Gmail API failures.
+
+`list_labels` calls Gmail's `users/me/labels` endpoint through the same
+selected-account and protected-credential flow. It returns Gmail's label IDs
+unchanged with their display names and `system`/`user` types, including custom
+labels. Agents select a record by name, then pass its ID explicitly to
+`list_emails.label_ids` in a separate request. `list_emails` does not depend on
+or call `list_labels`; its message `labels` remain Gmail IDs.
