@@ -19,13 +19,32 @@ mod tests {
     }
 
     #[test]
-    fn request_rejects_invalid_limits_and_control_characters() {
+    fn request_accepts_page_size_boundaries_and_rejects_values_outside_them() {
+        for max_results in [1, MAX_MAX_RESULTS] {
+            assert!(ListEmailsRequest {
+                max_results,
+                ..Default::default()
+            }
+            .validate()
+            .is_ok());
+        }
+        for max_results in [0, MAX_MAX_RESULTS + 1] {
+            let error = ListEmailsRequest {
+                max_results,
+                ..Default::default()
+            }
+            .validate()
+            .unwrap_err();
+            assert_eq!(error.to_string(), "max_results must be between 1 and 50");
+        }
+    }
+
+    #[test]
+    fn request_rejects_control_characters() {
         let mut request = ListEmailsRequest {
-            max_results: MAX_MAX_RESULTS + 1,
+            max_results: 1,
             ..Default::default()
         };
-        assert!(request.clone().validate().is_err());
-        request.max_results = 1;
         request.query = Some("from:test\n".into());
         assert!(request.validate().is_err());
     }
