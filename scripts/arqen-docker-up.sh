@@ -33,8 +33,11 @@ compose_args=(
     --file "$compose_file"
     --file "$ARQEN_DOCKER_DISPLAY_COMPOSE_FILE"
 )
+ARQEN_DOCKER_SECRET_UID="$(id -u)"
+ARQEN_DOCKER_SECRET_GID="$(id -g)"
 export ARQEN_ROOT GOOGLE_CLIENT_SECRET ARQEN_MCP_BEARER_TOKEN_FILE
 export ARQEN_DOCKER_SECRETS_DIR="$secrets_directory"
+export ARQEN_DOCKER_SECRET_UID ARQEN_DOCKER_SECRET_GID
 export ARQEN_MCP_ALLOWED_HOSTS ARQEN_MCP_ALLOWED_ORIGINS
 export ARQEN_DOCKER_HOST_UID ARQEN_DOCKER_HOST_GID
 
@@ -45,13 +48,16 @@ docker compose "${compose_args[@]}" \
     run --rm openbao-unseal
 docker compose "${compose_args[@]}" \
     --profile ops \
+    run --rm --no-deps openbao-bootstrap
+docker compose "${compose_args[@]}" \
+    --profile ops \
     run --rm --no-deps arqen-secret-init
 docker compose "${compose_args[@]}" \
     up --build -d arqen-broker arqen-control arqen-mcp
 
 control_url="http://127.0.0.1:${ARQEN_CONTROL_HOST_PORT:-7681}"
 control_status=''
-for attempt in $(seq 1 120); do
+for _attempt in $(seq 1 120); do
     control_status="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' \
         "$control_url/" 2>/dev/null || true)"
     if [[ "$control_status" == 200 ]]; then
@@ -62,7 +68,7 @@ done
 [[ "$control_status" == 200 ]] || arqen_die "Arqen control gateway did not become reachable at $control_url"
 
 openbao_status=''
-for attempt in $(seq 1 120); do
+for _attempt in $(seq 1 120); do
     openbao_status="$(docker compose "${compose_args[@]}" \
         exec -T -e BAO_ADDR=http://openbao:8200 openbao bao status -format=json 2>/dev/null || true)"
     if printf '%s' "$openbao_status" \
@@ -73,14 +79,15 @@ for attempt in $(seq 1 120); do
     fi
     sleep 0.5
 done
-printf '%s' "$openbao_status" \
+if ! printf '%s' "$openbao_status" \
     | grep -Eq '"initialized"[[:space:]]*:[[:space:]]*true' \
-    && printf '%s' "$openbao_status" \
-        | grep -Eq '"sealed"[[:space:]]*:[[:space:]]*false' \
-    || arqen_die 'OpenBao did not become initialized and unsealed'
+    || ! printf '%s' "$openbao_status" \
+        | grep -Eq '"sealed"[[:space:]]*:[[:space:]]*false'; then
+    arqen_die 'OpenBao did not become initialized and unsealed'
+fi
 
 broker_ready=false
-for attempt in $(seq 1 120); do
+for _attempt in $(seq 1 120); do
     if docker compose "${compose_args[@]}" \
         exec -T arqen-broker test -S /run/arqen/gmail-broker.sock \
         >/dev/null 2>&1; then
@@ -94,7 +101,7 @@ done
 token="$(arqen_read_token)"
 base_url="http://127.0.0.1:${ARQEN_MCP_HOST_PORT:-8787}"
 health_status=''
-for attempt in $(seq 1 120); do
+for _attempt in $(seq 1 120); do
     health_status="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' \
         -H "Authorization: Bearer $token" "$base_url/healthz" 2>/dev/null || true)"
     if [[ "$health_status" == 204 ]]; then
@@ -105,7 +112,7 @@ done
 [[ "$health_status" == 204 ]] || arqen_die "Docker-native MCP did not become live at $base_url"
 
 ready_status=''
-for attempt in $(seq 1 120); do
+for _attempt in $(seq 1 120); do
     ready_status="$(curl -sS --max-time 2 \
         -H "Authorization: Bearer $token" \
         -o /dev/null -w '%{http_code}' "$base_url/readyz" 2>/dev/null || true)"
