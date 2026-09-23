@@ -26,10 +26,17 @@ HTTP body is capped at 1 MiB. This bearer gate is intentionally a private
 single-operator control for v1; MCP-native OAuth authorization is a later
 decision, not implied by the current route.
 
-The server advertises `list_emails` and `read_email`. `list_emails` returns
+The server advertises `list_labels`, `list_emails`, and `read_email`.
+`list_labels` takes no arguments and returns each selected-account Gmail
+label's unchanged `id`, human-readable `name`, and `system`/`user` type,
+including custom labels. Agents call it first, choose a label by name, then
+pass that record's `id` explicitly to `list_emails.label_ids` in a separate
+call. `list_emails` remains independently usable and accepts IDs rather than
+display names; its message `labels` remain Gmail IDs. Neither tool accepts an
+account identifier. `list_emails` returns
 bounded metadata and snippets only. Agents can pass one returned message `id`
 as `read_email.message_id` to read that message from the same Arqen-selected
-account; neither tool accepts an account identifier. `read_email` returns
+account. `read_email` returns
 message headers, recipient groups, labels, readable body text, and an explicit
 body status. It prefers plain text and converts HTML-only bodies. Its response
 limits are 2 MiB for Gmail's response, 256 KiB for decoded body text, and 1 MiB
