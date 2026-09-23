@@ -205,6 +205,17 @@ impl GmailApi {
         })
     }
 
+    pub fn list_labels(&self, access_token: &str) -> Result<crate::gmail::LabelListResponse> {
+        let labels_url = self.base_url.join("users/me/labels")?;
+        self.client
+            .get(labels_url)
+            .bearer_auth(access_token)
+            .query(&[("fields", "labels(id,name,type)")])
+            .send()
+            .context("request Gmail labels")
+            .and_then(parse_json_response)
+    }
+
     pub fn read_email(
         &self,
         access_token: &str,
