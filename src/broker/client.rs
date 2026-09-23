@@ -61,7 +61,9 @@ impl BrokerClient {
             })?;
         match response {
             BrokerResponse::Ok { result } => Ok(result),
-            BrokerResponse::ReadEmail { .. } | BrokerResponse::Labels { .. } => Err(BrokerFailure {
+            BrokerResponse::ReadEmail { .. }
+            | BrokerResponse::MessageReadState { .. }
+            | BrokerResponse::Labels { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid mail-list response".into(),
             }),
@@ -119,7 +121,8 @@ impl BrokerClient {
             BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
             BrokerResponse::Ready
             | BrokerResponse::Ok { .. }
-            | BrokerResponse::ReadEmail { .. } => Err(BrokerFailure {
+            | BrokerResponse::ReadEmail { .. }
+            | BrokerResponse::MessageReadState { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid label-list response".into(),
             }),
@@ -177,9 +180,89 @@ impl BrokerClient {
             BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
             BrokerResponse::Ready
             | BrokerResponse::Ok { .. }
-            | BrokerResponse::Labels { .. } => Err(BrokerFailure {
+            | BrokerResponse::Labels { .. }
+            | BrokerResponse::MessageReadState { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid message-read response".into(),
+            }),
+        }
+    }
+
+    pub async fn mark_email_read(
+        &self,
+        request: crate::gmail::ReadEmailRequest,
+    ) -> std::result::Result<crate::gmail::EmailReadState, BrokerFailure> {
+        self.mark_email_state(request, true).await
+    }
+
+    pub async fn mark_email_unread(
+        &self,
+        request: crate::gmail::ReadEmailRequest,
+    ) -> std::result::Result<crate::gmail::EmailReadState, BrokerFailure> {
+        self.mark_email_state(request, false).await
+    }
+
+    async fn mark_email_state(
+        &self,
+        request: crate::gmail::ReadEmailRequest,
+        is_read: bool,
+    ) -> std::result::Result<crate::gmail::EmailReadState, BrokerFailure> {
+        use tokio::io::{AsyncWriteExt, BufReader};
+        use tokio::net::UnixStream;
+
+        let request = request.validate().map_err(|_| BrokerFailure {
+            code: BrokerErrorCode::InvalidMessageId,
+            message: "message_id must be 1–256 ASCII letters, digits, hyphens, or underscores"
+                .into(),
+        })?;
+        let request = if is_read {
+            BrokerRequest::mark_email_read(request)
+        } else {
+            BrokerRequest::mark_email_unread(request)
+        };
+        let mut stream = UnixStream::connect(&self.socket_path)
+            .await
+            .map_err(|_| BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the credential broker is unavailable".into(),
+            })?;
+        let mut encoded = serde_json::to_vec(&request).map_err(|_| BrokerFailure {
+            code: BrokerErrorCode::Internal,
+            message: "the broker request could not be encoded".into(),
+        })?;
+        encoded.push(b'\n');
+        stream
+            .write_all(&encoded)
+            .await
+            .map_err(|_| BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker request failed".into(),
+            })?;
+        stream.shutdown().await.map_err(|_| BrokerFailure {
+            code: BrokerErrorCode::Internal,
+            message: "the broker request could not finish".into(),
+        })?;
+        let mut reader = BufReader::new(stream);
+        let line = read_bounded_line_async(&mut reader, MAX_RESPONSE_BYTES)
+            .await
+            .map_err(|_| BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker response could not be read".into(),
+            })?;
+        let response: BrokerResponse =
+            serde_json::from_slice(&line).map_err(|_| BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker response was invalid".into(),
+            })?;
+        match response {
+            BrokerResponse::MessageReadState { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            BrokerResponse::Ready
+            | BrokerResponse::Ok { .. }
+            | BrokerResponse::Labels { .. }
+            | BrokerResponse::ReadEmail { .. } => Err(BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker returned an invalid message-state response".into(),
             }),
         }
     }
@@ -239,7 +322,8 @@ impl BrokerClient {
             BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
             BrokerResponse::Ok { .. }
             | BrokerResponse::ReadEmail { .. }
-            | BrokerResponse::Labels { .. } => Err(BrokerFailure {
+            | BrokerResponse::Labels { .. }
+            | BrokerResponse::MessageReadState { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid readiness response".into(),
             }),
@@ -284,6 +368,26 @@ impl BrokerClient {
         &self,
         _request: crate::gmail::ReadEmailRequest,
     ) -> std::result::Result<crate::gmail::EmailReadResponse, BrokerFailure> {
+        Err(BrokerFailure {
+            code: BrokerErrorCode::Internal,
+            message: "the credential broker currently requires a Unix host".into(),
+        })
+    }
+
+    pub async fn mark_email_read(
+        &self,
+        _request: crate::gmail::ReadEmailRequest,
+    ) -> std::result::Result<crate::gmail::EmailReadState, BrokerFailure> {
+        Err(BrokerFailure {
+            code: BrokerErrorCode::Internal,
+            message: "the credential broker currently requires a Unix host".into(),
+        })
+    }
+
+    pub async fn mark_email_unread(
+        &self,
+        _request: crate::gmail::ReadEmailRequest,
+    ) -> std::result::Result<crate::gmail::EmailReadState, BrokerFailure> {
         Err(BrokerFailure {
             code: BrokerErrorCode::Internal,
             message: "the credential broker currently requires a Unix host".into(),
