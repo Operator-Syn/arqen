@@ -4,7 +4,7 @@ use crate::{
         check_google_refresh_token, is_invalid_grant, is_missing_refresh_token,
         refresh_google_access_token,
     },
-    gmail::{EmailListResponse, GmailApi, GmailApiError, is_unauthorized},
+    gmail::{EmailListResponse, GmailApi, GmailApiError, is_read_email_too_large, is_unauthorized},
     mcp::{BrokerErrorCode, BrokerFailure, BrokerRequest, BrokerResponse},
 };
 use anyhow::{Context, Result};
