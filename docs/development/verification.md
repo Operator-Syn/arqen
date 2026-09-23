@@ -4,6 +4,7 @@ Use the pinned Nix environment when available:
 
 ```bash
 nix develop .#arqen -c cargo fmt --check
+nix develop .#arqen -c shellcheck -e SC1091 deploy/containers/openbao/bootstrap.sh scripts/arqen-docker-up.sh scripts/arqen-openbao-smoke.sh
 nix develop .#arqen -c cargo test
 nix develop .#arqen -c cargo clippy --all-targets --all-features -- -D warnings
 nix develop .#arqen -c cargo build
@@ -33,6 +34,13 @@ policy checks. These protocol paths do not call Google. Add `--call`
 (`make smoke-local-call` or `make compose-smoke-call`) only for an intentional
 live `list_emails` request using the selected account and the configured
 protected credential store.
+
+`make openbao-smoke` starts a disposable OpenBao development server with
+test-only credentials. It checks initial AppRole provisioning, idempotent
+startup, independent repair of stale control and broker credentials, unchanged
+KV data, and no credential rotation when an AppRole login cannot be completed.
+It does not access the configured Docker-native OpenBao volume, OAuth client
+configuration, keyring, Google account, or live refresh tokens.
 
 The unit tests cover SQLite target invariants, TUI target rendering and
 keyboard behavior, callback routes, the control gateway's password/session
