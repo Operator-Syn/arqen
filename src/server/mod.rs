@@ -1,7 +1,7 @@
 use anyhow::Context;
 use arqen::{
     broker::BrokerClient,
-    gmail::{EmailListResponse, ListEmailsRequest},
+    gmail::{EmailListResponse, EmailReadResponse, ListEmailsRequest, ReadEmailRequest},
     mcp::BrokerFailure,
 };
 use axum::{
