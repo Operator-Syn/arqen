@@ -8,3 +8,4 @@ mod store;
 pub use store::{Account, AccountStore, ConnectionState, McpConfiguration};
 
 pub const GMAIL_READONLY_SCOPE: &str = "https://www.googleapis.com/auth/gmail.readonly";
+pub const GMAIL_MODIFY_SCOPE: &str = "https://www.googleapis.com/auth/gmail.modify";
