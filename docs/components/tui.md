@@ -14,6 +14,11 @@ unverified scope evidence cannot be selected until reauthenticated. A target
 that later becomes disconnected remains recorded so the operator can see why
 MCP access stopped, but the broker will not use it.
 
+The selected account details show its exact recorded grants. Gmail read-state
+tools additionally need `gmail.modify`; accounts without that grant remain
+valid targets for `list_emails`, `list_labels`, and `read_email`. Reauthenticate
+the selected account through Arqen to request and record the new grant.
+
 The UI continues to own login, reconnect, reauthentication, disconnect
 confirmation, modal/error rendering, and responsive pane scrolling. MCP
 requests do not mutate these UI states.
