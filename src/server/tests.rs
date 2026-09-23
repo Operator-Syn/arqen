@@ -276,6 +276,37 @@ mod tests {
         assert!(labels_schema["properties"].get("account_id").is_none());
         assert!(labels_schema["properties"].get("email").is_none());
 
+        for (name, expected_read_state) in [
+            ("mark_email_read", true),
+            ("mark_email_unread", false),
+        ] {
+            let tool = tools.iter().find(|tool| tool["name"] == name).unwrap();
+            let schema = &tool["inputSchema"];
+            assert_eq!(schema["type"], "object");
+            assert_eq!(schema["additionalProperties"], false);
+            assert_eq!(schema["required"], serde_json::json!(["message_id"]));
+            let properties = schema["properties"].as_object().unwrap();
+            assert_eq!(properties.len(), 1);
+            assert_eq!(properties["message_id"]["type"], "string");
+            assert_eq!(properties["message_id"]["minLength"], 1);
+            assert_eq!(properties["message_id"]["maxLength"], 256);
+            assert!(properties["message_id"]["pattern"].is_string());
+            let description = tool["description"].as_str().unwrap();
+            assert!(description.contains("message_id from list_emails"));
+            assert!(description.contains("one message only, not its thread"));
+            assert!(description.contains("single account"));
+            assert!(description.contains("idempotent"));
+            assert!(description.contains("preserves every existing label"));
+            assert!(description.contains("gmail.modify"));
+            assert!(description.contains("read, compose, and send"));
+            assert!(description.contains("message_id, is_read"));
+            assert_eq!(description.contains("removing only its UNREAD"), expected_read_state);
+            assert_eq!(description.contains("adding only its UNREAD"), !expected_read_state);
+            assert!(!properties.contains_key("account_id"));
+            assert!(!properties.contains_key("thread_id"));
+            assert!(!properties.contains_key("email"));
+        }
+
         let rejected_host = client
             .post(format!("{base}/mcp"))
             .bearer_auth("test-secret")
@@ -311,7 +342,7 @@ mod tests {
         };
 
         let socket_path = std::env::temp_dir().join(format!(
-            "arqen-server-test-{}.sock",
+            "a-{}.sock",
             uuid::Uuid::new_v4().simple()
         ));
         let listener = UnixListener::bind(&socket_path).unwrap();
@@ -387,7 +418,7 @@ mod tests {
         };
 
         let socket_path = std::env::temp_dir().join(format!(
-            "arqen-server-read-email-test-{}.sock",
+            "a-{}.sock",
             uuid::Uuid::new_v4().simple()
         ));
         let listener = UnixListener::bind(&socket_path).unwrap();
@@ -474,7 +505,7 @@ mod tests {
         };
 
         let socket_path = std::env::temp_dir().join(format!(
-            "arqen-server-list-labels-test-{}.sock",
+            "a-{}.sock",
             uuid::Uuid::new_v4().simple()
         ));
         let listener = UnixListener::bind(&socket_path).unwrap();
@@ -530,6 +561,167 @@ mod tests {
         broker_thread.join().unwrap();
         cancellation.cancel();
         let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mark_email_tools_forward_distinct_operations_and_return_only_read_state() {
+        use std::{
+            io::{BufRead, BufReader, Write},
+            os::unix::net::UnixListener,
+            thread,
+        };
+
+        let socket_path = std::env::temp_dir().join(format!(
+            "a-{}.sock",
+            uuid::Uuid::new_v4().simple()
+        ));
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let broker_thread = thread::spawn(move || {
+            let operations = [("mark_email_read", true), ("mark_email_unread", false)];
+            for (operation, is_read) in operations {
+                let (stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream);
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let request: BrokerRequest = serde_json::from_str(&line).unwrap();
+                match request.validate().unwrap() {
+                    BrokerRequest::MarkEmailRead { request }
+                        if operation == "mark_email_read"
+                            && request.message_id == "message-123" => {}
+                    BrokerRequest::MarkEmailUnread { request }
+                        if operation == "mark_email_unread"
+                            && request.message_id == "message-123" => {}
+                    _ => panic!("unexpected broker operation for {operation}"),
+                }
+                let response = BrokerResponse::MessageReadState {
+                    result: arqen::gmail::EmailReadState {
+                        message_id: "message-123".into(),
+                        is_read,
+                    },
+                };
+                let mut stream = reader.into_inner();
+                serde_json::to_writer(&mut stream, &response).unwrap();
+                stream.write_all(b"\n").unwrap();
+            }
+        });
+
+        let tcp_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = tcp_listener.local_addr().unwrap();
+        let cancellation = CancellationToken::new();
+        let mut options = test_options(address);
+        options.broker_socket = socket_path.clone();
+        let router = build_router(options, cancellation.clone());
+        let shutdown = cancellation.clone();
+        tokio::spawn(async move {
+            let _ = axum::serve(tcp_listener, router)
+                .with_graceful_shutdown(shutdown.cancelled_owned())
+                .await;
+        });
+
+        for (id, name, expected_is_read) in [
+            (70, "mark_email_read", true),
+            (71, "mark_email_unread", false),
+        ] {
+            let response = reqwest::Client::new()
+                .post(format!("http://{address}/mcp"))
+                .bearer_auth("test-secret")
+                .header("content-type", "application/json")
+                .header("accept", "application/json, text/event-stream")
+                .body(format!(
+                    r#"{{"jsonrpc":"2.0","id":{id},"method":"tools/call","params":{{"name":"{name}","arguments":{{"message_id":"message-123"}}}}}}"#
+                ))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body: serde_json::Value = response.json().await.unwrap();
+            assert_eq!(
+                body["result"]["structuredContent"],
+                serde_json::json!({"message_id":"message-123","is_read":expected_is_read})
+            );
+        }
+        broker_thread.join().unwrap();
+        cancellation.cancel();
+        let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
+    async fn mark_email_tools_reject_account_thread_and_unknown_fields() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let cancellation = CancellationToken::new();
+        let router = build_router(test_options(address), cancellation.clone());
+        let shutdown = cancellation.clone();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router)
+                .with_graceful_shutdown(shutdown.cancelled_owned())
+                .await;
+        });
+
+        for (id, name, extra_field) in [
+            (80, "mark_email_read", "account_id"),
+            (81, "mark_email_read", "thread_id"),
+            (82, "mark_email_unread", "account_id"),
+            (83, "mark_email_unread", "thread_id"),
+            (84, "mark_email_read", "unexpected"),
+            (85, "mark_email_unread", "unexpected"),
+        ] {
+            let body = format!(
+                r#"{{"jsonrpc":"2.0","id":{id},"method":"tools/call","params":{{"name":"{name}","arguments":{{"message_id":"message-123","{extra_field}":"other"}}}}}}"#
+            );
+            let response = reqwest::Client::new()
+                .post(format!("http://{address}/mcp"))
+                .bearer_auth("test-secret")
+                .header("content-type", "application/json")
+                .header("accept", "application/json, text/event-stream")
+                .body(body)
+                .send()
+                .await
+                .unwrap();
+            let body: serde_json::Value = response.json().await.unwrap();
+            assert_eq!(body["result"]["isError"], true);
+            assert!(body["result"]["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("unknown field"));
+        }
+        cancellation.cancel();
+    }
+
+    #[tokio::test]
+    async fn mark_email_tools_return_stable_malformed_message_id_errors() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let cancellation = CancellationToken::new();
+        let router = build_router(test_options(address), cancellation.clone());
+        let shutdown = cancellation.clone();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router)
+                .with_graceful_shutdown(shutdown.cancelled_owned())
+                .await;
+        });
+
+        for (id, name) in [(84, "mark_email_read"), (85, "mark_email_unread")] {
+            let response = reqwest::Client::new()
+                .post(format!("http://{address}/mcp"))
+                .bearer_auth("test-secret")
+                .header("content-type", "application/json")
+                .header("accept", "application/json, text/event-stream")
+                .body(format!(
+                    r#"{{"jsonrpc":"2.0","id":{id},"method":"tools/call","params":{{"name":"{name}","arguments":{{"message_id":"bad/id"}}}}}}"#
+                ))
+                .send()
+                .await
+                .unwrap();
+            let body: serde_json::Value = response.json().await.unwrap();
+            assert_eq!(body["result"]["isError"], true);
+            assert_eq!(
+                body["result"]["content"][0]["text"],
+                "invalid_message_id: message_id must be 1–256 ASCII letters, digits, hyphens, or underscores"
+            );
+        }
+        cancellation.cancel();
     }
 
     #[tokio::test]
@@ -654,7 +846,7 @@ mod tests {
         };
 
         let socket_path = std::env::temp_dir().join(format!(
-            "arqen-server-readiness-test-{}.sock",
+            "a-{}.sock",
             uuid::Uuid::new_v4().simple()
         ));
         let listener = UnixListener::bind(&socket_path).unwrap();
