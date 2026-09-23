@@ -236,6 +236,80 @@ mod tests {
     }
 
     #[test]
+    fn approle_rejection_explains_startup_recovery_and_unsaved_scope_state() {
+        let error = anyhow::Error::new(arqen::secrets::OpenBaoFailure::AppRoleRejected);
+        let message = super::friendly_login_error(
+            &LoginIntent::Reauthenticate {
+                subject: "selected-subject".into(),
+            },
+            &error,
+        );
+        assert!(message.contains("Google authorization completed"));
+        assert!(message.contains("OpenBao rejected Arqen's service credentials"));
+        assert!(message.contains("could not save the protected refresh token"));
+        assert!(message.contains("granted scopes"));
+        assert!(message.contains("make docker-up"));
+        assert!(message.contains("Google's consent may already have been recorded"));
+        assert!(!message.contains("AppRoleRejected"));
+    }
+
+    #[test]
+    fn openbao_unavailability_and_write_failure_have_safe_next_steps() {
+        let unavailable = anyhow::Error::new(arqen::secrets::OpenBaoFailure::Unavailable);
+        let unavailable_message = super::friendly_login_error(&LoginIntent::Add, &unavailable);
+        assert!(unavailable_message.contains("could not reach OpenBao"));
+        assert!(unavailable_message.contains("run `make docker-up`"));
+        assert!(unavailable_message.contains("granted scopes were not saved"));
+
+        let login_failed = anyhow::Error::new(arqen::secrets::OpenBaoFailure::LoginFailed(403));
+        let login_message = super::friendly_login_error(&LoginIntent::Add, &login_failed);
+        assert!(login_message.contains("OpenBao did not accept Arqen's service-login request"));
+        assert!(!login_message.contains("HTTP 403"));
+
+        let write_failed =
+            anyhow::Error::new(arqen::secrets::OpenBaoFailure::CredentialWriteFailed(403));
+        let write_message = super::friendly_login_error(&LoginIntent::Add, &write_failed);
+        assert!(write_message.contains("OpenBao denied the protected refresh-token write"));
+        assert!(write_message.contains("check the Arqen service policy"));
+        assert!(!write_message.contains("HTTP 403"));
+    }
+
+    #[test]
+    fn google_failures_and_missing_refresh_token_are_explained_without_raw_errors() {
+        let rejected = anyhow::anyhow!(
+            "complete Google login: Google rejected the authorization-code exchange: private HTTP detail"
+        );
+        let rejected_message = super::friendly_login_error(&LoginIntent::Add, &rejected);
+        assert!(rejected_message.contains("Google did not complete"));
+        assert!(rejected_message.contains("No refresh token or account scope changes were saved"));
+        assert!(!rejected_message.contains("private HTTP detail"));
+
+        let missing_refresh = anyhow::anyhow!(
+            "complete Google login: Google did not return a refresh token; retry login with consent"
+        );
+        let missing_message = super::friendly_login_error(&LoginIntent::Add, &missing_refresh);
+        assert!(missing_message.contains("did not return a refresh token"));
+        assert!(missing_message.contains("approve the requested access"));
+    }
+
+    #[test]
+    fn metadata_save_failure_says_refresh_token_was_saved_but_scopes_were_not() {
+        let error = anyhow::anyhow!(
+            "save Google account metadata in SQLite: private database detail"
+        );
+        let message = super::friendly_login_error(
+            &LoginIntent::Reconnect {
+                subject: "selected-subject".into(),
+            },
+            &error,
+        );
+        assert!(message.contains("saved the protected refresh token"));
+        assert!(message.contains("granted scopes"));
+        assert!(message.contains("retry reconnecting"));
+        assert!(!message.contains("private database detail"));
+    }
+
+    #[test]
     fn browser_target_defaults_to_the_direct_authorization_url() {
         let callback = crate::callback::CallbackServer::start().expect("callback server");
         let direct_url = "https://accounts.google.com/o/oauth2/v2/auth?state=test";
