@@ -16,20 +16,46 @@ const MAX_SNIPPET_CHARS: usize = 300;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct ListEmailsRequest {
+    /// Gmail search syntax; control characters are not allowed. Omitted, null, or blank values use `in:inbox`.
+    #[schemars(
+        default = "default_query",
+        length(max = 1_024),
+        regex(pattern = r"^[^\u0000-\u001F\u007F-\u009F]*$")
+    )]
     #[serde(default)]
     pub query: Option<String>,
+    /// Gmail label IDs to match; control characters are not allowed. Defaults to an empty list; at most 20 IDs, each 1–256 characters.
+    #[schemars(
+        length(max = 20),
+        inner(
+            length(min = 1, max = 256),
+            regex(pattern = r"^[^\u0000-\u001F\u007F-\u009F]*$")
+        )
+    )]
     #[serde(default)]
     pub label_ids: Vec<String>,
+    /// Maximum number of message summaries to return. Defaults to 20; valid range is 1–50.
+    #[schemars(range(min = 1, max = 50))]
     #[serde(default = "default_max_results")]
     pub max_results: u32,
+    /// Opaque token from `next_page_token`; supply it to fetch the next page. It must be 1–4,096 characters without control characters.
+    #[schemars(
+        length(min = 1, max = 4_096),
+        regex(pattern = r"^[^\u0000-\u001F\u007F-\u009F]*$")
+    )]
     #[serde(default)]
     pub page_token: Option<String>,
+    /// Whether to include messages from Gmail spam and trash. Defaults to false.
     #[serde(default)]
     pub include_spam_trash: bool,
 }
 
 fn default_max_results() -> u32 {
     DEFAULT_MAX_RESULTS
+}
+
+fn default_query() -> Option<String> {
+    Some("in:inbox".into())
 }
 
 impl Default for ListEmailsRequest {
