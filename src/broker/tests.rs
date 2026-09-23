@@ -89,6 +89,25 @@ mod tests {
     }
 
     #[test]
+    fn list_labels_account_store_failures_use_the_stable_internal_code() {
+        let state = super::BrokerState {
+            database_path: std::env::temp_dir()
+                .join(format!("arqen-missing-parent-{}", uuid::Uuid::new_v4()))
+                .join("accounts.sqlite3"),
+            credentials_path: std::path::PathBuf::from("unused"),
+            access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        };
+        let response = super::handle_list_labels(&state);
+        assert!(matches!(
+            response,
+            crate::mcp::BrokerResponse::Error {
+                code: crate::mcp::BrokerErrorCode::Internal,
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn bounded_request_reader_rejects_unterminated_oversized_input() {
         let oversized = vec![b'x'; super::MAX_REQUEST_BYTES + 1];
         let error = read_bounded_line(
@@ -138,6 +157,50 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn list_labels_provider_and_credential_errors_keep_stable_public_codes() {
+        use crate::mcp::{BrokerErrorCode, BrokerResponse};
+
+        for (status, expected_code) in [
+            (StatusCode::UNAUTHORIZED, BrokerErrorCode::ReauthenticationRequired),
+            (StatusCode::TOO_MANY_REQUESTS, BrokerErrorCode::GmailRateLimited),
+            (StatusCode::BAD_GATEWAY, BrokerErrorCode::GmailUnavailable),
+        ] {
+            let error = anyhow::Error::new(GmailApiError::for_test(
+                status,
+                "private Gmail response body",
+            ));
+            let response = super::map_gmail_error(&error);
+            assert!(matches!(
+                response,
+                BrokerResponse::Error { code, .. } if code == expected_code
+            ));
+            assert!(!serde_json::to_string(&response)
+                .unwrap()
+                .contains("private Gmail response body"));
+        }
+
+        for (error, expected_code) in [
+            (
+                anyhow::anyhow!("protected credential service unavailable"),
+                BrokerErrorCode::CredentialUnavailable,
+            ),
+            (
+                anyhow::anyhow!("no stored Google refresh token"),
+                BrokerErrorCode::ReauthenticationRequired,
+            ),
+        ] {
+            let response = super::map_credential_error(&error);
+            assert!(matches!(
+                response,
+                BrokerResponse::Error { code, .. } if code == expected_code
+            ));
+            let encoded = serde_json::to_string(&response).unwrap();
+            assert!(!encoded.contains("protected credential service"));
+            assert!(!encoded.contains("refresh token"));
+        }
     }
 
     #[test]
