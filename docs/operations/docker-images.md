@@ -40,11 +40,39 @@ permissions, and repository branch rules must allow its direct patch-bump
 commit to `main`. It uses `GITHUB_TOKEN`; those commits do not start another
 push workflow.
 
+## On-demand branch beta images
+
+Pushes to `main` continue to publish stable `X.Y.Z` and `latest` tags. To publish
+a beta from another branch, open **Actions → Publish Docker images → Run
+workflow**, choose the branch, and start the run. Manual dispatch on `main` is
+rejected before image builds; tag dispatches are rejected, and non-`main` pushes
+do not publish automatically.
+The workflow must first be present on the repository's default branch for the
+manual run button to be available ([GitHub instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)).
+
+The beta image version is `X.Y.Z-beta.<branch-slug>.<run-number>`, based on the
+selected branch's Cargo version. Branch names are lowercased and normalized for
+SemVer and Docker tags. For example, branch `feature/openbao-setup` might
+publish `0.1.2-beta.feature-openbao-setup.42`. Beta runs publish that tag for
+all three images and write digest metadata to
+`prereleases/<version>.json` on `docker-images`. They do not update stable
+`latest.json`, stable tags, source tags, or Cargo versions.
+
+To use a beta in the three-image Compose project, pass the exact published
+version when starting it:
+
+```bash
+ARQEN_DOCKER_IMAGE_TAG=0.1.2-beta.feature-openbao-setup.42 docker compose up -d
+```
+
+The Compose project selects that versioned multi-platform image tag for MCP,
+runtime, and OpenBao.
+
 The `docker-images` branch is an orphan metadata branch. It contains
-`releases/<version>.json`, `latest.json`, and a short index README, including
-image references, manifest digests, supported platforms, source commit, and
-pull commands. Versioned tags are accompanied by content digests. Image layers,
-source archives, and binaries are not stored on
+`releases/<version>.json`, `prereleases/<version>.json`, `latest.json`, and a
+short index README, including image references, manifest digests, supported
+platforms, source commit, and pull commands. Versioned tags are accompanied by
+content digests. Image layers, source archives, and binaries are not stored on
 that branch.
 
 The recorded image digests identify the published multi-platform indexes. The
