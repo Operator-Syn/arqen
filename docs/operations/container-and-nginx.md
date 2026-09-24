@@ -57,3 +57,12 @@ Use `make docker-down` to stop without deleting volumes or the explicit
 `make docker-reset ARQEN_DOCKER_RESET_CONFIRM=YES` path to remove the fresh
 profile. This path is clean-slate only; it does not migrate native keyring
 accounts.
+
+`make docker-up` builds from source unless `ARQEN_DOCKER_IMAGE_SOURCE` is set
+to `registry` or `bundle`. Registry mode pulls the configured stable GHCR tags
+then starts without building. Bundle mode loads the archive produced by
+`make docker-bundle` and also starts without building. The ignored AMD64 bundle
+contains OCI layouts, application and base images, and a service-to-image
+manifest; it excludes runtime-mounted `.secrets`. See
+[`docker-images.md`](docker-images.md) for release tags, version automation,
+and package visibility setup.
