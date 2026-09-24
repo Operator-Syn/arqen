@@ -72,3 +72,9 @@ pub struct EmailReadState {
     pub message_id: String,
     pub is_read: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct LabelDeleteResult {
+    pub label_id: String,
+    pub deleted: bool,
+}
