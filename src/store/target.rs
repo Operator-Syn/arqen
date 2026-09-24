@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl AccountStore {
     pub fn mcp_configuration(&self) -> Result<McpConfiguration> {
         let target_google_subject = self.connection.query_row(
