@@ -24,9 +24,8 @@ socket is `${XDG_RUNTIME_DIR}/arqen/gmail-broker.sock`. An active broker is
 never replaced. A stale socket is removed only when it is a Unix socket with no
 listener. The included
 `deploy/systemd/arqen-credential-broker.service` is a user-unit template; the
-paired `arqen-mcp.service` is an all-native alternative. The locked first-pass
-VPS path instead keeps this broker service on the host and runs the HTTP MCP
-process through `make compose-up`.
+paired `arqen-mcp.service` is an all-native alternative to the Docker-native
+local profile.
 
 Set `ARQEN_GMAIL_BROKER_SOCKET` in `.env` only when an explicit socket path is
 needed. Otherwise the scripts and binary use
