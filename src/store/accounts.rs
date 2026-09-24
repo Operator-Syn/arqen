@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl AccountStore {
     pub fn upsert_google_account(&self, account: &Account) -> Result<()> {
         if let Some(scopes) = &account.granted_scopes {
