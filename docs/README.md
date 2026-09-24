@@ -111,6 +111,8 @@ is the reusable agent workflow for future source-boundary audits and refactors.
   streamed-TUI/MCP profile for clean-slate local deployment, with the legacy
   VPS and Nginx examples retained as deferred alternatives; activation, TLS,
   and public deployment remain operator-owned.
+- **Image releases:** [GHCR publishing, patch-version automation, and local
+  Docker bundles](operations/docker-images.md).
 - **Local workflows:** `.env.example`, Make targets, Nix-aware Cargo wrappers,
   remote SSH OAuth instructions, quickstart installation, and disposable
   native/Compose smoke paths.
