@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) fn pane_viewport(
     area: Rect,
     account_count: usize,
