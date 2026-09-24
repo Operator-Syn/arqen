@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 async fn proxy_http(State(state): State<GatewayState>, request: Request) -> Response {
     if !origin_is_allowed(request.headers()) {
         return plain_response(StatusCode::FORBIDDEN);
