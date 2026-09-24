@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 async fn websocket_proxy<S>(client: WebSocket, upstream: WebSocketStream<S>)
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
