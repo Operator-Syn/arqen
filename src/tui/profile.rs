@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn create_browser_profile() -> Result<PathBuf> {
     let base = env::temp_dir();
     for _ in 0..8 {
