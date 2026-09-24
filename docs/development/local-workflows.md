@@ -217,6 +217,14 @@ make docker-setup   # first run only; creates protected local setup secrets
 make docker-up
 ```
 
+`docker-native-compose.yml` is the base definition for the four services. The
+startup script detects the current desktop and merges exactly one display-only
+override: `docker-native-compose-wayland.yml` mounts the Wayland session
+socket, while `docker-native-compose-x11.yml` mounts the X socket and
+Xauthority file. Each override changes only `arqen-control`; neither defines a
+separate stack or adds containers. Use `make docker-up` instead of running an
+override file by itself.
+
 By default, `docker-up` builds the app images from the current checkout. To use
 GHCR instead, set `ARQEN_DOCKER_IMAGE_SOURCE=registry` and optionally
 `ARQEN_DOCKER_IMAGE_TAG=<version>` in `.env`; startup pulls the control/broker
@@ -229,13 +237,14 @@ credentials. The registry and bundle modes keep the same mounted-secret and
 service boundaries as source-build mode.
 
 Pushes to `main` trigger publication of versioned and `latest` multi-platform
-images to GHCR. Once both images publish, the workflow tags the source and
-increments only the patch version in `Cargo.toml` and `Cargo.lock`; set
+MCP, runtime, and project OpenBao images to GHCR. Once all three images
+publish, the workflow tags the source and increments only the patch version in
+`Cargo.toml` and `Cargo.lock`; set
 major/minor versions manually in `Cargo.toml`, then run `cargo check` so the
 root package version in `Cargo.lock` matches. The `docker-images` branch is
 metadata-only and records per-release image digests, pull commands, and a
-latest index. The first GHCR publication requires an operator to change both
-package visibilities to public. Details and setup requirements are in
+latest index. The first GHCR publication requires an operator to change all
+three package visibilities to public. Details and setup requirements are in
 [`../operations/docker-images.md`](../operations/docker-images.md).
 
 The stack runs OpenBao, the credential broker, the control gateway/TUI, and the
