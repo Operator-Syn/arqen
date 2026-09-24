@@ -1,19 +1,22 @@
 # Local-first workflows
 
 The repository supports a Docker-native local profile and a native loopback
-fallback. The Docker profile runs the full clean-slate stack; the legacy VPS and
-reverse-proxy workflows remain separate alternatives. The named Bash workflows
-avoid repeatedly exporting the same values. The tracked `.env.example` contains
-loopback defaults and paths only; copy it to the ignored `.env` with:
+workflow. Docker runs the clean-slate stack; native mode uses the host OS
+keyring. Named commands load settings from the ignored `.env` file. The tracked
+`.env.example` contains local defaults and paths, not credentials. Create `.env`
+with:
 
 ```bash
 make setup-local
 ```
 
-That command creates `.env` with mode `0600`, creates `.secrets/` with mode
-`0700`, and generates `.secrets/mcp-bearer-token` with mode `0600` when a token
-file is configured and missing. It never generates or prints Google OAuth
-credentials. Add the real desktop-client JSON at the configured
+Setup copies `.env.example` only when `.env` does not exist; it does not merge
+or overwrite an existing file. If the example changes later, update your local
+`.env` deliberately while preserving any local choices. The command creates
+`.env` with mode `0600`, creates `.secrets/` with mode `0700`, and generates
+`.secrets/mcp-bearer-token` with mode `0600` when a token file is configured and
+missing. It never generates or prints Google OAuth credentials. Add the real
+desktop-client JSON at the configured
 `GOOGLE_CLIENT_SECRET` path before starting a login or making a live Gmail
 request. Then run `make tui`, complete the Google login, and press `t` on the
 eligible account that should be exposed to local agents.
@@ -32,13 +35,9 @@ eligible account that should be exposed to local agents.
 | `make backend` | set up and supervise the native broker + MCP backend | no, until a tool call arrives |
 | `make broker` | start the host keyring/SQLite credential broker; asks before stale-socket takeover | no, until an MCP call arrives |
 | `make mcp` | start the authenticated Streamable HTTP MCP process | no, until a tool call arrives |
-| `make vps-up` | optional: enable the host broker and start the Docker MCP service | no, until a tool call arrives |
 | `make check` | format, test, lint, build, flake, and diff checks | no |
 | `make smoke-local` | disposable native broker + MCP protocol smoke | no |
 | `make smoke-local-call` | native smoke plus one `list_emails` call | yes |
-| `make compose-up` / `make compose-down` | optional: manage the configured Docker container | no, until a tool call arrives |
-| `make compose-smoke` | optional: disposable Compose protocol smoke | no |
-| `make compose-smoke-call` | optional: Compose smoke plus one `list_emails` call | yes |
 
 Each target delegates to a correspondingly named executable in `scripts/`.
 `scripts/lib/common.sh` loads `.env`, resolves repository-relative paths, and
@@ -133,9 +132,7 @@ successful `list_emails` call is the first live provider check.
 
 Use `make backend ARQEN_BACKEND_ARGS=--usurp` to skip the stale-socket prompt.
 This only takes over a stale Unix socket; active or unknown resources remain
-protected. The container workflows remain explicit (`make compose-up` or
-`make compose-smoke`) so a backend command cannot unexpectedly remove a
-persistent container.
+protected. The backend supervisor manages only the host processes it starts.
 
 ## Native two-process run
 
@@ -169,6 +166,10 @@ already selected one eligible connected account before `list_emails` or
 `read_email` can succeed.
 
 ## Remote OAuth over SSH
+
+SSH forwarding remains supported for logging in to a TUI on a headless host.
+It forwards only the OAuth callback; the retired host-broker-plus-Docker-MCP
+Compose deployment is not part of this workflow.
 
 For a TUI running on a headless VPS, use a fixed loopback callback and an SSH
 local forward from the laptop:
@@ -301,20 +302,6 @@ make docker-reset ARQEN_DOCKER_RESET_CONFIRM=YES
 This profile intentionally starts with a new SQLite/OpenBao data volume; it
 does not migrate older native keyring accounts.
 
-## Deferred Docker/VPS workflow
-
-The Docker and VPS path remains available without being the local default:
-
-```bash
-make vps-up
-```
-
-This enables the host broker and starts the Docker MCP service. Use
-`make compose-up` and `make compose-down` when managing the configured container
-directly. The Compose, systemd, and Nginx files are deployment templates; they
-do not create secrets, issue certificates, change DNS/firewall state, activate
-services, or deploy a live endpoint by themselves.
-
 ## Disposable smoke checks
 
 The native smoke script builds the binary, creates a temporary runtime/socket,
@@ -322,8 +309,6 @@ isolated database, and bearer token, starts both processes, verifies
 authenticated `/healthz`, `/readyz`, and `tools/list`, then terminates both
 processes and removes only its generated temporary directory. The no-call path
 expects readiness to report `target_not_configured` and cannot touch Google.
-The Compose variant additionally builds and runs the container with the host
-broker socket mounted read-only and cleans up its exact Compose project.
 
 Pass `--call` only when you intentionally want to exercise Gmail. That path
 uses the configured real OAuth client, keyring, database, and explicitly
