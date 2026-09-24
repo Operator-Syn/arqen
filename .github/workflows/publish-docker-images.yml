@@ -1,0 +1,205 @@
+name: Publish Docker images
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: arqen-main-image-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Cargo.toml package version must be a stable X.Y.Z value.' >&2
+            exit 1
+          fi
+          lock_version="$(python3 -c 'import tomllib; print(next(package["version"] for package in tomllib.load(open("Cargo.lock", "rb"))["package"] if package["name"] == "arqen"))')"
+          if [[ "$version" != "$lock_version" ]]; then
+            echo 'Cargo.toml and Cargo.lock package versions must match.' >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish MCP image
+        id: mcp
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/operator-syn/arqen-mcp:${{ steps.version.outputs.value }}
+            ghcr.io/operator-syn/arqen-mcp:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Publish shared control and broker runtime image
+        id: runtime
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.docker-native
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/operator-syn/arqen-runtime:${{ steps.version.outputs.value }}
+            ghcr.io/operator-syn/arqen-runtime:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Tag the source release
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          git fetch origin --tags
+          tag="v$VERSION"
+          if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+            tagged_commit="$(git rev-parse "$tag^{commit}")"
+            if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
+              echo "Release tag $tag already points to a different source commit." >&2
+              exit 1
+            fi
+          else
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+
+      - name: Update metadata-only docker-images branch
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          MCP_DIGEST: ${{ steps.mcp.outputs.digest }}
+          RUNTIME_DIGEST: ${{ steps.runtime.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata_worktree="$(mktemp -d)"
+          rmdir "$metadata_worktree"
+          git fetch origin docker-images:refs/remotes/origin/docker-images || true
+          git worktree add --detach "$metadata_worktree" "$GITHUB_SHA"
+          if git show-ref --verify --quiet refs/remotes/origin/docker-images; then
+            git -C "$metadata_worktree" switch --create docker-images origin/docker-images
+          else
+            git -C "$metadata_worktree" switch --orphan docker-images
+            git -C "$metadata_worktree" rm -rf .
+          fi
+          git -C "$metadata_worktree" config user.name github-actions[bot]
+          git -C "$metadata_worktree" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          mkdir -p "$metadata_worktree/releases"
+          cat > "$metadata_worktree/releases/$VERSION.json" <<EOF
+          {
+            "version": "$VERSION",
+            "source_tag": "v$VERSION",
+            "source_commit": "$GITHUB_SHA",
+            "images": {
+              "mcp": {
+                "reference": "ghcr.io/operator-syn/arqen-mcp:$VERSION",
+                "digest": "$MCP_DIGEST",
+                "platforms": ["linux/amd64", "linux/arm64"]
+              },
+              "runtime": {
+                "reference": "ghcr.io/operator-syn/arqen-runtime:$VERSION",
+                "digest": "$RUNTIME_DIGEST",
+                "platforms": ["linux/amd64", "linux/arm64"]
+              }
+            },
+            "pull": [
+              "docker pull ghcr.io/operator-syn/arqen-mcp:$VERSION",
+              "docker pull ghcr.io/operator-syn/arqen-runtime:$VERSION"
+            ]
+          }
+          EOF
+          update_latest=true
+          if [[ -s "$metadata_worktree/latest.json" ]]; then
+            if python3 - "$metadata_worktree/latest.json" "$VERSION" <<'PY'
+          import json
+          import sys
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              latest = json.load(stream)["version"]
+          current = sys.argv[2]
+          raise SystemExit(0 if tuple(map(int, latest.split("."))) > tuple(map(int, current.split("."))) else 1)
+          PY
+            then
+              update_latest=false
+            fi
+          fi
+          if [[ "$update_latest" == true ]]; then
+            cp "$metadata_worktree/releases/$VERSION.json" "$metadata_worktree/latest.json"
+          fi
+          cat > "$metadata_worktree/README.md" <<'EOF'
+          # Arqen image release index
+
+          This branch contains release metadata only. Image layers are published
+          to GHCR and are not stored here.
+
+          - `latest.json` identifies the most recently published image release.
+          - `releases/<version>.json` records immutable references, digests,
+            source commit, platforms, and pull commands for each release.
+          - `ghcr.io/operator-syn/arqen-runtime` is shared by the control and
+            broker services; `ghcr.io/operator-syn/arqen-mcp` serves MCP.
+          EOF
+          git -C "$metadata_worktree" add README.md latest.json releases
+          if ! git -C "$metadata_worktree" diff --cached --quiet; then
+            git -C "$metadata_worktree" commit -m "Publish image metadata for v$VERSION"
+            git -C "$metadata_worktree" push origin HEAD:docker-images
+          else
+            echo "Image metadata for v$VERSION is already present."
+          fi
+          git worktree remove "$metadata_worktree"
+
+      - name: Increment patch version after successful publication
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          bump_worktree="$(mktemp -d)"
+          rmdir "$bump_worktree"
+          git worktree add --detach "$bump_worktree" origin/main
+          current="$(python3 -c 'import tomllib,sys; print(tomllib.load(open(sys.argv[1], "rb"))["package"]["version"])' "$bump_worktree/Cargo.toml")"
+          if [[ "$current" == "$VERSION" ]]; then
+            next="$(python3 "$GITHUB_WORKSPACE/scripts/arqen-bump-patch-version.py" --root "$bump_worktree")"
+            git -C "$bump_worktree" config user.name github-actions[bot]
+            git -C "$bump_worktree" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git -C "$bump_worktree" add Cargo.toml Cargo.lock
+            git -C "$bump_worktree" commit -m "Bump patch version to $next"
+            git -C "$bump_worktree" push origin HEAD:main
+          else
+            echo "main is already prepared for a later version ($current); leaving its manual version unchanged."
+          fi
+          git worktree remove "$bump_worktree"
