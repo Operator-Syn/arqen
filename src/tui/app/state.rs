@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl App {
     fn new(store: AccountStore) -> Result<Self> {
         let accounts = store.list_accounts()?;
