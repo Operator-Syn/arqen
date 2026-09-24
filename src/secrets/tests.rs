@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 #[cfg(test)]
 mod tests {
     use super::{OPENBAO_REFERENCE_PREFIX, OpenBaoClient, OpenBaoFailure, validate_path};
