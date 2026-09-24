@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MPL-2.0
 set -euo pipefail
 
 # Shared environment and command helpers for the named local workflows.
@@ -54,11 +55,9 @@ arqen_load_defaults() {
     : "${ARQEN_MCP_ALLOWED_HOSTS:=127.0.0.1:${ARQEN_MCP_HOST_PORT}}"
     : "${ARQEN_MCP_ALLOWED_ORIGINS:=http://127.0.0.1:${ARQEN_MCP_HOST_PORT}}"
     : "${ARQEN_MCP_BEARER_TOKEN_FILE:=${XDG_CONFIG_HOME:-${HOME:-}/.config}/arqen/mcp-bearer-token}"
-    : "${ARQEN_COMPOSE_PROJECT:=arqen-local}"
     : "${ARQEN_USE_NIX:=auto}"
     export ARQEN_MCP_LISTEN_ADDR ARQEN_MCP_HOST_PORT ARQEN_MCP_ALLOWED_HOSTS
-    export ARQEN_MCP_ALLOWED_ORIGINS ARQEN_MCP_BEARER_TOKEN_FILE
-    export ARQEN_COMPOSE_PROJECT ARQEN_USE_NIX
+    export ARQEN_MCP_ALLOWED_ORIGINS ARQEN_MCP_BEARER_TOKEN_FILE ARQEN_USE_NIX
 }
 
 arqen_prepare_runtime() {
@@ -173,15 +172,6 @@ arqen_require_token() {
 
     local configured_path="${ARQEN_MCP_BEARER_TOKEN_FILE:-}"
     [[ -n "$configured_path" ]] || arqen_die "set ARQEN_MCP_BEARER_TOKEN_FILE or ARQEN_MCP_BEARER_TOKEN in .env"
-    local resolved_path
-    resolved_path="$(arqen_resolve_path "$configured_path")"
-    [[ -f "$resolved_path" && -r "$resolved_path" && -s "$resolved_path" ]] || arqen_die "MCP bearer token file is missing or empty: $resolved_path; run make setup-local"
-    export ARQEN_MCP_BEARER_TOKEN_FILE="$resolved_path"
-}
-
-arqen_require_compose_token_file() {
-    local configured_path="${ARQEN_MCP_BEARER_TOKEN_FILE:-}"
-    [[ -n "$configured_path" ]] || arqen_die "Compose requires ARQEN_MCP_BEARER_TOKEN_FILE; run make setup-local"
     local resolved_path
     resolved_path="$(arqen_resolve_path "$configured_path")"
     [[ -f "$resolved_path" && -r "$resolved_path" && -s "$resolved_path" ]] || arqen_die "MCP bearer token file is missing or empty: $resolved_path; run make setup-local"
