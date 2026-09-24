@@ -1,0 +1,21 @@
+{
+  "version": "0.1.1",
+  "source_tag": "v0.1.1",
+  "source_commit": "8952ae194f09867cd80411997791b334c3b7abac",
+  "images": {
+    "mcp": {
+      "reference": "ghcr.io/operator-syn/arqen-mcp:0.1.1",
+      "digest": "sha256:09252f13804869af76fd9f96a207ea62eb734671a0f07eb5e75c5533dc729388",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "runtime": {
+      "reference": "ghcr.io/operator-syn/arqen-runtime:0.1.1",
+      "digest": "sha256:05dc2c1c51db501150a295d47b7613ffefea7ab1cc3f7a3da18e586b5dc3aa3d",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    }
+  },
+  "pull": [
+    "docker pull ghcr.io/operator-syn/arqen-mcp:0.1.1",
+    "docker pull ghcr.io/operator-syn/arqen-runtime:0.1.1"
+  ]
+}
