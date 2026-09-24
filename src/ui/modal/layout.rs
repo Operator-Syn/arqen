@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn action_width(action: &ModalAction) -> u16 {
     action.shortcut.len() as u16 + action.label.len() as u16 + 10
 }
