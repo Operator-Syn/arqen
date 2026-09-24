@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl CallbackServer {
     pub(crate) fn start() -> Result<Self> {
         Self::start_with_port(None, "127.0.0.1", "127.0.0.1")
