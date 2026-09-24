@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 #[cfg(test)]
 mod tests {
     use super::{read_bounded_line, selected_target_account, target_ineligibility};
