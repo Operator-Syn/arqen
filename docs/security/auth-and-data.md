@@ -24,6 +24,10 @@ linked.
    `gmail.readonly`. Gmail and MCP payloads have explicit size caps; attachments
    are not downloaded. Email text is untrusted data, not instructions. Tool
    responses never contain credentials or raw provider error bodies.
+   `create_label` and `delete_label` use only the Arqen-selected account and
+   require its recorded `gmail.modify` grant before credential access; label
+   deletion removes the association from all messages and threads carrying the
+   label without deleting those messages.
 6. Headless VPS OAuth uses an SSH local port forward to a loopback callback;
    the OAuth callback listener is never bound to a public interface.
 7. `/healthz` and `/readyz` require the same bearer gate as `/mcp`; readiness
@@ -39,6 +43,10 @@ linked.
    WebSocket requests, and forwards only a fixed internal header to ttyd on
    loopback. ttyd's internal port is not published and no password is passed
    in a command-line argument, URL, cookie, or log message.
+10. Destructive MCP operations require explicit user authorization for the
+    exact target and scope. An applicable, clearly scoped prior authorization
+    remains valid; ask before acting when permission, target, or consequences
+    are unclear. See [User authorization for destructive operations](destructive-operations.md).
 
 Both Gmail scopes used by Arqen are restricted under Google's current scope
 policy. Google describes `gmail.modify` as allowing read, compose, and send
