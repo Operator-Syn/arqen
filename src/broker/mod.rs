@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use crate::{
     Account, AccountStore, ConnectionState,
     auth::{
