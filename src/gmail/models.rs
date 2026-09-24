@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct EmailSummary {
     pub id: String,
