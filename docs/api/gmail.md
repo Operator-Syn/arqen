@@ -30,6 +30,27 @@ stable `message_too_large` error rather than a truncated body.
 labels. Arqen preserves the IDs exactly so callers can select a label by name
 and pass its ID as `list_emails.label_ids` in a separate call.
 
+`create_label` calls Gmail's
+[`users.labels.create`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels/create)
+with `userId=me` and only a custom label `name`; the returned ID, name, and
+`type=user` form the MCP result. `delete_label` accepts the exact ID from a
+separate `list_labels` call. It first calls `users.labels.get` requesting only
+`id,type` to reject system labels, then calls
+[`users.labels.delete`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels/delete)
+with `userId=me` and that same ID. Gmail confirms delete with an empty JSON
+object; only then does Arqen return `{label_id, deleted:true}`. Gmail's delete
+operation removes the label from every message and thread using it but does not
+delete the messages.
+
+The Google Gmail API discovery document and both method references list
+`gmail.modify` as an accepted scope for label create and delete (along with
+`gmail.labels` and the broader `mail.google.com`). Arqen already requests and
+checks the selected account's recorded `gmail.modify` grant; this change does
+not broaden OAuth scopes. The documented `Label.name` schema requires a string
+but specifies no length or character pattern. Arqen rejects blank names and
+control characters; Gmail remains the authority for reserved-name conflicts
+and other provider name rules. Gmail documents a 10,000-label mailbox maximum.
+
 The read-state tools use Gmail's
 [`users.messages.modify`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/modify)
 method on `users/me/messages/{messageId}/modify`, with `addLabelIds: ["UNREAD"]`
