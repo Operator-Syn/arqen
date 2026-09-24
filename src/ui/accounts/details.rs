@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) fn render_account_details(
     frame: &mut Frame<'_>,
     area: Rect,
