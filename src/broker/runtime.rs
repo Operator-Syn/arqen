@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub fn run(options: BrokerOptions) -> Result<()> {
     #[cfg(unix)]
     {
