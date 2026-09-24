@@ -2,10 +2,10 @@
 .codex
 .direnv
 target
+out
 result
 .env
 .secrets
 *.sqlite3
 *.sqlite3-*
 *.log
-
