@@ -41,6 +41,12 @@ Responsibilities are intentionally narrow:
 | systemd user units (`deploy/systemd/`) | Host broker restart and optional all-native MCP lifecycle | OAuth consent, secret creation, public deployment |
 | Docker-native Compose (`deploy/containers/docker-native-compose.yml`) | OpenBao, control TUI, broker, and loopback MCP lifecycle; native display access is limited to the control override | Public exposure, live OAuth consent, account migration |
 
+The base Compose file defines the four services once. `make docker-up` selects
+exactly one small display override for `arqen-control`: Wayland mounts the
+session socket; X11 mounts the X socket and Xauthority file. These files are
+merged with the base file and do not create extra containers or independent
+stacks.
+
 The MCP exposes `list_labels`, `list_emails`, and `read_email` plus separate
 per-message `mark_email_read` and `mark_email_unread` tools for the configured
 target. Agents can call `list_labels`, choose a label by
