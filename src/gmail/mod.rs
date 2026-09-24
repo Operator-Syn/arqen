@@ -63,6 +63,52 @@ pub struct ReadEmailRequest {
     pub message_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
+pub struct CreateLabelRequest {
+    /// A nonblank custom Gmail label name. Gmail rejects names reserved for system labels.
+    #[schemars(
+        length(min = 1),
+        regex(pattern = r"^(?=.*\S)[^\u0000-\u001F\u007F-\u009F]+$")
+    )]
+    pub name: String,
+}
+
+impl CreateLabelRequest {
+    pub fn validate(self) -> Result<Self> {
+        anyhow::ensure!(
+            !self.name.trim().is_empty(),
+            "name must contain at least one non-whitespace character"
+        );
+        anyhow::ensure!(
+            !self.name.chars().any(char::is_control),
+            "name must not contain control characters"
+        );
+        Ok(self)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
+pub struct DeleteLabelRequest {
+    /// Exact Gmail label ID from list_labels; display names are not accepted.
+    #[schemars(length(min = 1), regex(pattern = r"^[^\u0000-\u001F\u007F-\u009F]+$"))]
+    pub label_id: String,
+}
+
+impl DeleteLabelRequest {
+    pub fn validate(self) -> Result<Self> {
+        anyhow::ensure!(!self.label_id.is_empty(), "label_id cannot be empty");
+        anyhow::ensure!(
+            !self.label_id.chars().any(char::is_control),
+            "label_id must not contain control characters"
+        );
+        Ok(self)
+    }
+}
+
 impl ReadEmailRequest {
     pub fn validate(self) -> Result<Self> {
         anyhow::ensure!(
