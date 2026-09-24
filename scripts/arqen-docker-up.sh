@@ -9,6 +9,15 @@ arqen_load_defaults
 arqen_prepare_runtime
 arqen_require_docker_compose
 arqen_require_command curl
+image_source="${ARQEN_DOCKER_IMAGE_SOURCE:-build}"
+case "$image_source" in
+    build|registry|bundle) ;;
+    *) arqen_die 'ARQEN_DOCKER_IMAGE_SOURCE must be build, registry, or bundle' ;;
+esac
+bundle_file="${ARQEN_DOCKER_IMAGE_BUNDLE:-out/arqen-docker-stack/docker-images-linux-amd64.tar}"
+if [[ "$image_source" == bundle && ! -f "$bundle_file" ]]; then
+    arqen_die "Docker image bundle not found: $bundle_file (run make docker-bundle)"
+fi
 arqen_detect_docker_display
 
 secrets_directory="$ARQEN_ROOT/.secrets"
@@ -40,6 +49,7 @@ export ARQEN_DOCKER_SECRETS_DIR="$secrets_directory"
 export ARQEN_DOCKER_SECRET_UID ARQEN_DOCKER_SECRET_GID
 export ARQEN_MCP_ALLOWED_HOSTS ARQEN_MCP_ALLOWED_ORIGINS
 export ARQEN_DOCKER_HOST_UID ARQEN_DOCKER_HOST_GID
+export ARQEN_DOCKER_IMAGE_TAG="${ARQEN_DOCKER_IMAGE_TAG:-latest}"
 
 docker compose "${compose_args[@]}" \
     up -d openbao
@@ -52,8 +62,23 @@ docker compose "${compose_args[@]}" \
 docker compose "${compose_args[@]}" \
     --profile ops \
     run --rm --no-deps arqen-secret-init
-docker compose "${compose_args[@]}" \
-    up --build -d arqen-broker arqen-control arqen-mcp
+case "$image_source" in
+    build)
+        docker compose "${compose_args[@]}" \
+            up --build -d arqen-broker arqen-control arqen-mcp
+        ;;
+    registry)
+        docker compose "${compose_args[@]}" \
+            pull arqen-broker arqen-control arqen-mcp
+        docker compose "${compose_args[@]}" \
+            up --no-build -d arqen-broker arqen-control arqen-mcp
+        ;;
+    bundle)
+        docker image load --input "$bundle_file"
+        docker compose "${compose_args[@]}" \
+            up --no-build -d arqen-broker arqen-control arqen-mcp
+        ;;
+esac
 
 control_url="http://127.0.0.1:${ARQEN_CONTROL_HOST_PORT:-7681}"
 control_status=''
