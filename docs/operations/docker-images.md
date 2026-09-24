@@ -1,0 +1,76 @@
+# Docker image releases
+
+The `Publish Docker images` workflow is triggered by pushes to `main`. It
+validates the root Cargo package's stable `X.Y.Z` version, builds and publishes
+both images for `linux/amd64` and `linux/arm64`, then writes a source tag and
+bumps only the patch version in `Cargo.toml` and `Cargo.lock`.
+
+| Image | Services | Tags |
+| --- | --- | --- |
+| `ghcr.io/operator-syn/arqen-mcp` | `arqen-mcp` | `X.Y.Z`, `latest` |
+| `ghcr.io/operator-syn/arqen-runtime` | `arqen-control`, `arqen-broker` | `X.Y.Z`, `latest` |
+
+Each published source version is also tagged `vX.Y.Z`. A failed build or push
+does not advance Cargo's version. Workflow concurrency serializes active
+releases; GitHub may replace an older pending run when newer pushes arrive.
+The source tag and current main version checks make a rerun safe after partial
+completion. A manually selected minor or major version in Cargo files is used
+for the next successful publication and then only its patch is incremented.
+When setting a major or minor release, edit `Cargo.toml` and run `cargo check`
+to update the root package version in `Cargo.lock` before pushing.
+The workflow requires GitHub Actions `contents: write` and `packages: write`
+permissions, and repository branch rules must allow its direct patch-bump
+commit to `main`. It uses `GITHUB_TOKEN`; those commits do not start another
+push workflow.
+
+The `docker-images` branch is an orphan metadata branch. It contains
+`releases/<version>.json`, `latest.json`, and a short index README, including
+image references, manifest digests, supported platforms, source commit, and
+pull commands. Versioned tags are accompanied by content digests. Image layers,
+source archives, and binaries are not stored on
+that branch.
+
+## GHCR visibility
+
+GitHub creates packages private by default. After the workflow's first
+successful publication, open each package's GitHub settings and change its
+visibility to public. Until then, anonymous pulls will fail. The workflow does
+not change package visibility or weaken repository branch protection.
+
+## Local use
+
+Source builds remain the default:
+
+```bash
+make docker-up
+```
+
+To pull from GHCR before startup, set the image source and optional release tag
+in the ignored `.env` file:
+
+```dotenv
+ARQEN_DOCKER_IMAGE_SOURCE=registry
+ARQEN_DOCKER_IMAGE_TAG=0.1.0
+```
+
+For a local AMD64 transfer bundle:
+
+```bash
+make docker-bundle
+```
+
+This writes `out/arqen-docker-stack/` with the `arqen-mcp.oci` and
+`arqen-runtime.oci` OCI layouts, a Docker-loadable archive containing app and
+Compose base images, and `services.json` mapping Compose services to image
+references. It uses a temporary OCI-capable Buildx builder because the default
+Docker builder cannot export OCI layouts. Configure startup with:
+
+```dotenv
+ARQEN_DOCKER_IMAGE_SOURCE=bundle
+ARQEN_DOCKER_IMAGE_TAG=0.1.0
+```
+
+The bundle is ignored by Git and Docker build contexts. It never includes
+`.secrets`, OAuth client JSON, refresh tokens, OpenBao credentials, bearer
+tokens, or local account databases. Compose continues to mount those runtime
+files through its existing secret boundary.
