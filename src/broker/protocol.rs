@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 #[cfg(unix)]
 fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState) {
     let mut reader = BufReader::new(stream);
