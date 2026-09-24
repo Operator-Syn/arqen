@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MPL-2.0
 set -euo pipefail
 
 script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -172,9 +173,6 @@ printf '  Binary: %s\n' "$bin_directory/arqen"
 printf '  Config: %s\n' "$env_file"
 printf '  Token:  %s (value not printed)\n' "$token_file"
 printf '  OAuth client: %s (provide this file before login)\n' "$client_secret"
-printf '\nFor the Docker MCP VPS path, activate the host broker then start Compose:\n'
-printf '  systemctl --user enable --now arqen-credential-broker.service\n'
-printf '  make compose-up\n'
 printf '\nFor the optional all-native MCP path instead:\n'
 printf '  systemctl --user enable --now arqen-credential-broker.service arqen-mcp.service\n'
 printf '  loginctl enable-linger %s\n' "$USER"
