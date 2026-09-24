@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn read_credentials(path: &Path) -> Result<InstalledCredentials> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("read OAuth client JSON at {}", path.display()))?;
