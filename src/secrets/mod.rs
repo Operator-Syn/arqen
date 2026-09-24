@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 //! Refresh-token storage backends.
 //!
 //! Native runs keep using the OS keyring. Docker runs select the OpenBao
