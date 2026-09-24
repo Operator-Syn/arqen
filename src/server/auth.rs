@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn split_list_env(name: &str) -> anyhow::Result<Vec<String>> {
     let raw = std::env::var(name).with_context(|| format!("set {name}"))?;
     split_values(name, &raw)
