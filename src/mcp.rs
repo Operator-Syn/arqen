@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use crate::gmail::{
     CreateLabelRequest, DeleteLabelRequest, EmailLabel, EmailListResponse, EmailReadResponse,
     EmailReadState, LabelDeleteResult, LabelListResponse, ListEmailsRequest, ReadEmailRequest,
