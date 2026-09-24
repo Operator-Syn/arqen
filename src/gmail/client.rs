@@ -33,6 +33,17 @@ impl fmt::Display for ReadEmailTooLarge {
 
 impl std::error::Error for ReadEmailTooLarge {}
 
+#[derive(Debug)]
+pub(crate) struct SystemLabelError;
+
+impl fmt::Display for SystemLabelError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Gmail system labels cannot be deleted")
+    }
+}
+
+impl std::error::Error for SystemLabelError {}
+
 pub(crate) fn is_read_email_too_large(error: &anyhow::Error) -> bool {
     error.downcast_ref::<ReadEmailTooLarge>().is_some()
 }
@@ -78,6 +89,13 @@ struct ModifiedMessageResource {
     id: String,
     #[serde(rename = "labelIds")]
     label_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LabelTypeResponse {
+    id: String,
+    #[serde(rename = "type")]
+    label_type: crate::gmail::EmailLabelType,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -213,6 +231,75 @@ impl GmailApi {
             .send()
             .context("request Gmail labels")
             .and_then(parse_json_response)
+    }
+
+    pub fn create_label(
+        &self,
+        access_token: &str,
+        request: crate::gmail::CreateLabelRequest,
+    ) -> Result<crate::gmail::EmailLabel> {
+        let request = request.validate()?;
+        let labels_url = self.base_url.join("users/me/labels")?;
+        let label: crate::gmail::EmailLabel = self
+            .client
+            .post(labels_url)
+            .bearer_auth(access_token)
+            .query(&[("fields", "id,name,type")])
+            .json(&serde_json::json!({"name": request.name}))
+            .send()
+            .context("create Gmail label")
+            .and_then(parse_json_response)?;
+        anyhow::ensure!(
+            !label.id.is_empty() && label.label_type == crate::gmail::EmailLabelType::User,
+            "Gmail returned an invalid created-label response"
+        );
+        Ok(label)
+    }
+
+    pub fn delete_label(
+        &self,
+        access_token: &str,
+        request: crate::gmail::DeleteLabelRequest,
+    ) -> Result<crate::gmail::LabelDeleteResult> {
+        let request = request.validate()?;
+        let mut label_url = self.base_url.join("users/me/labels")?;
+        label_url
+            .path_segments_mut()
+            .map_err(|_| anyhow::anyhow!("Gmail API base URL cannot accept path segments"))?
+            .push(&request.label_id);
+
+        // Gmail's system-label set is not exhaustive in its documentation. Fetch
+        // only the owner type so unknown reserved/system IDs fail closed too.
+        let label: LabelTypeResponse = self
+            .client
+            .get(label_url.clone())
+            .bearer_auth(access_token)
+            .query(&[("fields", "id,type")])
+            .send()
+            .context("check Gmail label type before deletion")
+            .and_then(parse_json_response)?;
+        anyhow::ensure!(
+            label.id == request.label_id,
+            "Gmail returned an unexpected label ID"
+        );
+        if label.label_type == crate::gmail::EmailLabelType::System {
+            return Err(anyhow::Error::new(SystemLabelError));
+        }
+        anyhow::ensure!(
+            label.label_type == crate::gmail::EmailLabelType::User,
+            "Gmail returned an unknown label type"
+        );
+
+        self.client
+            .delete(label_url)
+            .bearer_auth(access_token)
+            .send()
+            .context("delete Gmail label")
+            .and_then(parse_empty_json_response)?;
+        Ok(crate::gmail::LabelDeleteResult {
+            label_id: request.label_id,
+            deleted: true,
+        })
     }
 
     pub fn read_email(
