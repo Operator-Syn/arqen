@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) fn run(options: ControlGatewayOptions) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
