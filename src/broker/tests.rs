@@ -82,6 +82,18 @@ mod tests {
         for response in [
             super::handle_mark_email_read(request(), &state),
             super::handle_mark_email_unread(request(), &state),
+            super::handle_create_label(
+                crate::gmail::CreateLabelRequest {
+                    name: "New label".into(),
+                },
+                &state,
+            ),
+            super::handle_delete_label(
+                crate::gmail::DeleteLabelRequest {
+                    label_id: "Label_7".into(),
+                },
+                &state,
+            ),
         ] {
             assert!(matches!(
                 &response,
@@ -288,6 +300,110 @@ mod tests {
             let encoded = serde_json::to_string(&response).unwrap();
             assert!(!encoded.contains("protected credential service"));
             assert!(!encoded.contains("refresh token"));
+        }
+    }
+
+    #[test]
+    fn label_provider_failures_map_to_safe_stable_codes() {
+        use crate::mcp::{BrokerErrorCode, BrokerResponse};
+
+        for (status, expected) in [
+            (StatusCode::BAD_REQUEST, BrokerErrorCode::InvalidLabelName),
+            (StatusCode::CONFLICT, BrokerErrorCode::LabelAlreadyExists),
+            (
+                StatusCode::UNAUTHORIZED,
+                BrokerErrorCode::ReauthenticationRequired,
+            ),
+            (StatusCode::TOO_MANY_REQUESTS, BrokerErrorCode::GmailRateLimited),
+            (StatusCode::BAD_GATEWAY, BrokerErrorCode::GmailUnavailable),
+        ] {
+            let private = anyhow::Error::new(GmailApiError::for_test(
+                status,
+                "private provider response body",
+            ));
+            let response = super::map_create_label_error(&private);
+            assert!(matches!(response, BrokerResponse::Error { code, .. } if code == expected));
+            assert!(!serde_json::to_string(&response)
+                .unwrap()
+                .contains("private provider response body"));
+        }
+
+        for (status, expected) in [
+            (StatusCode::BAD_REQUEST, BrokerErrorCode::InvalidLabelId),
+            (StatusCode::NOT_FOUND, BrokerErrorCode::LabelNotFound),
+            (
+                StatusCode::UNAUTHORIZED,
+                BrokerErrorCode::ReauthenticationRequired,
+            ),
+            (StatusCode::TOO_MANY_REQUESTS, BrokerErrorCode::GmailRateLimited),
+            (StatusCode::BAD_GATEWAY, BrokerErrorCode::GmailUnavailable),
+        ] {
+            let private = anyhow::Error::new(GmailApiError::for_test(
+                status,
+                "private provider response body",
+            ));
+            let response = super::map_delete_label_error(&private);
+            assert!(matches!(response, BrokerResponse::Error { code, .. } if code == expected));
+            assert!(!serde_json::to_string(&response)
+                .unwrap()
+                .contains("private provider response body"));
+        }
+
+        let system = anyhow::Error::new(crate::gmail::SystemLabelError);
+        assert!(matches!(
+            super::map_delete_label_error(&system),
+            BrokerResponse::Error {
+                code: BrokerErrorCode::SystemLabel,
+                ..
+            }
+        ));
+        let transport =
+            super::map_create_label_error(&anyhow::anyhow!("private transport detail"));
+        assert!(matches!(
+            transport,
+            BrokerResponse::Error {
+                code: BrokerErrorCode::GmailUnavailable,
+                ..
+            }
+        ));
+        assert!(!serde_json::to_string(&transport)
+            .unwrap()
+            .contains("private transport detail"));
+    }
+
+    #[test]
+    fn label_account_store_failures_use_the_stable_internal_code() {
+        use crate::mcp::{BrokerErrorCode, BrokerResponse};
+
+        let state = super::BrokerState {
+            database_path: std::env::temp_dir()
+                .join(format!("missing-{}/accounts.sqlite3", uuid::Uuid::new_v4())),
+            credentials_path: std::env::temp_dir().join("unused-credentials"),
+            access_tokens: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+        };
+        for response in [
+            super::handle_create_label(
+                crate::gmail::CreateLabelRequest {
+                    name: "New label".into(),
+                },
+                &state,
+            ),
+            super::handle_delete_label(
+                crate::gmail::DeleteLabelRequest {
+                    label_id: "Label_7".into(),
+                },
+                &state,
+            ),
+        ] {
+            assert!(matches!(
+                response,
+                BrokerResponse::Error {
+                    code: BrokerErrorCode::Internal,
+                    ..
+                }
+            ));
         }
     }
 
