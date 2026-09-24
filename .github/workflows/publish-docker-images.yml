@@ -3,13 +3,14 @@ name: Publish Docker images
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
   packages: write
 
 concurrency:
-  group: arqen-main-image-release
+  group: arqen-image-release
   cancel-in-progress: false
 
 jobs:
@@ -18,6 +19,8 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.value }}
       source_sha: ${{ steps.version.outputs.source_sha }}
+      channel: ${{ steps.version.outputs.channel }}
+      source_branch: ${{ steps.version.outputs.source_branch }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -29,6 +32,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          source_sha="$GITHUB_SHA"
+          source_branch="$GITHUB_REF_NAME"
+          channel=stable
+
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ "$GITHUB_REF" != refs/heads/* ]]; then
+              echo 'Manual beta image releases must target a branch.' >&2
+              exit 1
+            fi
+            if [[ "$GITHUB_REF_NAME" == main ]]; then
+              echo 'Manual image releases are for non-main branches; main releases run automatically on push.' >&2
+              exit 1
+            fi
+            channel=beta
+          fi
+
           version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo 'Cargo.toml package version must be a stable X.Y.Z value.' >&2
@@ -39,34 +58,57 @@ jobs:
             echo 'Cargo.toml and Cargo.lock package versions must match.' >&2
             exit 1
           fi
-          git fetch origin --tags
-          source_sha="$GITHUB_SHA"
-          version_bumped=false
-          tag="v$version"
-          while git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; do
-            tagged_commit="$(git rev-parse "$tag^{commit}")"
-            if [[ "$tagged_commit" == "$GITHUB_SHA" && "$version_bumped" == false ]]; then
-              break
+
+          if [[ "$channel" == stable ]]; then
+            git fetch origin --tags
+            version_bumped=false
+            tag="v$version"
+            while git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; do
+              tagged_commit="$(git rev-parse "$tag^{commit}")"
+              if [[ "$tagged_commit" == "$GITHUB_SHA" && "$version_bumped" == false ]]; then
+                break
+              fi
+              if ! git merge-base --is-ancestor "$tagged_commit" "$GITHUB_SHA"; then
+                echo "Release tag $tag belongs to another history ($tagged_commit); refusing to choose a version automatically." >&2
+                exit 1
+              fi
+              version="$(python3 "$GITHUB_WORKSPACE/scripts/arqen-bump-patch-version.py" --root "$GITHUB_WORKSPACE")"
+              version_bumped=true
+              tag="v$version"
+            done
+
+            if [[ "$version_bumped" == true ]]; then
+              git config user.name github-actions[bot]
+              git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+              git add Cargo.toml Cargo.lock
+              git commit -m "Bump patch version to $version"
+              git push origin HEAD:refs/heads/main
+              source_sha="$(git rev-parse HEAD)"
             fi
-            if ! git merge-base --is-ancestor "$tagged_commit" "$GITHUB_SHA"; then
-              echo "Release tag $tag belongs to another history ($tagged_commit); refusing to choose a version automatically." >&2
+          else
+            branch_slug="$(printf '%s' "$source_branch" \
+              | tr '[:upper:]' '[:lower:]' \
+              | sed -E 's/[^0-9a-z-]+/-/g; s/^-+//; s/-+$//')"
+            [[ -n "$branch_slug" ]] || branch_slug=branch
+            if [[ "$branch_slug" =~ ^[0-9]+$ ]]; then
+              branch_slug="branch-$branch_slug"
+            fi
+            branch_slug="${branch_slug:0:48}"
+            branch_slug="${branch_slug%-}"
+            [[ -n "$branch_slug" ]] || branch_slug=branch
+            version="$version-beta.$branch_slug.$GITHUB_RUN_NUMBER"
+            if ((${#version} > 128)); then
+              echo 'The generated beta image tag exceeds Docker tag length limits.' >&2
               exit 1
             fi
-            version="$(python3 "$GITHUB_WORKSPACE/scripts/arqen-bump-patch-version.py" --root "$GITHUB_WORKSPACE")"
-            version_bumped=true
-            tag="v$version"
-          done
-
-          if [[ "$version_bumped" == true ]]; then
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add Cargo.toml Cargo.lock
-            git commit -m "Bump patch version to $version"
-            git push origin HEAD:refs/heads/main
-            source_sha="$(git rev-parse HEAD)"
           fi
-          echo "value=$version" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "value=$version"
+            echo "source_sha=$source_sha"
+            echo "channel=$channel"
+            echo "source_branch=$source_branch"
+          } >> "$GITHUB_OUTPUT"
 
   build:
     needs: validate
@@ -172,27 +214,27 @@ jobs:
         env:
           VERSION: ${{ needs.validate.outputs.version }}
           SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+          CHANNEL: ${{ needs.validate.outputs.channel }}
         run: |
           set -euo pipefail
           mcp_image=ghcr.io/operator-syn/arqen-mcp
           runtime_image=ghcr.io/operator-syn/arqen-runtime
           openbao_image=ghcr.io/operator-syn/arqen-openbao
 
-          docker buildx imagetools create \
-            --tag "$mcp_image:$VERSION" \
-            --tag "$mcp_image:latest" \
-            "$mcp_image:sha-$SOURCE_SHA-amd64" \
-            "$mcp_image:sha-$SOURCE_SHA-arm64"
-          docker buildx imagetools create \
-            --tag "$runtime_image:$VERSION" \
-            --tag "$runtime_image:latest" \
-            "$runtime_image:sha-$SOURCE_SHA-amd64" \
-            "$runtime_image:sha-$SOURCE_SHA-arm64"
-          docker buildx imagetools create \
-            --tag "$openbao_image:$VERSION" \
-            --tag "$openbao_image:latest" \
-            "$openbao_image:sha-$SOURCE_SHA-amd64" \
-            "$openbao_image:sha-$SOURCE_SHA-arm64"
+          publish_index() {
+            local image="$1"
+            local tags=(--tag "$image:$VERSION")
+            if [[ "$CHANNEL" == stable ]]; then
+              tags+=(--tag "$image:latest")
+            fi
+            docker buildx imagetools create \
+              "${tags[@]}" \
+              "$image:sha-$SOURCE_SHA-amd64" \
+              "$image:sha-$SOURCE_SHA-arm64"
+          }
+          publish_index "$mcp_image"
+          publish_index "$runtime_image"
+          publish_index "$openbao_image"
 
           mcp_digest="$(docker buildx imagetools inspect --raw "$mcp_image:$VERSION" | sha256sum | awk '{print "sha256:" $1}')"
           runtime_digest="$(docker buildx imagetools inspect --raw "$runtime_image:$VERSION" | sha256sum | awk '{print "sha256:" $1}')"
@@ -203,7 +245,8 @@ jobs:
             echo "openbao_digest=$openbao_digest"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Tag the source release
+      - name: Tag the stable source release
+        if: needs.validate.outputs.channel == 'stable'
         env:
           VERSION: ${{ needs.validate.outputs.version }}
           SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
@@ -225,6 +268,8 @@ jobs:
       - name: Update metadata-only docker-images branch
         env:
           VERSION: ${{ needs.validate.outputs.version }}
+          CHANNEL: ${{ needs.validate.outputs.channel }}
+          SOURCE_BRANCH: ${{ needs.validate.outputs.source_branch }}
           MCP_DIGEST: ${{ steps.manifests.outputs.mcp_digest }}
           RUNTIME_DIGEST: ${{ steps.manifests.outputs.runtime_digest }}
           OPENBAO_DIGEST: ${{ steps.manifests.outputs.openbao_digest }}
@@ -237,7 +282,7 @@ jobs:
           git fetch origin docker-images:refs/remotes/origin/docker-images || true
           git worktree add --detach "$metadata_worktree" "$SOURCE_SHA"
           if git show-ref --verify --quiet refs/remotes/origin/docker-images; then
-            git -C "$metadata_worktree" switch --create docker-images origin/docker-images
+            git -C "$metadata_worktree" switch --detach origin/docker-images
           else
             git -C "$metadata_worktree" switch --orphan docker-images
             git -C "$metadata_worktree" rm -rf --ignore-unmatch .
@@ -247,38 +292,59 @@ jobs:
           git -C "$metadata_worktree" config user.name github-actions[bot]
           git -C "$metadata_worktree" config user.email 41898282+github-actions[bot]@users.noreply.github.com
           mkdir -p "$metadata_worktree/releases"
-          cat > "$metadata_worktree/releases/$VERSION.json" <<EOF
-          {
-            "version": "$VERSION",
-            "source_tag": "v$VERSION",
-            "source_commit": "$SOURCE_SHA",
-            "images": {
-              "mcp": {
-                "reference": "ghcr.io/operator-syn/arqen-mcp:$VERSION",
-                "digest": "$MCP_DIGEST",
-                "platforms": ["linux/amd64", "linux/arm64"]
+          metadata_directory=releases
+          if [[ "$CHANNEL" == beta ]]; then
+            metadata_directory=prereleases
+          fi
+          mkdir -p "$metadata_worktree/$metadata_directory"
+          METADATA_FILE="$metadata_worktree/$metadata_directory/$VERSION.json" \
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          channel = os.environ["CHANNEL"]
+          metadata = {
+              "version": version,
+              "channel": channel,
+              "source_commit": os.environ["SOURCE_SHA"],
+              "images": {
+                  "mcp": {
+                      "reference": f"ghcr.io/operator-syn/arqen-mcp:{version}",
+                      "digest": os.environ["MCP_DIGEST"],
+                      "platforms": ["linux/amd64", "linux/arm64"],
+                  },
+                  "runtime": {
+                      "reference": f"ghcr.io/operator-syn/arqen-runtime:{version}",
+                      "digest": os.environ["RUNTIME_DIGEST"],
+                      "platforms": ["linux/amd64", "linux/arm64"],
+                  },
+                  "openbao": {
+                      "reference": f"ghcr.io/operator-syn/arqen-openbao:{version}",
+                      "digest": os.environ["OPENBAO_DIGEST"],
+                      "platforms": ["linux/amd64", "linux/arm64"],
+                  },
               },
-              "runtime": {
-                "reference": "ghcr.io/operator-syn/arqen-runtime:$VERSION",
-                "digest": "$RUNTIME_DIGEST",
-                "platforms": ["linux/amd64", "linux/arm64"]
-              },
-              "openbao": {
-                "reference": "ghcr.io/operator-syn/arqen-openbao:$VERSION",
-                "digest": "$OPENBAO_DIGEST",
-                "platforms": ["linux/amd64", "linux/arm64"]
-              }
-            },
-            "pull": [
-              "docker pull ghcr.io/operator-syn/arqen-mcp:$VERSION",
-              "docker pull ghcr.io/operator-syn/arqen-runtime:$VERSION",
-              "docker pull ghcr.io/operator-syn/arqen-openbao:$VERSION"
-            ]
+              "pull": [
+                  f"docker pull ghcr.io/operator-syn/arqen-mcp:{version}",
+                  f"docker pull ghcr.io/operator-syn/arqen-runtime:{version}",
+                  f"docker pull ghcr.io/operator-syn/arqen-openbao:{version}",
+              ],
           }
-          EOF
-          update_latest=true
-          if [[ -s "$metadata_worktree/latest.json" ]]; then
-            if python3 - "$metadata_worktree/latest.json" "$VERSION" <<'PY'
+          if channel == "stable":
+              metadata["source_tag"] = f"v{version}"
+          else:
+              metadata["source_branch"] = os.environ["SOURCE_BRANCH"]
+          Path(os.environ["METADATA_FILE"]).write_text(
+              json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+
+          if [[ "$CHANNEL" == stable ]]; then
+            update_latest=true
+            if [[ -s "$metadata_worktree/latest.json" ]]; then
+              if python3 - "$metadata_worktree/latest.json" "$VERSION" <<'PY'
           import json
           import sys
           with open(sys.argv[1], encoding="utf-8") as stream:
@@ -286,12 +352,13 @@ jobs:
           current = sys.argv[2]
           raise SystemExit(0 if tuple(map(int, latest.split("."))) > tuple(map(int, current.split("."))) else 1)
           PY
-            then
-              update_latest=false
+              then
+                update_latest=false
+              fi
             fi
-          fi
-          if [[ "$update_latest" == true ]]; then
-            cp "$metadata_worktree/releases/$VERSION.json" "$metadata_worktree/latest.json"
+            if [[ "$update_latest" == true ]]; then
+              cp "$metadata_worktree/releases/$VERSION.json" "$metadata_worktree/latest.json"
+            fi
           fi
           cat > "$metadata_worktree/README.md" <<'EOF'
           # Arqen image release index
@@ -299,16 +366,21 @@ jobs:
           This branch contains release metadata only. Image layers are published
           to GHCR and are not stored here.
 
-          - `latest.json` identifies the most recently published image release.
+          - `latest.json` identifies the most recently published stable image release.
           - `releases/<version>.json` records immutable references, digests,
             source commit, platforms, and pull commands for each release.
+          - `prereleases/<version>.json` records manually published branch beta
+            images without changing the stable `latest.json` index.
           - `ghcr.io/operator-syn/arqen-runtime` is shared by the control and
             broker services; `ghcr.io/operator-syn/arqen-mcp` serves MCP; and
             `ghcr.io/operator-syn/arqen-openbao` bootstraps project OpenBao.
           EOF
-          git -C "$metadata_worktree" add README.md latest.json releases
+          git -C "$metadata_worktree" add README.md "$metadata_directory/$VERSION.json"
+          if [[ -f "$metadata_worktree/latest.json" ]]; then
+            git -C "$metadata_worktree" add latest.json
+          fi
           if ! git -C "$metadata_worktree" diff --cached --quiet; then
-            git -C "$metadata_worktree" commit -m "Publish image metadata for v$VERSION"
+            git -C "$metadata_worktree" commit -m "Publish $CHANNEL image metadata for $VERSION"
             git -C "$metadata_worktree" push origin HEAD:docker-images
           else
             echo "Image metadata for v$VERSION is already present."
@@ -316,6 +388,7 @@ jobs:
           git worktree remove "$metadata_worktree"
 
       - name: Increment patch version after successful publication
+        if: needs.validate.outputs.channel == 'stable'
         env:
           VERSION: ${{ needs.validate.outputs.version }}
         shell: bash
