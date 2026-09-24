@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use anyhow::{Context, Result};
 use arqen::{
     Account, AccountStore, ConnectionState, GMAIL_READONLY_SCOPE,
