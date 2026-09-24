@@ -1,6 +1,6 @@
 use crate::gmail::{
-    EmailListResponse, EmailReadResponse, EmailReadState, LabelListResponse, ListEmailsRequest,
-    ReadEmailRequest,
+    CreateLabelRequest, DeleteLabelRequest, EmailLabel, EmailListResponse, EmailReadResponse,
+    EmailReadState, LabelDeleteResult, LabelListResponse, ListEmailsRequest, ReadEmailRequest,
 };
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +12,14 @@ pub enum BrokerRequest {
         request: ListEmailsRequest,
     },
     ListLabels,
+    CreateLabel {
+        #[serde(flatten)]
+        request: CreateLabelRequest,
+    },
+    DeleteLabel {
+        #[serde(flatten)]
+        request: DeleteLabelRequest,
+    },
     ReadEmail {
         #[serde(flatten)]
         request: ReadEmailRequest,
@@ -37,6 +45,14 @@ impl BrokerRequest {
 
     pub fn list_labels() -> Self {
         Self::ListLabels
+    }
+
+    pub fn create_label(request: CreateLabelRequest) -> Self {
+        Self::CreateLabel { request }
+    }
+
+    pub fn delete_label(request: DeleteLabelRequest) -> Self {
+        Self::DeleteLabel { request }
     }
 
     pub fn read_email(request: ReadEmailRequest) -> Self {
@@ -67,6 +83,20 @@ impl BrokerRequest {
                     message: "the mail-list request is invalid",
                 }),
             Self::ListLabels => Ok(Self::ListLabels),
+            Self::CreateLabel { request } => request
+                .validate()
+                .map(|request| Self::CreateLabel { request })
+                .map_err(|_| BrokerValidationFailure {
+                    code: BrokerErrorCode::InvalidLabelName,
+                    message: "name must be nonblank and contain no control characters",
+                }),
+            Self::DeleteLabel { request } => request
+                .validate()
+                .map(|request| Self::DeleteLabel { request })
+                .map_err(|_| BrokerValidationFailure {
+                    code: BrokerErrorCode::InvalidLabelId,
+                    message: "label_id must be nonempty and contain no control characters",
+                }),
             Self::ReadEmail { request } => request
                 .validate()
                 .map(|request| Self::ReadEmail { request })
@@ -122,6 +152,11 @@ pub enum BrokerErrorCode {
     GmailRateLimited,
     GmailUnavailable,
     Internal,
+    InvalidLabelName,
+    LabelAlreadyExists,
+    InvalidLabelId,
+    LabelNotFound,
+    SystemLabel,
 }
 
 impl BrokerErrorCode {
@@ -139,6 +174,11 @@ impl BrokerErrorCode {
             Self::GmailRateLimited => "gmail_rate_limited",
             Self::GmailUnavailable => "gmail_unavailable",
             Self::Internal => "internal",
+            Self::InvalidLabelName => "invalid_label_name",
+            Self::LabelAlreadyExists => "label_already_exists",
+            Self::InvalidLabelId => "invalid_label_id",
+            Self::LabelNotFound => "label_not_found",
+            Self::SystemLabel => "system_label",
         }
     }
 }
@@ -166,6 +206,12 @@ pub enum BrokerResponse {
     Labels {
         result: LabelListResponse,
     },
+    LabelCreated {
+        result: EmailLabel,
+    },
+    LabelDeleted {
+        result: LabelDeleteResult,
+    },
     ReadEmail {
         result: EmailReadResponse,
     },
@@ -192,8 +238,8 @@ impl BrokerResponse {
 mod tests {
     use super::{BrokerErrorCode, BrokerRequest, BrokerResponse};
     use crate::gmail::{
-        EmailLabel, EmailLabelType, EmailReadState, LabelListResponse, ListEmailsRequest,
-        ReadEmailRequest,
+        CreateLabelRequest, DeleteLabelRequest, EmailLabel, EmailLabelType, EmailReadState,
+        LabelDeleteResult, LabelListResponse, ListEmailsRequest, ReadEmailRequest,
     };
 
     #[test]
@@ -235,6 +281,80 @@ mod tests {
         assert_eq!(encoded["result"]["labels"][0]["id"], "Label_7");
         assert_eq!(encoded["result"]["labels"][0]["name"], "Project Atlas");
         assert_eq!(encoded["result"]["labels"][0]["type"], "user");
+    }
+
+    #[test]
+    fn broker_create_and_delete_label_contracts_preserve_names_and_opaque_ids() {
+        let create = BrokerRequest::create_label(CreateLabelRequest {
+            name: "Project Atlas/2026".into(),
+        });
+        let encoded = serde_json::to_value(create).unwrap();
+        assert_eq!(
+            encoded,
+            serde_json::json!({"operation":"create_label","name":"Project Atlas/2026"})
+        );
+        assert!(matches!(
+            serde_json::from_value::<BrokerRequest>(encoded).unwrap().validate().unwrap(),
+            BrokerRequest::CreateLabel { request } if request.name == "Project Atlas/2026"
+        ));
+
+        let listed_id = "Label_7";
+        let delete = BrokerRequest::delete_label(DeleteLabelRequest {
+            label_id: listed_id.into(),
+        });
+        let encoded = serde_json::to_value(delete).unwrap();
+        assert_eq!(
+            encoded,
+            serde_json::json!({"operation":"delete_label","label_id":"Label_7"})
+        );
+        assert!(matches!(
+            serde_json::from_value::<BrokerRequest>(encoded).unwrap().validate().unwrap(),
+            BrokerRequest::DeleteLabel { request } if request.label_id == listed_id
+        ));
+        assert_eq!(
+            serde_json::to_value(BrokerResponse::LabelCreated {
+                result: EmailLabel {
+                    id: listed_id.into(),
+                    name: "Project Atlas".into(),
+                    label_type: EmailLabelType::User,
+                },
+            })
+            .unwrap()["result"],
+            serde_json::json!({"id":"Label_7","name":"Project Atlas","type":"user"})
+        );
+        assert_eq!(
+            serde_json::to_value(BrokerResponse::LabelDeleted {
+                result: LabelDeleteResult {
+                    label_id: listed_id.into(),
+                    deleted: true,
+                },
+            })
+            .unwrap()["result"],
+            serde_json::json!({"label_id":"Label_7","deleted":true})
+        );
+    }
+
+    #[test]
+    fn broker_label_requests_reject_invalid_values_and_unknown_fields() {
+        for request in [
+            r#"{"operation":"create_label","name":"  "}"#,
+            r#"{"operation":"create_label","name":"bad\nlabel"}"#,
+            r#"{"operation":"create_label","name":"valid","account_id":"other"}"#,
+        ] {
+            assert!(match serde_json::from_str::<BrokerRequest>(request) {
+                Ok(decoded) => decoded.validate().is_err(),
+                Err(_) => true,
+            });
+        }
+        for request in [
+            r#"{"operation":"delete_label","label_id":""}"#,
+            r#"{"operation":"delete_label","label_id":"Label_7","email":"other@example.com"}"#,
+        ] {
+            assert!(match serde_json::from_str::<BrokerRequest>(request) {
+                Ok(decoded) => decoded.validate().is_err(),
+                Err(_) => true,
+            });
+        }
     }
 
     #[test]
