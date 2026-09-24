@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) fn render_footer(
     frame: &mut Frame<'_>,
     area: Rect,
