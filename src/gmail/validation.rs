@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl ListEmailsRequest {
     pub fn validate(mut self) -> Result<Self> {
         if let Some(query) = self.query.take() {

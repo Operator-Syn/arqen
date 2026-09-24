@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use super::{PaneFocus, UiMode, theme};
 use arqen::{Account, ConnectionState};
 use ratatui::{

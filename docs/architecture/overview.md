@@ -6,8 +6,8 @@ Arqen has one Rust package and one binary with four runtime entry points:
 the default TUI, `control-gateway`, `credential-broker`, and `mcp-server`.
 The Docker-native local profile runs the gateway/TUI, broker, and MCP roles in
 one Compose project, with OpenBao as the refresh-token store and ttyd kept
-behind the gateway. Native user services and the host-broker/VPS Compose path
-remain compatibility alternatives. The MCP server never reads a credential
+behind the gateway. Native user services remain the host-side alternative.
+The MCP server never reads a credential
 store directly. It asks the broker to resolve the one explicitly selected
 Google subject and to call Gmail with a short-lived access token.
 
@@ -40,7 +40,12 @@ Responsibilities are intentionally narrow:
 | MCP server (`src/server/`, `src/mcp.rs`) | Streamable HTTP, bearer gate, tool schema, wire errors | Credential-store access and account choice |
 | systemd user units (`deploy/systemd/`) | Host broker restart and optional all-native MCP lifecycle | OAuth consent, secret creation, public deployment |
 | Docker-native Compose (`deploy/containers/docker-native-compose.yml`) | OpenBao, control TUI, broker, and loopback MCP lifecycle; native display access is limited to the control override | Public exposure, live OAuth consent, account migration |
-| Legacy Docker Compose (`deploy/containers/docker-compose.yml`) | First-pass always-on MCP HTTP boundary | SQLite, native keyring, OAuth, account choice |
+
+The base Compose file defines the four services once. `make docker-up` selects
+exactly one small display override for `arqen-control`: Wayland mounts the
+session socket; X11 mounts the X socket and Xauthority file. These files are
+merged with the base file and do not create extra containers or independent
+stacks.
 
 The MCP exposes `list_labels`, `list_emails`, and `read_email` plus separate
 per-message `mark_email_read` and `mark_email_unread` tools for the configured

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 const MAX_READ_EMAIL_MCP_RESULT_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone)]

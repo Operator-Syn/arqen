@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn handle_list_emails(
     request: crate::gmail::ListEmailsRequest,
     state: &BrokerState,

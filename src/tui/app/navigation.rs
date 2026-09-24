@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl App {
     fn select_account(&mut self, selected: usize) {
         let selected = selected.min(self.accounts.len().saturating_sub(1));

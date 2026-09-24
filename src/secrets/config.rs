@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn read_secret_file(path: impl AsRef<Path>, name: &str) -> Result<String> {
     let path = path.as_ref();
     let value = fs::read_to_string(path)

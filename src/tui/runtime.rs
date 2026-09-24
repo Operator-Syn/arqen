@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) fn run() -> Result<()> {
     let path = crate::config::database_path().with_context(|| "open application data directory")?;
     let store = AccountStore::open(&path)

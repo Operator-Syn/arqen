@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn browser_target(callback: Option<&crate::callback::CallbackServer>, authorization_url: &str) -> String {
     browser_target_with_mode(LOGIN_HELPER_ENABLED, callback, authorization_url)
 }

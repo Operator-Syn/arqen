@@ -127,12 +127,28 @@ jobs:
             org.opencontainers.image.version=${{ needs.validate.outputs.version }}
             org.opencontainers.image.revision=${{ needs.validate.outputs.source_sha }}
 
+      - name: Build and push project OpenBao image for ${{ matrix.platform }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/containers/openbao/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ghcr.io/operator-syn/arqen-openbao:sha-${{ needs.validate.outputs.source_sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=arqen-openbao-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=arqen-openbao-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.validate.outputs.source_sha }}
+
   publish:
     needs: [validate, build]
     runs-on: ubuntu-latest
     outputs:
       mcp_digest: ${{ steps.manifests.outputs.mcp_digest }}
       runtime_digest: ${{ steps.manifests.outputs.runtime_digest }}
+      openbao_digest: ${{ steps.manifests.outputs.openbao_digest }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -160,6 +176,7 @@ jobs:
           set -euo pipefail
           mcp_image=ghcr.io/operator-syn/arqen-mcp
           runtime_image=ghcr.io/operator-syn/arqen-runtime
+          openbao_image=ghcr.io/operator-syn/arqen-openbao
 
           docker buildx imagetools create \
             --tag "$mcp_image:$VERSION" \
@@ -171,11 +188,20 @@ jobs:
             --tag "$runtime_image:latest" \
             "$runtime_image:sha-$SOURCE_SHA-amd64" \
             "$runtime_image:sha-$SOURCE_SHA-arm64"
+          docker buildx imagetools create \
+            --tag "$openbao_image:$VERSION" \
+            --tag "$openbao_image:latest" \
+            "$openbao_image:sha-$SOURCE_SHA-amd64" \
+            "$openbao_image:sha-$SOURCE_SHA-arm64"
 
           mcp_digest="$(docker buildx imagetools inspect --raw "$mcp_image:$VERSION" | sha256sum | awk '{print "sha256:" $1}')"
           runtime_digest="$(docker buildx imagetools inspect --raw "$runtime_image:$VERSION" | sha256sum | awk '{print "sha256:" $1}')"
-          echo "mcp_digest=$mcp_digest" >> "$GITHUB_OUTPUT"
-          echo "runtime_digest=$runtime_digest" >> "$GITHUB_OUTPUT"
+          openbao_digest="$(docker buildx imagetools inspect --raw "$openbao_image:$VERSION" | sha256sum | awk '{print "sha256:" $1}')"
+          {
+            echo "mcp_digest=$mcp_digest"
+            echo "runtime_digest=$runtime_digest"
+            echo "openbao_digest=$openbao_digest"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Tag the source release
         env:
@@ -201,6 +227,7 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
           MCP_DIGEST: ${{ steps.manifests.outputs.mcp_digest }}
           RUNTIME_DIGEST: ${{ steps.manifests.outputs.runtime_digest }}
+          OPENBAO_DIGEST: ${{ steps.manifests.outputs.openbao_digest }}
           SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
         shell: bash
         run: |
@@ -235,11 +262,17 @@ jobs:
                 "reference": "ghcr.io/operator-syn/arqen-runtime:$VERSION",
                 "digest": "$RUNTIME_DIGEST",
                 "platforms": ["linux/amd64", "linux/arm64"]
+              },
+              "openbao": {
+                "reference": "ghcr.io/operator-syn/arqen-openbao:$VERSION",
+                "digest": "$OPENBAO_DIGEST",
+                "platforms": ["linux/amd64", "linux/arm64"]
               }
             },
             "pull": [
               "docker pull ghcr.io/operator-syn/arqen-mcp:$VERSION",
-              "docker pull ghcr.io/operator-syn/arqen-runtime:$VERSION"
+              "docker pull ghcr.io/operator-syn/arqen-runtime:$VERSION",
+              "docker pull ghcr.io/operator-syn/arqen-openbao:$VERSION"
             ]
           }
           EOF
@@ -270,7 +303,8 @@ jobs:
           - `releases/<version>.json` records immutable references, digests,
             source commit, platforms, and pull commands for each release.
           - `ghcr.io/operator-syn/arqen-runtime` is shared by the control and
-            broker services; `ghcr.io/operator-syn/arqen-mcp` serves MCP.
+            broker services; `ghcr.io/operator-syn/arqen-mcp` serves MCP; and
+            `ghcr.io/operator-syn/arqen-openbao` bootstraps project OpenBao.
           EOF
           git -C "$metadata_worktree" add README.md latest.json releases
           if ! git -C "$metadata_worktree" diff --cached --quiet; then

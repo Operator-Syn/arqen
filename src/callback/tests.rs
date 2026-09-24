@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 #[cfg(test)]
 mod tests {
     use super::{CallbackServer, callback_page, launcher_page};

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) fn connection_badge_target(area: Rect, mode: UiMode, column: u16, row: u16) -> bool {
     let badge = connection_badge_area(area, mode);
     column >= badge.x

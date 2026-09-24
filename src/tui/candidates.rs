@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn browser_candidates(
     url: &str,
     configured_browser: Option<std::ffi::OsString>,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl App {
     fn start_login(&mut self, intent: LoginIntent) {
         self.stop_browser();

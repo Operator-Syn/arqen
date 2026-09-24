@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn canonical_scopes(raw: &str) -> Result<Vec<String>> {
     let mut scopes: Vec<String> = raw.split_whitespace().map(str::to_owned).collect();
     scopes.sort();

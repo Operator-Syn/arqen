@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 #[cfg(test)]
 pub(crate) fn mouse_target(
     area: Rect,

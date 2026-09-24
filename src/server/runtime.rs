@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub fn run(options: ServerOptions) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

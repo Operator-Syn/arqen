@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use anyhow::{Context, Result};
 use base64::Engine;
 use encoding_rs::{Encoding, UTF_8};

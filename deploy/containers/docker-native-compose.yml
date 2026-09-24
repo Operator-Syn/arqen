@@ -152,10 +152,9 @@ services:
       - arqen-control-secret-cache:/run/arqen-secrets:ro
     tmpfs:
       - /tmp
-    # The control container binds the host Wayland socket through the display
-    # override. Docker is a system service and can restore containers before
-    # the user's graphical session creates that socket, so its lifecycle is
-    # owned by the graphical-session user unit instead.
+    # The selected display override binds the host display into this service.
+    # Its lifecycle is owned by the graphical-session user unit so Docker
+    # cannot restore it before the user's display session is available.
     restart: "no"
     read_only: true
     user: "${ARQEN_DOCKER_HOST_UID:-65532}:${ARQEN_DOCKER_HOST_GID:-65532}"

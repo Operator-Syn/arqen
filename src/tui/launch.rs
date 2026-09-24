@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn open_in_browser(url: &str) -> Result<()> {
     let candidates = browser_candidates(url, env::var_os("BROWSER"));
     let mut failures = Vec::new();

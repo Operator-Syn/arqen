@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn status_presentation(
     state: ConnectionState,
 ) -> (&'static str, &'static str, ratatui::style::Color) {

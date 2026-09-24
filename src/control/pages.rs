@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn login_response(status: StatusCode, error: Option<&str>) -> Response {
     let mut response = Html(login_page(error)).into_response();
     *response.status_mut() = status;

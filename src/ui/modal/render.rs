@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl Modal {
     pub(crate) fn render(frame: &mut Frame<'_>, area: Rect, spec: &ModalSpec) {
         let layout = Self::layout(area, spec);

@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: MPL-2.0
 set -eu
 
 bao_addr="${BAO_ADDR:-http://openbao:8200}"

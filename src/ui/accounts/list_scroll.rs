@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) fn list_viewport_rows(area: Rect, count: usize, mode: UiMode) -> usize {
     let inner_height = area.height.saturating_sub(2);
     let list_top = if mode != UiMode::Wide || count == 0 {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl App {
     fn handle_authorization_key(&mut self, key: KeyEvent) {
         let Screen::Authorization {

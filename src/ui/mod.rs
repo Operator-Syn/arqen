@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 mod accounts;
 mod chrome;
 mod dialogs;

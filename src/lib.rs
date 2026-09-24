@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub mod auth;
 pub mod broker;
 pub mod gmail;

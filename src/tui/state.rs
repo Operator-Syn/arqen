@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) const LOGIN_HELPER_ENABLED: bool = false;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

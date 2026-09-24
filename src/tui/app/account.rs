@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl App {
     fn confirm_disconnect(&mut self, retry: bool) {
         let Some(account) = self.accounts.get(self.selected) else {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn parse_json_response<T: for<'de> Deserialize<'de>>(
     response: reqwest::blocking::Response,
 ) -> Result<T> {

@@ -2,21 +2,23 @@
 
 The `Publish Docker images` workflow is triggered by pushes to `main`. It
 validates the root Cargo package's stable `X.Y.Z` version, builds and publishes
-both images for `linux/amd64` and `linux/arm64`, then writes a source tag and
-bumps only the patch version in `Cargo.toml` and `Cargo.lock`.
+the MCP, runtime, and project OpenBao images for `linux/amd64` and `linux/arm64`,
+then writes a source tag and bumps only the patch version in `Cargo.toml` and
+`Cargo.lock`.
 
 The two architectures build in parallel on native GitHub-hosted runners. Each
-architecture job builds both images and pushes commit-scoped staging tags;
-the publish job combines those images into the versioned and `latest`
-multi-platform indexes only after both architecture jobs succeed. BuildKit uses
-separate GitHub Actions cache scopes for each image and architecture. A
-same-commit rerun can reuse completed build layers, while source changes still
-rebuild the affected Rust layer.
+architecture job builds all three images and pushes commit-scoped staging tags;
+the publish job combines them into versioned and `latest` multi-platform
+indexes only after both architecture jobs succeed. BuildKit uses separate
+GitHub Actions cache scopes for each image and architecture. A same-commit
+rerun can reuse completed build layers, while source changes still rebuild the
+affected Rust layer.
 
 | Image | Services | Tags |
 | --- | --- | --- |
 | `ghcr.io/operator-syn/arqen-mcp` | `arqen-mcp` | `X.Y.Z`, `latest` |
 | `ghcr.io/operator-syn/arqen-runtime` | `arqen-control`, `arqen-broker` | `X.Y.Z`, `latest` |
+| `ghcr.io/operator-syn/arqen-openbao` | OpenBao with Arqen policies and automatic first-run bootstrap | `X.Y.Z`, `latest` |
 
 Each published source version is also tagged `vX.Y.Z`. After a normal
 successful publication, the workflow advances only the patch version.
@@ -52,9 +54,9 @@ only the release metadata files.
 ## GHCR visibility
 
 GitHub creates packages private by default. After the workflow's first
-successful publication, open each package's GitHub settings and change its
-visibility to public. Until then, anonymous pulls will fail. The workflow does
-not change package visibility or weaken repository branch protection.
+successful publication, open all three packages' GitHub settings and change
+their visibility to public. Until then, anonymous pulls will fail. The workflow
+does not change package visibility or weaken repository branch protection.
 
 ## Local use
 

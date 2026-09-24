@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use crate::secrets::{
     delete_refresh_token, load_refresh_token, store_refresh_token, token_reference,
 };

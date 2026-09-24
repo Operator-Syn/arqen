@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl AccountStore {
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let connection = Connection::open(path)?;

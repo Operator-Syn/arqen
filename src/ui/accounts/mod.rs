@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 use super::{UiMode, theme};
 use arqen::{Account, ConnectionState, GMAIL_MODIFY_SCOPE, GMAIL_READONLY_SCOPE};
 use ratatui::{

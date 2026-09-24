@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub fn revoke_google_account(token_key: Option<&str>, subject: &str) -> Result<()> {
     let refresh_token = load_refresh_token(token_key, subject).context(
         "no stored Google refresh token; reauthenticate this account before disconnecting",

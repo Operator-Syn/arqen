@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn configured_backend() -> Result<Backend> {
     match env::var("ARQEN_SECRET_BACKEND")
         .unwrap_or_else(|_| "keyring".into())

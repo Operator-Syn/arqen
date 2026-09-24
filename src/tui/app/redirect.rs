@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl App {
     fn handle_redirect_key(&mut self, key: KeyEvent) {
         let Screen::Redirect {

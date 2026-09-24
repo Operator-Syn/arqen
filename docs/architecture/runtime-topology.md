@@ -6,7 +6,7 @@
 The intended deployment separates the process that can read credentials from
 the process that is reachable over the network. The Docker-native local profile
 places the TUI, broker, SQLite, OpenBao, and MCP roles in one Compose project;
-the native and legacy VPS profiles retain the host-keyring variant.
+the native host profile retains the OS-keyring variant.
 
 ```mermaid
 sequenceDiagram
@@ -43,8 +43,6 @@ control-password check and forwards an internal auth header to ttyd; it keeps
 browser sessions in memory and does not persist credentials. The MCP container
 receives only its bearer-token file and broker socket. `make docker-up` mounts a
 detected Wayland or X11 clipboard interface only into the control container.
-The locked first-pass VPS path keeps the TUI, SQLite, OS keyring, and credential
-broker on the host, and runs only `mcp-server` in Docker Compose.
 In both paths,
 `/healthz` reports HTTP liveness and `/readyz` reports broker/database/target
 readiness without calling Gmail. The native `arqen-mcp.service` remains an

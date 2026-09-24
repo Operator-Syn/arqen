@@ -1,3 +1,5 @@
+# Display-only override for docker-native-compose.yml. The launcher selects
+# this file in an X11 session; it does not define a separate Compose stack.
 services:
   arqen-control:
     environment:

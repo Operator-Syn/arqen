@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_account_list(
     frame: &mut Frame<'_>,

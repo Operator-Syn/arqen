@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 impl GoogleOAuth {
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();

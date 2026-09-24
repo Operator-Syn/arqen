@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn build_router(state: GatewayState) -> Router {
     Router::new()
         .route("/auth/login", post(login))
