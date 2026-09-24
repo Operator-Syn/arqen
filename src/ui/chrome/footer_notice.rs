@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn render_stacked_footer<'a>(
     frame: &mut Frame<'_>,
     area: Rect,
