@@ -3,6 +3,7 @@ name = "arqen"
 version = "0.1.2"
 edition = "2024"
 rust-version = "1.97"
+license = "MPL-2.0"
 
 [dependencies]
 arboard = { version = "3", features = ["wayland-data-control"] }
