@@ -32,6 +32,20 @@ labels. Agents select a record by name, then pass its ID explicitly to
 `list_emails.label_ids` in a separate request. `list_emails` does not depend on
 or call `list_labels`; its message `labels` remain Gmail IDs.
 
+`create_label` and `delete_label` are separate broker operations and both
+require the selected account's recorded `gmail.modify` scope before protected
+credential access. Creation passes only the requested name to Gmail and returns
+the typed `id`, `name`, and `type=user` record. Deletion receives the exact
+label ID from an explicit earlier `list_labels` call; Gmail's labels.get call
+checks only the requested label's `id,type`, rejects system labels, and does
+not fetch or translate display names. The broker then issues labels.delete
+with that unchanged ID and returns `{label_id,deleted:true}` only after success.
+Gmail removes the deleted label from every associated message and thread but
+does not delete messages. Provider status failures map to stable safe errors,
+including `invalid_label_name`, `label_already_exists`, `invalid_label_id`,
+`label_not_found`, `system_label`, rate limiting, reauthentication, and provider
+unavailability; raw response bodies are discarded.
+
 `mark_email_read` and `mark_email_unread` are separate broker operations. Each
 resolves the persisted target, first requires its connected/read-only target
 eligibility and then checks that target's recorded `gmail.modify` grant before
