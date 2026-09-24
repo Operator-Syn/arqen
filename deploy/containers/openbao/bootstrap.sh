@@ -4,15 +4,21 @@ set -eu
 
 bao_addr="${BAO_ADDR:-http://openbao:8200}"
 setup_dir="${ARQEN_OPENBAO_SETUP_DIR:-/run/arqen/setup}"
+control_dir="${ARQEN_OPENBAO_CONTROL_DIR:-$setup_dir}"
+broker_dir="${ARQEN_OPENBAO_BROKER_DIR:-$setup_dir}"
+control_secret_dir="${ARQEN_CONTROL_SECRET_DIR:-/run/arqen/control-secret}"
+mcp_secret_dir="${ARQEN_MCP_SECRET_DIR:-/run/arqen/mcp-secret}"
 unseal_file="$setup_dir/openbao-unseal-key"
 root_token_file="$setup_dir/openbao-bootstrap-token"
-control_role_id_file="$setup_dir/openbao-control-role-id"
-control_secret_id_file="$setup_dir/openbao-control-secret-id"
-broker_role_id_file="$setup_dir/openbao-broker-role-id"
-broker_secret_id_file="$setup_dir/openbao-broker-secret-id"
+control_role_id_file="$control_dir/openbao-control-role-id"
+control_secret_id_file="$control_dir/openbao-control-secret-id"
+broker_role_id_file="$broker_dir/openbao-broker-role-id"
+broker_secret_id_file="$broker_dir/openbao-broker-secret-id"
+control_password_file="$control_secret_dir/control-password"
+mcp_bearer_file="$mcp_secret_dir/mcp-bearer-token"
 
-mkdir -p "$setup_dir"
-chmod 700 "$setup_dir"
+mkdir -p "$setup_dir" "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
+chmod 700 "$setup_dir" "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
 umask 077
 
 secret_uid="${ARQEN_OPENBAO_SECRET_UID:-0}"
@@ -29,6 +35,23 @@ case "$secret_gid" in
         exit 1
         ;;
 esac
+
+generate_secret() {
+    generated_path="$1"
+    generated_bytes="$2"
+    if [ ! -s "$generated_path" ]; then
+        generated_temp="$(mktemp "${generated_path}.XXXXXX")"
+        od -An -N"$generated_bytes" -tx1 /dev/urandom | tr -d ' \n' > "$generated_temp"
+        chmod 600 "$generated_temp"
+        chown "$secret_uid:$secret_gid" "$generated_temp"
+        mv -f "$generated_temp" "$generated_path"
+    fi
+    chmod 600 "$generated_path"
+    chown "$secret_uid:$secret_gid" "$generated_path"
+}
+
+generate_secret "$control_password_file" 24
+generate_secret "$mcp_bearer_file" 32
 
 login_error_file="$(mktemp "$setup_dir/.approle-login-error.XXXXXX")"
 login_role_id_file="$(mktemp "$setup_dir/.approle-login-role-id.XXXXXX")"
@@ -223,6 +246,10 @@ chmod 600 \
     "$control_secret_id_file" \
     "$broker_role_id_file" \
     "$broker_secret_id_file"
+chmod 600 "$control_password_file" "$mcp_bearer_file"
+chown "$secret_uid:$secret_gid" "$control_password_file" "$mcp_bearer_file"
+chmod 755 "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
+chown "$secret_uid:$secret_gid" "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
 
 chown "$secret_uid:$secret_gid" \
     "$unseal_file" \
