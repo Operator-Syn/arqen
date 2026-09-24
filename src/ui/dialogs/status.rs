@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) fn error_spec(message: &str, compact: bool) -> ModalSpec {
     ModalSpec {
         title: error_title(message).into(),
