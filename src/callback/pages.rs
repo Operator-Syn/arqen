@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn callback_thread(
     listener: TcpListener,
     sender: mpsc::Sender<Result<String, String>>,
