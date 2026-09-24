@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.value }}
+      source_sha: ${{ steps.version.outputs.source_sha }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -39,15 +40,33 @@ jobs:
             exit 1
           fi
           git fetch origin --tags
+          source_sha="$GITHUB_SHA"
+          version_bumped=false
           tag="v$version"
-          if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+          while git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; do
             tagged_commit="$(git rev-parse "$tag^{commit}")"
-            if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
-              echo "Release tag $tag already points to a different source commit ($tagged_commit)." >&2
+            if [[ "$tagged_commit" == "$GITHUB_SHA" && "$version_bumped" == false ]]; then
+              break
+            fi
+            if ! git merge-base --is-ancestor "$tagged_commit" "$GITHUB_SHA"; then
+              echo "Release tag $tag belongs to another history ($tagged_commit); refusing to choose a version automatically." >&2
               exit 1
             fi
+            version="$(python3 "$GITHUB_WORKSPACE/scripts/arqen-bump-patch-version.py" --root "$GITHUB_WORKSPACE")"
+            version_bumped=true
+            tag="v$version"
+          done
+
+          if [[ "$version_bumped" == true ]]; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add Cargo.toml Cargo.lock
+            git commit -m "Bump patch version to $version"
+            git push origin HEAD:refs/heads/main
+            source_sha="$(git rev-parse HEAD)"
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
 
   build:
     needs: validate
@@ -65,6 +84,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -83,13 +104,13 @@ jobs:
           file: Dockerfile
           platforms: ${{ matrix.platform }}
           push: true
-          tags: ghcr.io/operator-syn/arqen-mcp:sha-${{ github.sha }}-${{ matrix.arch }}
+          tags: ghcr.io/operator-syn/arqen-mcp:sha-${{ needs.validate.outputs.source_sha }}-${{ matrix.arch }}
           cache-from: type=gha,scope=arqen-mcp-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=arqen-mcp-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.validate.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.validate.outputs.source_sha }}
 
       - name: Build and push shared control and broker runtime image for ${{ matrix.platform }}
         uses: docker/build-push-action@v6
@@ -98,13 +119,13 @@ jobs:
           file: Dockerfile.docker-native
           platforms: ${{ matrix.platform }}
           push: true
-          tags: ghcr.io/operator-syn/arqen-runtime:sha-${{ github.sha }}-${{ matrix.arch }}
+          tags: ghcr.io/operator-syn/arqen-runtime:sha-${{ needs.validate.outputs.source_sha }}-${{ matrix.arch }}
           cache-from: type=gha,scope=arqen-runtime-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=arqen-runtime-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.validate.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ needs.validate.outputs.source_sha }}
 
   publish:
     needs: [validate, build]
@@ -116,6 +137,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
+          ref: ${{ needs.validate.outputs.source_sha }}
           fetch-depth: 0
 
       - name: Set up Buildx
@@ -133,6 +155,7 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.validate.outputs.version }}
+          SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
         run: |
           set -euo pipefail
           mcp_image=ghcr.io/operator-syn/arqen-mcp
@@ -141,13 +164,13 @@ jobs:
           docker buildx imagetools create \
             --tag "$mcp_image:$VERSION" \
             --tag "$mcp_image:latest" \
-            "$mcp_image:sha-$GITHUB_SHA-amd64" \
-            "$mcp_image:sha-$GITHUB_SHA-arm64"
+            "$mcp_image:sha-$SOURCE_SHA-amd64" \
+            "$mcp_image:sha-$SOURCE_SHA-arm64"
           docker buildx imagetools create \
             --tag "$runtime_image:$VERSION" \
             --tag "$runtime_image:latest" \
-            "$runtime_image:sha-$GITHUB_SHA-amd64" \
-            "$runtime_image:sha-$GITHUB_SHA-arm64"
+            "$runtime_image:sha-$SOURCE_SHA-amd64" \
+            "$runtime_image:sha-$SOURCE_SHA-arm64"
 
           mcp_digest="$(docker buildx imagetools inspect --raw "$mcp_image:$VERSION" | sha256sum | awk '{print "sha256:" $1}')"
           runtime_digest="$(docker buildx imagetools inspect --raw "$runtime_image:$VERSION" | sha256sum | awk '{print "sha256:" $1}')"
@@ -157,18 +180,19 @@ jobs:
       - name: Tag the source release
         env:
           VERSION: ${{ needs.validate.outputs.version }}
+          SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
         run: |
           set -euo pipefail
           git fetch origin --tags
           tag="v$VERSION"
           if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
             tagged_commit="$(git rev-parse "$tag^{commit}")"
-            if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
+            if [[ "$tagged_commit" != "$SOURCE_SHA" ]]; then
               echo "Release tag $tag already points to a different source commit." >&2
               exit 1
             fi
           else
-            git tag "$tag" "$GITHUB_SHA"
+            git tag "$tag" "$SOURCE_SHA"
             git push origin "refs/tags/$tag"
           fi
 
@@ -177,13 +201,14 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
           MCP_DIGEST: ${{ steps.manifests.outputs.mcp_digest }}
           RUNTIME_DIGEST: ${{ steps.manifests.outputs.runtime_digest }}
+          SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
           metadata_worktree="$(mktemp -d)"
           rmdir "$metadata_worktree"
           git fetch origin docker-images:refs/remotes/origin/docker-images || true
-          git worktree add --detach "$metadata_worktree" "$GITHUB_SHA"
+          git worktree add --detach "$metadata_worktree" "$SOURCE_SHA"
           if git show-ref --verify --quiet refs/remotes/origin/docker-images; then
             git -C "$metadata_worktree" switch --create docker-images origin/docker-images
           else
@@ -199,7 +224,7 @@ jobs:
           {
             "version": "$VERSION",
             "source_tag": "v$VERSION",
-            "source_commit": "$GITHUB_SHA",
+            "source_commit": "$SOURCE_SHA",
             "images": {
               "mcp": {
                 "reference": "ghcr.io/operator-syn/arqen-mcp:$VERSION",
