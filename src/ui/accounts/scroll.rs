@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) fn details_viewport_rows(area: Rect, mode: UiMode) -> usize {
     usize::from(details_body_area(area, mode).height.max(1))
 }
