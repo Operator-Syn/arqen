@@ -7,6 +7,12 @@ fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState
                 handle_list_emails(request, state)
             }
             Ok(crate::mcp::BrokerRequest::ListLabels) => handle_list_labels(state),
+            Ok(crate::mcp::BrokerRequest::CreateLabel { request }) => {
+                handle_create_label(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::DeleteLabel { request }) => {
+                handle_delete_label(request, state)
+            }
             Ok(crate::mcp::BrokerRequest::ReadEmail { request }) => {
                 handle_read_email(request, state)
             }
