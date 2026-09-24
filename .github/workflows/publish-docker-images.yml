@@ -13,8 +13,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  validate:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -25,6 +27,7 @@ jobs:
         id: version
         shell: bash
         run: |
+          set -euo pipefail
           version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo 'Cargo.toml package version must be a stable X.Y.Z value.' >&2
@@ -35,10 +38,33 @@ jobs:
             echo 'Cargo.toml and Cargo.lock package versions must match.' >&2
             exit 1
           fi
+          git fetch origin --tags
+          tag="v$version"
+          if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+            tagged_commit="$(git rev-parse "$tag^{commit}")"
+            if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
+              echo "Release tag $tag already points to a different source commit ($tagged_commit)." >&2
+              exit 1
+            fi
+          fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
@@ -50,42 +76,89 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish MCP image
-        id: mcp
+      - name: Build and push MCP image for ${{ matrix.platform }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: |
-            ghcr.io/operator-syn/arqen-mcp:${{ steps.version.outputs.value }}
-            ghcr.io/operator-syn/arqen-mcp:latest
+          tags: ghcr.io/operator-syn/arqen-mcp:sha-${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=arqen-mcp-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=arqen-mcp-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: Publish shared control and broker runtime image
-        id: runtime
+      - name: Build and push shared control and broker runtime image for ${{ matrix.platform }}
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.docker-native
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: |
-            ghcr.io/operator-syn/arqen-runtime:${{ steps.version.outputs.value }}
-            ghcr.io/operator-syn/arqen-runtime:latest
+          tags: ghcr.io/operator-syn/arqen-runtime:sha-${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=arqen-runtime-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=arqen-runtime-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    outputs:
+      mcp_digest: ${{ steps.manifests.outputs.mcp_digest }}
+      runtime_digest: ${{ steps.manifests.outputs.runtime_digest }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish multi-platform image indexes
+        id: manifests
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          mcp_image=ghcr.io/operator-syn/arqen-mcp
+          runtime_image=ghcr.io/operator-syn/arqen-runtime
+
+          docker buildx imagetools create \
+            --tag "$mcp_image:$VERSION" \
+            --tag "$mcp_image:latest" \
+            "$mcp_image:sha-$GITHUB_SHA-amd64" \
+            "$mcp_image:sha-$GITHUB_SHA-arm64"
+          docker buildx imagetools create \
+            --tag "$runtime_image:$VERSION" \
+            --tag "$runtime_image:latest" \
+            "$runtime_image:sha-$GITHUB_SHA-amd64" \
+            "$runtime_image:sha-$GITHUB_SHA-arm64"
+
+          mcp_digest="$(docker buildx imagetools inspect --raw "$mcp_image:$VERSION" | sha256sum | awk '{print "sha256:" $1}')"
+          runtime_digest="$(docker buildx imagetools inspect --raw "$runtime_image:$VERSION" | sha256sum | awk '{print "sha256:" $1}')"
+          echo "mcp_digest=$mcp_digest" >> "$GITHUB_OUTPUT"
+          echo "runtime_digest=$runtime_digest" >> "$GITHUB_OUTPUT"
 
       - name: Tag the source release
         env:
-          VERSION: ${{ steps.version.outputs.value }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
+          set -euo pipefail
           git fetch origin --tags
           tag="v$VERSION"
           if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
@@ -101,9 +174,9 @@ jobs:
 
       - name: Update metadata-only docker-images branch
         env:
-          VERSION: ${{ steps.version.outputs.value }}
-          MCP_DIGEST: ${{ steps.mcp.outputs.digest }}
-          RUNTIME_DIGEST: ${{ steps.runtime.outputs.digest }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          MCP_DIGEST: ${{ steps.manifests.outputs.mcp_digest }}
+          RUNTIME_DIGEST: ${{ steps.manifests.outputs.runtime_digest }}
         shell: bash
         run: |
           set -euo pipefail
@@ -115,7 +188,9 @@ jobs:
             git -C "$metadata_worktree" switch --create docker-images origin/docker-images
           else
             git -C "$metadata_worktree" switch --orphan docker-images
-            git -C "$metadata_worktree" rm -rf .
+            git -C "$metadata_worktree" rm -rf --ignore-unmatch .
+            # Orphan checkout leaves source files untracked in this temporary worktree.
+            git -C "$metadata_worktree" clean -fd
           fi
           git -C "$metadata_worktree" config user.name github-actions[bot]
           git -C "$metadata_worktree" config user.email 41898282+github-actions[bot]@users.noreply.github.com
@@ -183,7 +258,7 @@ jobs:
 
       - name: Increment patch version after successful publication
         env:
-          VERSION: ${{ steps.version.outputs.value }}
+          VERSION: ${{ needs.validate.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
