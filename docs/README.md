@@ -48,7 +48,8 @@ docs/
 │   ├── container-and-nginx.md
 │   └── credential-broker.md
 ├── security/
-│   └── auth-and-data.md
+│   ├── auth-and-data.md
+│   └── destructive-operations.md
 ├── ui-mockups/
 │   ├── README.md
 │   ├── arqen-confirm-quit-modal.png
@@ -65,6 +66,8 @@ docs/
   outside the MCP HTTP process in both native and Docker-native modes.
 - [Target-account decision](decisions/ADR-001-target-account.md) records the
   one-account-at-a-time policy.
+- [Destructive-operation policy](security/destructive-operations.md) defines
+  when agents may invoke delete operations and when they must ask first.
 - [Verification](development/verification.md) separates source/build proof
   from deployment and live Google behavior.
 - [Code organization](development/code-organization.md) defines module
@@ -102,8 +105,8 @@ is the reusable agent workflow for future source-boundary audits and refactors.
 - **Gmail listing:** bounded inbox/search pagination, metadata-only headers,
   labels, and Unicode-safe snippet truncation.
 - **MCP transport:** Streamable HTTP `/mcp`, authenticated health probe,
-  readiness probe, bearer gate, Host/Origin allowlists, and one advertised
-  read-only tool.
+  readiness probe, bearer gate, Host/Origin allowlists, Gmail list/read and
+  label operations, and per-message unread-state tools.
 - **Operations:** native loopback services plus a Docker-native OpenBao/broker/
   streamed-TUI/MCP profile for clean-slate local deployment, with the legacy
   VPS and Nginx examples retained as deferred alternatives; activation, TLS,
