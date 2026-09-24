@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 pub(crate) fn confirm_quit_spec(compact: bool) -> ModalSpec {
     ModalSpec {
         title: "Confirm quit".into(),
