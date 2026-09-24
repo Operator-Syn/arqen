@@ -133,6 +133,92 @@ mod tests {
     }
 
     #[test]
+    fn create_label_sends_only_the_name_and_returns_the_provider_id() {
+        let (base_url, server) = mock_gmail_response(
+            r#"{"id":"Label_7","name":"Project Atlas","type":"user"}"#.into(),
+            "200 OK",
+        );
+        let api = GmailApi::with_base_url(&base_url).unwrap();
+        let result = api
+            .create_label(
+                "test-access-token",
+                crate::gmail::CreateLabelRequest {
+                    name: "Project Atlas".into(),
+                },
+            )
+            .unwrap();
+        let request = server.join().unwrap();
+
+        assert!(request.starts_with("POST /users/me/labels?fields=id%2Cname%2Ctype"));
+        assert!(request.contains("{\"name\":\"Project Atlas\"}"));
+        assert_eq!(result.id, "Label_7");
+        assert_eq!(result.name, "Project Atlas");
+        assert_eq!(result.label_type, EmailLabelType::User);
+    }
+
+    #[test]
+    fn label_name_validation_rejects_blank_and_control_input_without_normalizing_names() {
+        for name in ["", " \t", "bad\nlabel"] {
+            assert!(crate::gmail::CreateLabelRequest { name: name.into() }
+                .validate()
+                .is_err());
+        }
+        let valid = crate::gmail::CreateLabelRequest {
+            name: "  Project Atlas  ".into(),
+        }
+        .validate()
+        .unwrap();
+        assert_eq!(valid.name, "  Project Atlas  ");
+    }
+
+    #[test]
+    fn delete_label_checks_type_then_deletes_the_exact_opaque_id() {
+        let (base_url, server) = mock_gmail_responses(vec![
+            (
+                r#"{"id":"Label_7","type":"user"}"#.into(),
+                "200 OK".into(),
+            ),
+            ("{}".into(), "200 OK".into()),
+        ]);
+        let api = GmailApi::with_base_url(&base_url).unwrap();
+        let result = api
+            .delete_label(
+                "test-access-token",
+                crate::gmail::DeleteLabelRequest {
+                    label_id: "Label_7".into(),
+                },
+            )
+            .unwrap();
+        let requests = server.join().unwrap();
+
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].starts_with("GET /users/me/labels/Label_7?fields=id%2Ctype"));
+        assert!(requests[1].starts_with("DELETE /users/me/labels/Label_7 "));
+        assert_eq!(result.label_id, "Label_7");
+        assert!(result.deleted);
+    }
+
+    #[test]
+    fn delete_label_rejects_system_type_without_sending_delete() {
+        let (base_url, server) = mock_gmail_response(
+            r#"{"id":"INBOX","type":"system"}"#.into(),
+            "200 OK",
+        );
+        let api = GmailApi::with_base_url(&base_url).unwrap();
+        let error = api
+            .delete_label(
+                "test-access-token",
+                crate::gmail::DeleteLabelRequest {
+                    label_id: "INBOX".into(),
+                },
+            )
+            .unwrap_err();
+        let request = server.join().unwrap();
+        assert!(request.starts_with("GET /users/me/labels/INBOX?fields=id%2Ctype"));
+        assert!(error.downcast_ref::<super::SystemLabelError>().is_some());
+    }
+
+    #[test]
     fn label_id_can_be_passed_unchanged_to_filter_list_emails() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let address = listener.local_addr().unwrap();
