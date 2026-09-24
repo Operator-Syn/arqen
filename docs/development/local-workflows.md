@@ -216,6 +216,27 @@ make docker-setup   # first run only; creates protected local setup secrets
 make docker-up
 ```
 
+By default, `docker-up` builds the app images from the current checkout. To use
+GHCR instead, set `ARQEN_DOCKER_IMAGE_SOURCE=registry` and optionally
+`ARQEN_DOCKER_IMAGE_TAG=<version>` in `.env`; startup pulls the control/broker
+runtime and MCP images, then starts them with `--no-build`. For an offline
+AMD64 transfer bundle, run `make docker-bundle`, then set
+`ARQEN_DOCKER_IMAGE_SOURCE=bundle`. The bundle at
+`out/arqen-docker-stack/` contains two OCI layouts, a Docker-loadable archive,
+and `services.json`. It does not contain `.secrets` or other runtime
+credentials. The registry and bundle modes keep the same mounted-secret and
+service boundaries as source-build mode.
+
+Pushes to `main` trigger publication of versioned and `latest` multi-platform
+images to GHCR. Once both images publish, the workflow tags the source and
+increments only the patch version in `Cargo.toml` and `Cargo.lock`; set
+major/minor versions manually in `Cargo.toml`, then run `cargo check` so the
+root package version in `Cargo.lock` matches. The `docker-images` branch is
+metadata-only and records per-release image digests, pull commands, and a
+latest index. The first GHCR publication requires an operator to change both
+package visibilities to public. Details and setup requirements are in
+[`../operations/docker-images.md`](../operations/docker-images.md).
+
 The stack runs OpenBao, the credential broker, the control gateway/TUI, and the
 MCP server in Docker. OpenBao is internal-only; only loopback ports for the
 control gateway (`7681`), OAuth callback (`8765`), and MCP (`8787`) are
