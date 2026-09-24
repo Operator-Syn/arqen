@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 #[cfg(test)]
 mod tests {
     use super::{App, LoginIntent, PaneFocus, Screen, handle_event, handle_scroll_mouse_at};
