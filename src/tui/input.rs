@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
     let Ok((width, height)) = crossterm::terminal::size() else {
         return false;
