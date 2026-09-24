@@ -5,6 +5,14 @@ validates the root Cargo package's stable `X.Y.Z` version, builds and publishes
 both images for `linux/amd64` and `linux/arm64`, then writes a source tag and
 bumps only the patch version in `Cargo.toml` and `Cargo.lock`.
 
+The two architectures build in parallel on native GitHub-hosted runners. Each
+architecture job builds both images and pushes commit-scoped staging tags;
+the publish job combines those images into the versioned and `latest`
+multi-platform indexes only after both architecture jobs succeed. BuildKit uses
+separate GitHub Actions cache scopes for each image and architecture. A
+same-commit rerun can reuse completed build layers, while source changes still
+rebuild the affected Rust layer.
+
 | Image | Services | Tags |
 | --- | --- | --- |
 | `ghcr.io/operator-syn/arqen-mcp` | `arqen-mcp` | `X.Y.Z`, `latest` |
@@ -16,6 +24,9 @@ releases; GitHub may replace an older pending run when newer pushes arrive.
 The source tag and current main version checks make a rerun safe after partial
 completion. A manually selected minor or major version in Cargo files is used
 for the next successful publication and then only its patch is incremented.
+The workflow checks for a conflicting existing source tag before starting the
+architecture builds; advance the package version before publishing a different
+source commit under a new release.
 When setting a major or minor release, edit `Cargo.toml` and run `cargo check`
 to update the root package version in `Cargo.lock` before pushing.
 The workflow requires GitHub Actions `contents: write` and `packages: write`
@@ -29,6 +40,10 @@ image references, manifest digests, supported platforms, source commit, and
 pull commands. Versioned tags are accompanied by content digests. Image layers,
 source archives, and binaries are not stored on
 that branch.
+
+The recorded image digests identify the published multi-platform indexes. The
+metadata branch initialization handles an empty orphan index before adding
+only the release metadata files.
 
 ## GHCR visibility
 
