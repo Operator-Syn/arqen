@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn footer_actions(
     selected_state: Option<ConnectionState>,
     pane_focus: PaneFocus,
