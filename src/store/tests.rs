@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 #[cfg(test)]
 mod tests {
     use super::{Account, AccountStore, ConnectionState, GMAIL_READONLY_SCOPE};
