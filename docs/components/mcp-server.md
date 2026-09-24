@@ -11,8 +11,7 @@ authenticated local-dependency probe.
 For the Docker-native local deployment this process runs in its own Compose
 container and connects to the broker through a read-only Unix-socket mount. It
 receives only its bearer-token secret; it does not own SQLite, OpenBao or OS
-keyring credentials, OAuth client configuration, or account selection. The
-legacy VPS Compose path retains the host-broker variant.
+keyring credentials, OAuth client configuration, or account selection.
 
 The SDK’s local session manager is process-local; MCP session state is not
 stored in the Arqen SQLite database. Restarting the HTTP process therefore
