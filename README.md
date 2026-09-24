@@ -274,6 +274,28 @@ make docker-setup   # first run only
 make docker-up
 ```
 
+`make docker-up` builds from the checkout by default. Set
+`ARQEN_DOCKER_IMAGE_SOURCE=registry` in `.env` to pull the published GHCR
+images before starting, or run `make docker-bundle` to create an AMD64 bundle
+under the ignored `out/arqen-docker-stack/` directory and choose
+`ARQEN_DOCKER_IMAGE_SOURCE=bundle`. The bundle includes OCI layouts and a
+Docker-loadable archive; it contains no Arqen credentials or `.secrets` files.
+`ARQEN_DOCKER_IMAGE_TAG` selects a version tag and defaults to `latest`.
+
+The `main` push workflow publishes versioned and `latest` multi-platform images
+to `ghcr.io/operator-syn/arqen-mcp` and
+`ghcr.io/operator-syn/arqen-runtime` (`linux/amd64` and `linux/arm64`). It then
+tags the source as `v<version>` and increments only the patch in `Cargo.toml`
+and `Cargo.lock`. Set minor or major versions manually when preparing those
+releases. The `docker-images` branch contains release manifests, digests, pull
+commands, and a latest index; it contains no source or image layers. GitHub
+Actions needs `contents: write` and `packages: write`, and repository rules
+must permit its version-bump commit. GHCR packages start private: after the
+first successful publication, set both packages to public in GitHub package
+settings before asking users to pull them anonymously. See
+[`docs/operations/docker-images.md`](docs/operations/docker-images.md) for the
+release and operator workflow.
+
 Open `http://127.0.0.1:7681`, enter username `arqen`, and use the generated
 control password from `.secrets/arqen-control-password`. The Arqen-branded
 gateway then opens the streamed TUI; complete OAuth there and press `t` to
