@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn is_authenticated(state: &GatewayState, headers: &HeaderMap) -> bool {
     session_token(headers).is_some_and(|token| state.sessions.contains(&token))
 }
