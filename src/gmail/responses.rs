@@ -8,6 +8,16 @@ fn parse_json_response<T: for<'de> Deserialize<'de>>(
     response.json().context("parse Gmail API response")
 }
 
+fn parse_empty_json_response(response: reqwest::blocking::Response) -> Result<()> {
+    let status = response.status();
+    if !status.is_success() {
+        return Err(anyhow::Error::new(GmailApiError { status }));
+    }
+    let body: serde_json::Value = response.json().context("parse Gmail API response")?;
+    anyhow::ensure!(body.is_object(), "Gmail returned an invalid delete response");
+    Ok(())
+}
+
 fn parse_read_email_response(
     response: reqwest::blocking::Response,
 ) -> Result<MessageResource> {
