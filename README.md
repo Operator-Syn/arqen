@@ -7,4 +7,5 @@ to GHCR and are not stored here.
 - `releases/<version>.json` records immutable references, digests,
   source commit, platforms, and pull commands for each release.
 - `ghcr.io/operator-syn/arqen-runtime` is shared by the control and
-  broker services; `ghcr.io/operator-syn/arqen-mcp` serves MCP.
+  broker services; `ghcr.io/operator-syn/arqen-mcp` serves MCP; and
+  `ghcr.io/operator-syn/arqen-openbao` bootstraps project OpenBao.
