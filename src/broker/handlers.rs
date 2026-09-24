@@ -63,6 +63,87 @@ fn handle_list_labels(state: &BrokerState) -> BrokerResponse {
     }
 }
 
+fn handle_create_label(
+    request: crate::gmail::CreateLabelRequest,
+    state: &BrokerState,
+) -> BrokerResponse {
+    let request = match request.validate() {
+        Ok(request) => request,
+        Err(_) => {
+            return BrokerResponse::error(
+                BrokerErrorCode::InvalidLabelName,
+                "name must be nonblank and contain no control characters",
+            );
+        }
+    };
+    let store = match AccountStore::open(&state.database_path) {
+        Ok(store) => store,
+        Err(_) => return account_database_unavailable(),
+    };
+    let account = match selected_target_account(&store) {
+        Ok(account) => account,
+        Err(error) => return error.into_response(),
+    };
+    if let Some(reason) = target_ineligibility(&account) {
+        return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
+    }
+    if !has_gmail_modify_scope(&account) {
+        return insufficient_scope_response();
+    }
+    match create_label_with_refresh(&account, request, state) {
+        Ok(result) => BrokerResponse::LabelCreated { result },
+        Err(LabelOperationFailure::Credential(error)) => map_credential_error(&error),
+        Err(LabelOperationFailure::Gmail(error)) => map_create_label_error(&error),
+    }
+}
+
+fn handle_delete_label(
+    request: crate::gmail::DeleteLabelRequest,
+    state: &BrokerState,
+) -> BrokerResponse {
+    let request = match request.validate() {
+        Ok(request) => request,
+        Err(_) => {
+            return BrokerResponse::error(
+                BrokerErrorCode::InvalidLabelId,
+                "label_id must be nonempty and contain no control characters",
+            );
+        }
+    };
+    let store = match AccountStore::open(&state.database_path) {
+        Ok(store) => store,
+        Err(_) => return account_database_unavailable(),
+    };
+    let account = match selected_target_account(&store) {
+        Ok(account) => account,
+        Err(error) => return error.into_response(),
+    };
+    if let Some(reason) = target_ineligibility(&account) {
+        return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
+    }
+    if !has_gmail_modify_scope(&account) {
+        return insufficient_scope_response();
+    }
+    match delete_label_with_refresh(&account, request, state) {
+        Ok(result) => BrokerResponse::LabelDeleted { result },
+        Err(LabelOperationFailure::Credential(error)) => map_credential_error(&error),
+        Err(LabelOperationFailure::Gmail(error)) => map_delete_label_error(&error),
+    }
+}
+
+fn has_gmail_modify_scope(account: &Account) -> bool {
+    account.granted_scopes.as_deref().is_some_and(|scopes| {
+        scopes.iter().any(|scope| scope == crate::GMAIL_MODIFY_SCOPE)
+    })
+}
+
+fn insufficient_scope_response() -> BrokerResponse {
+    BrokerResponse::error(
+        BrokerErrorCode::InsufficientScope,
+        "reauthorize the selected Arqen account to grant Gmail modify access",
+    )
+}
+
 fn handle_mark_email_read(
     request: crate::gmail::ReadEmailRequest,
     state: &BrokerState,
@@ -93,13 +174,8 @@ fn handle_mark_email_state(
     if let Some(reason) = target_ineligibility(&account) {
         return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
     }
-    if !account.granted_scopes.as_deref().is_some_and(|scopes| {
-        scopes.iter().any(|scope| scope == crate::GMAIL_MODIFY_SCOPE)
-    }) {
-        return BrokerResponse::error(
-            BrokerErrorCode::InsufficientScope,
-            "reauthorize the selected Arqen account to grant Gmail modify access",
-        );
+    if !has_gmail_modify_scope(&account) {
+        return insufficient_scope_response();
     }
     match mark_email_with_refresh(&account, request, is_read, state) {
         Ok(result) => BrokerResponse::MessageReadState { result },
@@ -208,6 +284,12 @@ enum MarkEmailFailure {
     Gmail(anyhow::Error),
 }
 
+#[derive(Debug)]
+enum LabelOperationFailure {
+    Credential(anyhow::Error),
+    Gmail(anyhow::Error),
+}
+
 fn list_with_refresh(
     account: &Account,
     request: crate::gmail::ListEmailsRequest,
@@ -260,6 +342,42 @@ fn list_labels_with_refresh(
             api.list_labels(&token).map_err(ListLabelsFailure::Gmail)
         }
         Err(error) => Err(ListLabelsFailure::Gmail(error)),
+    }
+}
+
+fn create_label_with_refresh(
+    account: &Account,
+    request: crate::gmail::CreateLabelRequest,
+    state: &BrokerState,
+) -> std::result::Result<crate::gmail::EmailLabel, LabelOperationFailure> {
+    let api = GmailApi::new().map_err(LabelOperationFailure::Gmail)?;
+    let token = cached_or_refresh_token(account, state).map_err(LabelOperationFailure::Credential)?;
+    match api.create_label(&token, request.clone()) {
+        Ok(result) => Ok(result),
+        Err(error) if is_unauthorized(&error) => {
+            invalidate_token(&account.subject, state);
+            let token = refresh_token(account, state).map_err(LabelOperationFailure::Credential)?;
+            api.create_label(&token, request).map_err(LabelOperationFailure::Gmail)
+        }
+        Err(error) => Err(LabelOperationFailure::Gmail(error)),
+    }
+}
+
+fn delete_label_with_refresh(
+    account: &Account,
+    request: crate::gmail::DeleteLabelRequest,
+    state: &BrokerState,
+) -> std::result::Result<crate::gmail::LabelDeleteResult, LabelOperationFailure> {
+    let api = GmailApi::new().map_err(LabelOperationFailure::Gmail)?;
+    let token = cached_or_refresh_token(account, state).map_err(LabelOperationFailure::Credential)?;
+    match api.delete_label(&token, request.clone()) {
+        Ok(result) => Ok(result),
+        Err(error) if is_unauthorized(&error) => {
+            invalidate_token(&account.subject, state);
+            let token = refresh_token(account, state).map_err(LabelOperationFailure::Credential)?;
+            api.delete_label(&token, request).map_err(LabelOperationFailure::Gmail)
+        }
+        Err(error) => Err(LabelOperationFailure::Gmail(error)),
     }
 }
 
@@ -441,6 +559,84 @@ fn map_mark_email_error(error: &anyhow::Error) -> BrokerResponse {
     BrokerResponse::error(
         BrokerErrorCode::GmailUnavailable,
         "Gmail could not update the message read state",
+    )
+}
+
+fn map_create_label_error(error: &anyhow::Error) -> BrokerResponse {
+    if let Some(error) = error.downcast_ref::<GmailApiError>() {
+        match error.status().as_u16() {
+            400 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::InvalidLabelName,
+                    "Gmail rejected the label name; it may already exist or conflict with a reserved system label",
+                );
+            }
+            409 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::LabelAlreadyExists,
+                    "a label with this name already exists in the selected account",
+                );
+            }
+            401 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::ReauthenticationRequired,
+                    "reauthenticate the selected MCP target account in Arqen",
+                );
+            }
+            429 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::GmailRateLimited,
+                    "Gmail is rate limiting requests; try again shortly",
+                );
+            }
+            _ => {}
+        }
+    }
+    BrokerResponse::error(
+        BrokerErrorCode::GmailUnavailable,
+        "Gmail could not create the label",
+    )
+}
+
+fn map_delete_label_error(error: &anyhow::Error) -> BrokerResponse {
+    if error.downcast_ref::<crate::gmail::SystemLabelError>().is_some() {
+        return BrokerResponse::error(
+            BrokerErrorCode::SystemLabel,
+            "Gmail system labels cannot be deleted; choose a label with type user",
+        );
+    }
+    if let Some(error) = error.downcast_ref::<GmailApiError>() {
+        match error.status().as_u16() {
+            400 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::InvalidLabelId,
+                    "Gmail rejected the label ID; use the exact ID returned by list_labels",
+                );
+            }
+            401 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::ReauthenticationRequired,
+                    "reauthenticate the selected MCP target account in Arqen",
+                );
+            }
+            404 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::LabelNotFound,
+                    "Label not found in the currently selected account. Use an ID returned by list_labels.",
+                );
+            }
+            429 => {
+                return BrokerResponse::error(
+                    BrokerErrorCode::GmailRateLimited,
+                    "Gmail is rate limiting requests; try again shortly",
+                );
+            }
+            _ => {}
+        }
+    }
+    BrokerResponse::error(
+        BrokerErrorCode::GmailUnavailable,
+        "Gmail could not delete the label",
     )
 }
 
