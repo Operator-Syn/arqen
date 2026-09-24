@@ -18,15 +18,19 @@ rebuild the affected Rust layer.
 | `ghcr.io/operator-syn/arqen-mcp` | `arqen-mcp` | `X.Y.Z`, `latest` |
 | `ghcr.io/operator-syn/arqen-runtime` | `arqen-control`, `arqen-broker` | `X.Y.Z`, `latest` |
 
-Each published source version is also tagged `vX.Y.Z`. A failed build or push
-does not advance Cargo's version. Workflow concurrency serializes active
-releases; GitHub may replace an older pending run when newer pushes arrive.
+Each published source version is also tagged `vX.Y.Z`. After a normal
+successful publication, the workflow advances only the patch version.
+Workflow concurrency serializes active releases; GitHub may replace an older
+pending run when newer pushes arrive.
 The source tag and current main version checks make a rerun safe after partial
 completion. A manually selected minor or major version in Cargo files is used
 for the next successful publication and then only its patch is incremented.
-The workflow checks for a conflicting existing source tag before starting the
-architecture builds; advance the package version before publishing a different
-source commit under a new release.
+Before starting architecture builds, the workflow checks whether the current
+version tag is already used. If it points to an ancestor in the same `main`
+history, the workflow automatically advances the patch version, commits the
+manifest and lockfile update, and builds from that new source commit. That
+version remains available for retry if a later build or publish step fails. A
+tag from unrelated history still stops the run before build compute is spent.
 When setting a major or minor release, edit `Cargo.toml` and run `cargo check`
 to update the root package version in `Cargo.lock` before pushing.
 The workflow requires GitHub Actions `contents: write` and `packages: write`
