@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MPL-2.0
 fn keyring_store(token_key: Option<&str>, subject: &str, refresh_token: &str) -> Result<()> {
     let (service, user) = keyring_coordinates(token_key, subject);
     keyring::Entry::new(&service, &user)
