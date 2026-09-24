@@ -25,15 +25,13 @@ toolchain. It also runs `nix flake check --no-build` when `nix` is available.
 The wrappers source `.env`; they never print bearer tokens or OAuth JSON.
 
 `make smoke-local` exercises the native broker and MCP processes on disposable
-loopback ports and a temporary Unix socket. `make compose-smoke` performs the
-same authenticated protocol checks with a disposable legacy Docker Compose
-service. `make docker-setup` and `make docker-up` exercise the persistent
-Docker-native profile; its clean-slate smoke includes OpenBao initialization,
-unseal recovery, streamed TUI HTTP access, broker/MCP readiness, and role
-policy checks. These protocol paths do not call Google. Add `--call`
-(`make smoke-local-call` or `make compose-smoke-call`) only for an intentional
-live `list_emails` request using the selected account and the configured
-protected credential store.
+loopback ports and a temporary Unix socket. `make docker-setup` and
+`make docker-up` exercise the Docker-native profile; its clean-slate smoke
+includes OpenBao initialization, unseal recovery, streamed TUI HTTP access,
+broker/MCP readiness, and role policy checks. These protocol paths do not call
+Google. Add `--call` (`make smoke-local-call`) only for an intentional live
+`list_emails` request using the selected account and configured protected
+credential store.
 
 `make openbao-smoke` starts a disposable OpenBao development server with
 test-only credentials. It checks initial AppRole provisioning, idempotent
