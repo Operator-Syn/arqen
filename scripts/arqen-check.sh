@@ -20,12 +20,14 @@ if command -v nix >/dev/null 2>&1; then
         nix develop "$ARQEN_ROOT#arqen" -c shellcheck -e SC1091 \
         deploy/containers/openbao/bootstrap.sh \
         scripts/arqen-docker-up.sh \
-        scripts/arqen-openbao-smoke.sh
+        scripts/arqen-openbao-smoke.sh \
+        scripts/arqen-openbao-image-smoke.sh
 elif command -v shellcheck >/dev/null 2>&1; then
     run_check 'shellcheck OpenBao startup scripts' shellcheck -e SC1091 \
         deploy/containers/openbao/bootstrap.sh \
         scripts/arqen-docker-up.sh \
-        scripts/arqen-openbao-smoke.sh
+        scripts/arqen-openbao-smoke.sh \
+        scripts/arqen-openbao-image-smoke.sh
 else
     printf '== shellcheck OpenBao startup scripts ==\nNOT RUN (install ShellCheck or Nix)\n'
 fi

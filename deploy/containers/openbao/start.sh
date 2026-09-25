@@ -3,6 +3,13 @@
 set -eu
 
 export BAO_ADDR=http://127.0.0.1:8200
+setup_dir="${ARQEN_OPENBAO_SETUP_DIR:-/run/arqen/setup}"
+mkdir -p "$setup_dir"
+chown 0:0 "$setup_dir"
+chmod 700 "$setup_dir"
+rm -f "$setup_dir/openbao-bootstrap-ready"
+chown 0:0 /openbao/file
+chmod 700 /openbao/file
 bao server -config=/etc/openbao/config.hcl &
 server_pid=$!
 
@@ -12,7 +19,7 @@ stop_server() {
 }
 trap stop_server HUP INT TERM EXIT
 
-for attempt in $(seq 1 120); do
+for _ in $(seq 1 120); do
     status="$(bao status -address="$BAO_ADDR" -format=json 2>/dev/null || true)"
     if printf '%s' "$status" | grep -q '"initialized"'; then
         break
