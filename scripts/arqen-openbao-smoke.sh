@@ -13,7 +13,11 @@ cleanup() {
     if [[ "$started" == true ]]; then
         docker rm --force "$container_name" >/dev/null 2>&1 || true
     fi
-    rm -rf "$setup_dir"
+    docker run --rm --user 0:0 \
+        --volume "$(dirname "$setup_dir"):/run/arqen-smoke-cleanup" \
+        --entrypoint /bin/sh "$image" \
+        -c 'rm -rf "/run/arqen-smoke-cleanup/$1"' cleanup "$(basename "$setup_dir")" \
+        >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -58,11 +62,21 @@ assert_not_printed() {
     local output="$1"
     local file="$2"
     local value
-    value="$(cat "$file")"
+    value="$(docker run --rm --user 0:0 \
+        --volume "$setup_dir/secrets:/run/arqen-smoke-secrets:ro" \
+        --entrypoint /bin/sh "$image" \
+        -c 'cat "/run/arqen-smoke-secrets/$1"' check "$(basename "$file")")"
     if [[ "$output" == *"$value"* ]]; then
         printf '%s\n' 'Bootstrap output contained a protected test value.' >&2
         exit 1
     fi
+}
+
+checksum_setup_files() {
+    docker run --rm --user 0:0 \
+        --volume "$setup_dir/secrets:/run/arqen-smoke-secrets:ro" \
+        --entrypoint /bin/sh "$image" \
+        -c 'for name in "$@"; do cksum "/run/arqen-smoke-secrets/$name"; done' check "$@"
 }
 
 assert_role_configuration() {
@@ -109,29 +123,33 @@ assert_role_configuration arqen-broker
 docker exec --env BAO_ADDR=http://127.0.0.1:8200 --env "BAO_TOKEN=$test_root_token" \
     "$container_name" bao kv put secret/arqen/google/smoke marker=preserve-this-value >/dev/null
 
-control_before="$(cksum "$setup_dir/secrets/openbao-control-role-id" "$setup_dir/secrets/openbao-control-secret-id")"
-broker_before="$(cksum "$setup_dir/secrets/openbao-broker-role-id" "$setup_dir/secrets/openbao-broker-secret-id")"
+control_before="$(checksum_setup_files openbao-control-role-id openbao-control-secret-id)"
+broker_before="$(checksum_setup_files openbao-broker-role-id openbao-broker-secret-id)"
 output="$(run_bootstrap)"
 [[ "$output" != *"Repaired Arqen"* ]]
-[[ "$control_before" == "$(cksum "$setup_dir/secrets/openbao-control-role-id" "$setup_dir/secrets/openbao-control-secret-id")" ]]
-[[ "$broker_before" == "$(cksum "$setup_dir/secrets/openbao-broker-role-id" "$setup_dir/secrets/openbao-broker-secret-id")" ]]
+[[ "$control_before" == "$(checksum_setup_files openbao-control-role-id openbao-control-secret-id)" ]]
+[[ "$broker_before" == "$(checksum_setup_files openbao-broker-role-id openbao-broker-secret-id)" ]]
 
-printf '%s\n' 'stale-control-role-id' > "$setup_dir/secrets/openbao-control-role-id"
-chmod 600 "$setup_dir/secrets/openbao-control-role-id"
-broker_before="$(cksum "$setup_dir/secrets/openbao-broker-role-id" "$setup_dir/secrets/openbao-broker-secret-id")"
+docker run --rm --user 0:0 \
+    --volume "$setup_dir/secrets:/run/arqen-smoke-secrets" \
+    --entrypoint /bin/sh "$image" \
+    -c 'printf "%s\n" stale-control-role-id > /run/arqen-smoke-secrets/openbao-control-role-id && chmod 600 /run/arqen-smoke-secrets/openbao-control-role-id'
+broker_before="$(checksum_setup_files openbao-broker-role-id openbao-broker-secret-id)"
 output="$(run_bootstrap)"
 [[ "$output" == *"Repaired Arqen arqen-control AppRole credentials."* ]]
 [[ "$output" != *"Repaired Arqen arqen-broker AppRole credentials."* ]]
-[[ "$broker_before" == "$(cksum "$setup_dir/secrets/openbao-broker-role-id" "$setup_dir/secrets/openbao-broker-secret-id")" ]]
+[[ "$broker_before" == "$(checksum_setup_files openbao-broker-role-id openbao-broker-secret-id)" ]]
 assert_role_configuration arqen-control
 
-printf '%s\n' 'stale-broker-secret-id' > "$setup_dir/secrets/openbao-broker-secret-id"
-chmod 600 "$setup_dir/secrets/openbao-broker-secret-id"
-control_before="$(cksum "$setup_dir/secrets/openbao-control-role-id" "$setup_dir/secrets/openbao-control-secret-id")"
+docker run --rm --user 0:0 \
+    --volume "$setup_dir/secrets:/run/arqen-smoke-secrets" \
+    --entrypoint /bin/sh "$image" \
+    -c 'printf "%s\n" stale-broker-secret-id > /run/arqen-smoke-secrets/openbao-broker-secret-id && chmod 600 /run/arqen-smoke-secrets/openbao-broker-secret-id'
+control_before="$(checksum_setup_files openbao-control-role-id openbao-control-secret-id)"
 output="$(run_bootstrap)"
 [[ "$output" == *"Repaired Arqen arqen-broker AppRole credentials."* ]]
 [[ "$output" != *"Repaired Arqen arqen-control AppRole credentials."* ]]
-[[ "$control_before" == "$(cksum "$setup_dir/secrets/openbao-control-role-id" "$setup_dir/secrets/openbao-control-secret-id")" ]]
+[[ "$control_before" == "$(checksum_setup_files openbao-control-role-id openbao-control-secret-id)" ]]
 
 preserved_marker="$(docker exec --env BAO_ADDR=http://127.0.0.1:8200 --env "BAO_TOKEN=$test_root_token" \
     "$container_name" bao kv get -field=marker secret/arqen/google/smoke)"
@@ -160,8 +178,8 @@ case "$1" in
 esac
 MOCK_BAO
 chmod 700 "$setup_dir/unavailable-bin/bao"
-control_before="$(cksum "$setup_dir/secrets/openbao-control-role-id" "$setup_dir/secrets/openbao-control-secret-id")"
-broker_before="$(cksum "$setup_dir/secrets/openbao-broker-role-id" "$setup_dir/secrets/openbao-broker-secret-id")"
+control_before="$(checksum_setup_files openbao-control-role-id openbao-control-secret-id)"
+broker_before="$(checksum_setup_files openbao-broker-role-id openbao-broker-secret-id)"
 if unavailable_output="$(docker run --rm --network "container:$container_name" --user 0:0 \
     --env BAO_ADDR=http://openbao-unavailable:8200 \
     --env ARQEN_OPENBAO_SETUP_DIR=/run/arqen/setup \
@@ -180,7 +198,7 @@ fi
 [[ "$unavailable_output" == *"no credentials were rotated"* ]]
 [[ "$unavailable_output" != *"$test_root_token"* ]]
 [[ "$unavailable_output" != *"simulated OpenBao transport failure"* ]]
-[[ "$control_before" == "$(cksum "$setup_dir/secrets/openbao-control-role-id" "$setup_dir/secrets/openbao-control-secret-id")" ]]
-[[ "$broker_before" == "$(cksum "$setup_dir/secrets/openbao-broker-role-id" "$setup_dir/secrets/openbao-broker-secret-id")" ]]
+[[ "$control_before" == "$(checksum_setup_files openbao-control-role-id openbao-control-secret-id)" ]]
+[[ "$broker_before" == "$(checksum_setup_files openbao-broker-role-id openbao-broker-secret-id)" ]]
 
 printf '%s\n' 'OpenBao smoke passed: disposable service repair, isolation, idempotence, KV preservation, and no-rotation on unavailable auth.'
