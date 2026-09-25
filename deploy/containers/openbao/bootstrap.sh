@@ -18,9 +18,6 @@ control_password_file="$control_secret_dir/control-password"
 mcp_bearer_file="$mcp_secret_dir/mcp-bearer-token"
 
 mkdir -p "$setup_dir" "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
-chmod 700 "$setup_dir" "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
-umask 077
-
 secret_uid="${ARQEN_OPENBAO_SECRET_UID:-0}"
 secret_gid="${ARQEN_OPENBAO_SECRET_GID:-0}"
 case "$secret_uid" in
@@ -36,18 +33,38 @@ case "$secret_gid" in
         ;;
 esac
 
+chown 0:0 "$setup_dir" "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
+chmod 700 "$setup_dir" "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
+umask 077
+
+normalize_secret_file() {
+    normalize_path="$1"
+    if [ -e "$normalize_path" ]; then
+        chown 0:0 "$normalize_path"
+        chmod 640 "$normalize_path"
+        chown "$secret_uid:$secret_gid" "$normalize_path"
+    fi
+}
+
+normalize_secret_file "$unseal_file"
+normalize_secret_file "$root_token_file"
+normalize_secret_file "$control_role_id_file"
+normalize_secret_file "$control_secret_id_file"
+normalize_secret_file "$broker_role_id_file"
+normalize_secret_file "$broker_secret_id_file"
+
 generate_secret() {
     generated_path="$1"
     generated_bytes="$2"
     if [ ! -s "$generated_path" ]; then
         generated_temp="$(mktemp "${generated_path}.XXXXXX")"
         od -An -N"$generated_bytes" -tx1 /dev/urandom | tr -d ' \n' > "$generated_temp"
-        chmod 600 "$generated_temp"
+        chmod 640 "$generated_temp"
         chown "$secret_uid:$secret_gid" "$generated_temp"
         mv -f "$generated_temp" "$generated_path"
+    else
+        normalize_secret_file "$generated_path"
     fi
-    chmod 600 "$generated_path"
-    chown "$secret_uid:$secret_gid" "$generated_path"
 }
 
 generate_secret "$control_password_file" 24
@@ -102,7 +119,8 @@ if printf '%s' "$status_json" | grep -Eq '"initialized"[[:space:]]*:[[:space:]]*
         -key-threshold=1)"
     json_unseal_key "$init_json" > "$unseal_file"
     json_string root_token "$init_json" > "$root_token_file"
-    chmod 600 "$unseal_file" "$root_token_file"
+    chmod 640 "$unseal_file" "$root_token_file"
+    chown "$secret_uid:$secret_gid" "$unseal_file" "$root_token_file"
 fi
 
 test -s "$unseal_file" || {
@@ -185,7 +203,7 @@ reconcile_role() {
         echo "Could not create the Arqen $reconcile_role_name AppRole secret." >&2
         return 1
     fi
-    chmod 600 "$role_id_temp" "$secret_id_temp"
+    chmod 640 "$role_id_temp" "$secret_id_temp"
     chown "$secret_uid:$secret_gid" "$role_id_temp" "$secret_id_temp"
     if verify_role_login "$role_id_temp" "$secret_id_temp"; then
         :
@@ -239,24 +257,8 @@ ensure_role() {
 ensure_role arqen-control /etc/arqen/policy-control.hcl "$control_role_id_file" "$control_secret_id_file"
 ensure_role arqen-broker /etc/arqen/policy-broker.hcl "$broker_role_id_file" "$broker_secret_id_file"
 
-chmod 600 \
-    "$unseal_file" \
-    "$root_token_file" \
-    "$control_role_id_file" \
-    "$control_secret_id_file" \
-    "$broker_role_id_file" \
-    "$broker_secret_id_file"
-chmod 600 "$control_password_file" "$mcp_bearer_file"
-chown "$secret_uid:$secret_gid" "$control_password_file" "$mcp_bearer_file"
-chmod 755 "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
-chown "$secret_uid:$secret_gid" "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
-
-chown "$secret_uid:$secret_gid" \
-    "$unseal_file" \
-    "$root_token_file" \
-    "$control_role_id_file" \
-    "$control_secret_id_file" \
-    "$broker_role_id_file" \
-    "$broker_secret_id_file"
+chmod 2770 "$setup_dir" "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
+chown "$secret_uid:$secret_gid" "$setup_dir" "$control_dir" "$broker_dir" "$control_secret_dir" "$mcp_secret_dir"
+printf '%s\n' ready > "$setup_dir/openbao-bootstrap-ready"
 
 printf '%s\n' 'OpenBao initialized, unsealed, and configured for Arqen.'
