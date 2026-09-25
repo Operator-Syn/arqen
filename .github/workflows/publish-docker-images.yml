@@ -184,6 +184,11 @@ jobs:
             org.opencontainers.image.version=${{ needs.validate.outputs.version }}
             org.opencontainers.image.revision=${{ needs.validate.outputs.source_sha }}
 
+      - name: Smoke test project OpenBao image on ${{ matrix.platform }}
+        run: >-
+          bash scripts/arqen-openbao-image-smoke.sh
+          ghcr.io/operator-syn/arqen-openbao:sha-${{ needs.validate.outputs.source_sha }}-${{ matrix.arch }}
+
   publish:
     needs: [validate, build]
     runs-on: ubuntu-latest
