@@ -33,8 +33,10 @@ in `.secrets/mcp-bearer-token`.
 
 By default, the stack builds from the current checkout. To pull a published
 GHCR release, set `ARQEN_DOCKER_IMAGE_SOURCE=registry` in the ignored `.env`;
-set `ARQEN_DOCKER_IMAGE_TAG` to select a version (default: `latest`). Images
-support `linux/amd64` and `linux/arm64`; Docker selects the matching platform.
+`ARQEN_DOCKER_IMAGE_TAG` selects a release version (default: `latest`). Local
+builds use separate `arqen-local` image references, so building locally does
+not replace a GHCR tag. Images support `linux/amd64` and `linux/arm64`; Docker
+selects the matching platform.
 See [image releases and pulls](docs/operations/docker-images.md).
 
 Use `make docker-status` to inspect local readiness and `make docker-down` to

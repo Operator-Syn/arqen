@@ -228,16 +228,28 @@ override file by itself.
 By default, `docker-up` builds the app images from the current checkout. To use
 GHCR instead, set `ARQEN_DOCKER_IMAGE_SOURCE=registry` and optionally
 `ARQEN_DOCKER_IMAGE_TAG=<version>` in `.env`; startup pulls the control/broker
-runtime and MCP images, then starts them with `--no-build`. For an offline
-AMD64 transfer bundle, run `make docker-bundle`, then set
+runtime and MCP images, then starts them with `--no-build`. The tag applies
+only to registry mode. Local builds use the separate `arqen-local` namespace
+and the moving `ARQEN_DOCKER_LOCAL_IMAGE_TAG` (default `dev`), with Cargo
+version, revision, and source state recorded as image labels. Set a unique
+local tag when multiple checkouts share one Docker daemon. Local and GHCR image
+caches are retained independently when changing modes.
+
+For an offline AMD64 transfer bundle, run `make docker-bundle`, then set
 `ARQEN_DOCKER_IMAGE_SOURCE=bundle`. The bundle at
 `out/arqen-docker-stack/` contains two OCI layouts, a Docker-loadable archive,
-and `services.json`. It does not contain `.secrets` or other runtime
-credentials. The registry and bundle modes keep the same mounted-secret and
-service boundaries as source-build mode.
+and `services.json` with local image refs, Cargo version, source revision and
+state, image IDs, and archive checksum. Startup validates the manifest and
+archive before loading images or starting Compose. Regenerate bundles made by
+older versions of the script; legacy GHCR-tagged bundles are rejected. If the
+manifest is outside the archive's directory, set
+`ARQEN_DOCKER_IMAGE_BUNDLE_MANIFEST`. The bundle does not contain `.secrets` or
+other runtime credentials. Registry and bundle modes keep the same
+mounted-secret and service boundaries as source-build mode.
 
-Pushes to `main` trigger publication of versioned and `latest` multi-platform
-MCP, runtime, and project OpenBao images to GHCR. Once all three images
+Pushes to `main` that change an image input trigger publication of versioned
+and `latest` multi-platform MCP, runtime, and project OpenBao images to GHCR.
+Documentation-only changes do not publish images. Once all three images
 publish, the workflow tags the source and increments only the patch version in
 `Cargo.toml` and `Cargo.lock`; set
 major/minor versions manually in `Cargo.toml`, then run `cargo check` so the
