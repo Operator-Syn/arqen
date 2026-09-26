@@ -92,11 +92,16 @@ services:
       - ops
 
   arqen-broker:
-    image: ghcr.io/operator-syn/arqen-runtime:${ARQEN_DOCKER_IMAGE_TAG:-latest}
+    image: "${ARQEN_DOCKER_COMPOSE_RUNTIME_IMAGE:-arqen-local/arqen-runtime:${ARQEN_DOCKER_LOCAL_IMAGE_TAG:-dev}}"
     build:
       context: ../..
-      dockerfile: Dockerfile.docker-native
+      dockerfile: Dockerfile
+      target: runtime
       network: host
+      labels:
+        org.opencontainers.image.version: "${ARQEN_DOCKER_BUILD_VERSION:-unknown}"
+        org.opencontainers.image.revision: "${ARQEN_DOCKER_BUILD_REVISION:-unknown}"
+        com.operator-syn.arqen.source-state: "${ARQEN_DOCKER_BUILD_SOURCE_STATE:-unknown}"
     command: ["credential-broker"]
     environment:
       XDG_DATA_HOME: /var/lib/arqen
@@ -122,11 +127,16 @@ services:
       - openbao
 
   arqen-control:
-    image: ghcr.io/operator-syn/arqen-runtime:${ARQEN_DOCKER_IMAGE_TAG:-latest}
+    image: "${ARQEN_DOCKER_COMPOSE_RUNTIME_IMAGE:-arqen-local/arqen-runtime:${ARQEN_DOCKER_LOCAL_IMAGE_TAG:-dev}}"
     build:
       context: ../..
-      dockerfile: Dockerfile.docker-native
+      dockerfile: Dockerfile
+      target: runtime
       network: host
+      labels:
+        org.opencontainers.image.version: "${ARQEN_DOCKER_BUILD_VERSION:-unknown}"
+        org.opencontainers.image.revision: "${ARQEN_DOCKER_BUILD_REVISION:-unknown}"
+        com.operator-syn.arqen.source-state: "${ARQEN_DOCKER_BUILD_SOURCE_STATE:-unknown}"
     # The gateway owns the browser-facing port and starts ttyd on loopback.
     # ttyd 1.7.7 can retain stale first-load dimensions after switching to
     # WebGL; the DOM renderer still fits the streamed control surface immediately.
@@ -169,11 +179,16 @@ services:
       - openbao
 
   arqen-mcp:
-    image: ghcr.io/operator-syn/arqen-mcp:${ARQEN_DOCKER_IMAGE_TAG:-latest}
+    image: "${ARQEN_DOCKER_COMPOSE_MCP_IMAGE:-arqen-local/arqen-mcp:${ARQEN_DOCKER_LOCAL_IMAGE_TAG:-dev}}"
     build:
       context: ../..
       dockerfile: Dockerfile
+      target: mcp
       network: host
+      labels:
+        org.opencontainers.image.version: "${ARQEN_DOCKER_BUILD_VERSION:-unknown}"
+        org.opencontainers.image.revision: "${ARQEN_DOCKER_BUILD_REVISION:-unknown}"
+        com.operator-syn.arqen.source-state: "${ARQEN_DOCKER_BUILD_SOURCE_STATE:-unknown}"
     environment:
       ARQEN_MCP_LISTEN_ADDR: 0.0.0.0:8787
       ARQEN_MCP_ALLOWED_HOSTS: "${ARQEN_MCP_ALLOWED_HOSTS:-127.0.0.1:8787}"
