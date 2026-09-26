@@ -3,6 +3,18 @@ name: Publish Docker images
 on:
   push:
     branches: [main]
+    paths:
+      - '.dockerignore'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Dockerfile'
+      - 'src/**'
+      - 'deploy/containers/openbao/Dockerfile'
+      - 'deploy/containers/openbao/config.hcl'
+      - 'deploy/containers/openbao/policy-control.hcl'
+      - 'deploy/containers/openbao/policy-broker.hcl'
+      - 'deploy/containers/openbao/bootstrap.sh'
+      - 'deploy/containers/openbao/start.sh'
   workflow_dispatch:
 
 permissions:
@@ -144,6 +156,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
+          target: mcp
           platforms: ${{ matrix.platform }}
           push: true
           tags: ghcr.io/operator-syn/arqen-mcp:sha-${{ needs.validate.outputs.source_sha }}-${{ matrix.arch }}
@@ -158,7 +171,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.docker-native
+          file: Dockerfile
+          target: runtime
           platforms: ${{ matrix.platform }}
           push: true
           tags: ghcr.io/operator-syn/arqen-runtime:sha-${{ needs.validate.outputs.source_sha }}-${{ matrix.arch }}
