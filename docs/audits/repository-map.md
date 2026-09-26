@@ -1,6 +1,6 @@
 # Repository map
 
-**Reviewed:** 2026-09-23. **Confidence:** `verified-repository` unless noted.
+**Reviewed:** 2026-09-26. **Confidence:** `verified-repository` unless noted.
 
 | Path | Role | Key contract |
 | --- | --- | --- |
@@ -20,8 +20,7 @@
 | `src/broker/` | Unix credential broker/client, framing, handlers, and cache | selected target, eligibility, refresh, stable errors |
 | `src/mcp.rs` | Broker wire types | label-list/list/readiness/read/read-state operations and result/error serialization |
 | `src/server/` | Streamable HTTP MCP process, auth, routes, and runtime | bearer/Host/Origin gate and label-list/list/read/read-state tools |
-| `Dockerfile` | Docker-native MCP container image | non-root runtime |
-| `Dockerfile.docker-native` | Docker-native control/broker image with pinned ttyd | non-root runtime; control command is the gateway-owned TUI process |
+| `Dockerfile` | Docker-native MCP (`mcp` target) and control/broker (`runtime` target) images | non-root runtimes; control command is the gateway-owned TUI process |
 | `deploy/` | Docker-native OpenBao stack, systemd alternatives, Nginx example | operator-owned deployment boundary |
 | `.env.example` | local configuration template | safe defaults; no secrets |
 | `Makefile` / `scripts/` | named local workflows and smoke checks | sources ignored `.env`; explicit live-call opt-in |
