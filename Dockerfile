@@ -1,4 +1,5 @@
-FROM rust:1.97-bookworm AS build
+# --- Shared Rust build stage ---
+FROM rust:1.97-bookworm AS arqen-build
 
 RUN apt-get update \
     && apt-get install --no-install-recommends --yes pkg-config libdbus-1-dev libwayland-dev \
@@ -9,13 +10,51 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN cargo build --release --locked
 
-FROM debian:bookworm-slim
+# --- Control and broker image (`runtime` target) ---
+FROM debian:bookworm-slim AS runtime
+
+ARG TTYD_VERSION=1.7.7
+ARG TARGETARCH
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes ca-certificates curl libdbus-1-3 libjson-c5 libwebsockets17 libssl3 libwayland-client0 wl-clipboard \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    case "$TARGETARCH" in \
+        amd64) ttyd_arch=x86_64 ;; \
+        arm64) ttyd_arch=aarch64 ;; \
+        *) echo "unsupported ttyd architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    cd /tmp; \
+    curl --fail --silent --show-error --location \
+        --output "ttyd.${ttyd_arch}" \
+        "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}"; \
+    curl --fail --silent --show-error --location \
+        --output SHA256SUMS \
+        "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/SHA256SUMS"; \
+    grep "ttyd.${ttyd_arch}$" SHA256SUMS | sha256sum -c -; \
+    install -m 0755 "ttyd.${ttyd_arch}" /usr/local/bin/ttyd; \
+    rm -f "ttyd.${ttyd_arch}" SHA256SUMS
+
+COPY --from=arqen-build /workspace/target/release/arqen /usr/local/bin/arqen
+
+RUN mkdir -p /var/lib/arqen /run/arqen /run/arqen-display \
+    && chown -R 65532:65532 /var/lib/arqen /run/arqen
+
+USER 65532:65532
+WORKDIR /nonexistent
+EXPOSE 7681 8765
+ENTRYPOINT ["/usr/local/bin/arqen"]
+
+# --- MCP server image (`mcp` target and default build target) ---
+FROM debian:bookworm-slim AS mcp
 
 RUN apt-get update \
     && apt-get install --no-install-recommends --yes ca-certificates libdbus-1-3 libwayland-client0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /workspace/target/release/arqen /usr/local/bin/arqen
+COPY --from=arqen-build /workspace/target/release/arqen /usr/local/bin/arqen
 
 USER 65532:65532
 WORKDIR /nonexistent
