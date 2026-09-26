@@ -10,16 +10,55 @@ arqen_load_defaults
 arqen_prepare_runtime
 arqen_require_docker_compose
 arqen_require_command curl
+metadata_script="$script_directory/arqen-docker-image-metadata.py"
 image_source="${ARQEN_DOCKER_IMAGE_SOURCE:-build}"
 case "$image_source" in
     build|registry|bundle) ;;
     *) arqen_die 'ARQEN_DOCKER_IMAGE_SOURCE must be build, registry, or bundle' ;;
 esac
 bundle_file="${ARQEN_DOCKER_IMAGE_BUNDLE:-out/arqen-docker-stack/docker-images-linux-amd64.tar}"
-if [[ "$image_source" == bundle && ! -f "$bundle_file" ]]; then
-    arqen_die "Docker image bundle not found: $bundle_file (run make docker-bundle)"
-fi
+bundle_manifest="${ARQEN_DOCKER_IMAGE_BUNDLE_MANIFEST:-$(dirname -- "$bundle_file")/services.json}"
+case "$image_source" in
+    build)
+        arqen_require_command python3
+        local_tag="${ARQEN_DOCKER_LOCAL_IMAGE_TAG:-dev}"
+        local_refs="$(python3 "$metadata_script" references --tag "$local_tag")"
+        IFS=$'\t' read -r mcp_image runtime_image <<< "$local_refs"
+        source_metadata="$(python3 "$metadata_script" source-metadata --root "$ARQEN_ROOT")"
+        IFS=$'\t' read -r build_version build_revision build_source_state <<< "$source_metadata"
+        export ARQEN_DOCKER_BUILD_VERSION="$build_version"
+        export ARQEN_DOCKER_BUILD_REVISION="$build_revision"
+        export ARQEN_DOCKER_BUILD_SOURCE_STATE="$build_source_state"
+        ;;
+    registry)
+        registry_tag="${ARQEN_DOCKER_IMAGE_TAG:-latest}"
+        [[ "$registry_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] \
+            || arqen_die 'ARQEN_DOCKER_IMAGE_TAG must contain 1-128 Docker tag characters'
+        mcp_image="ghcr.io/operator-syn/arqen-mcp:$registry_tag"
+        runtime_image="ghcr.io/operator-syn/arqen-runtime:$registry_tag"
+        ;;
+    bundle)
+        arqen_require_command python3
+        bundle_metadata="$(python3 "$metadata_script" validate-bundle \
+            --archive "$bundle_file" --manifest "$bundle_manifest")"
+        IFS=$'\t' read -r local_tag mcp_image runtime_image expected_mcp_id expected_runtime_id \
+            <<< "$bundle_metadata"
+        ;;
+esac
+export ARQEN_DOCKER_COMPOSE_MCP_IMAGE="$mcp_image"
+export ARQEN_DOCKER_COMPOSE_RUNTIME_IMAGE="$runtime_image"
+
 arqen_detect_docker_display
+
+if [[ "$image_source" == bundle ]]; then
+    docker image load --input "$bundle_file" >/dev/null
+    loaded_mcp_id="$(docker image inspect --format '{{.Id}}' "$mcp_image")"
+    loaded_runtime_id="$(docker image inspect --format '{{.Id}}' "$runtime_image")"
+    [[ "$loaded_mcp_id" == "$expected_mcp_id" ]] \
+        || arqen_die 'loaded MCP image ID does not match the validated bundle manifest'
+    [[ "$loaded_runtime_id" == "$expected_runtime_id" ]] \
+        || arqen_die 'loaded runtime image ID does not match the validated bundle manifest'
+fi
 
 secrets_directory="$ARQEN_ROOT/.secrets"
 if [[ ! -s "$secrets_directory/openbao-unseal-key" || ! -s "$secrets_directory/openbao-control-role-id" ]]; then
@@ -50,7 +89,13 @@ export ARQEN_DOCKER_SECRETS_DIR="$secrets_directory"
 export ARQEN_DOCKER_SECRET_UID ARQEN_DOCKER_SECRET_GID
 export ARQEN_MCP_ALLOWED_HOSTS ARQEN_MCP_ALLOWED_ORIGINS
 export ARQEN_DOCKER_HOST_UID ARQEN_DOCKER_HOST_GID
-export ARQEN_DOCKER_IMAGE_TAG="${ARQEN_DOCKER_IMAGE_TAG:-latest}"
+export ARQEN_DOCKER_COMPOSE_MCP_IMAGE="$mcp_image"
+export ARQEN_DOCKER_COMPOSE_RUNTIME_IMAGE="$runtime_image"
+if [[ "$image_source" == build ]]; then
+    export ARQEN_DOCKER_BUILD_VERSION="$build_version"
+    export ARQEN_DOCKER_BUILD_REVISION="$build_revision"
+    export ARQEN_DOCKER_BUILD_SOURCE_STATE="$build_source_state"
+fi
 
 docker compose "${compose_args[@]}" \
     up -d openbao
@@ -75,7 +120,6 @@ case "$image_source" in
             up --no-build -d arqen-broker arqen-control arqen-mcp
         ;;
     bundle)
-        docker image load --input "$bundle_file"
         docker compose "${compose_args[@]}" \
             up --no-build -d arqen-broker arqen-control arqen-mcp
         ;;
