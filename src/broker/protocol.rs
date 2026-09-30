@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 #[cfg(unix)]
-fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState) {
+pub(super) fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState) {
     let mut reader = BufReader::new(stream);
     let response = match read_request(&mut reader) {
         Ok(request) => match request.validate() {
@@ -14,6 +16,9 @@ fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState
             Ok(crate::mcp::BrokerRequest::DeleteLabel { request }) => {
                 handle_delete_label(request, state)
             }
+            Ok(crate::mcp::BrokerRequest::ApplyLabel { request }) => {
+                handle_apply_label(request, state)
+            }
             Ok(crate::mcp::BrokerRequest::ReadEmail { request }) => {
                 handle_read_email(request, state)
             }
@@ -22,6 +27,12 @@ fn handle_connection(stream: std::os::unix::net::UnixStream, state: &BrokerState
             }
             Ok(crate::mcp::BrokerRequest::MarkEmailUnread { request }) => {
                 handle_mark_email_unread(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::MarkEmailForDeletion { request }) => {
+                handle_mark_email_for_deletion(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::DeleteMarkedEmail { request }) => {
+                handle_delete_marked_email(request, state)
             }
             Ok(crate::mcp::BrokerRequest::Readiness { .. }) => handle_readiness(state),
             Err(failure) => BrokerResponse::error(failure.code, failure.message),
@@ -91,8 +102,7 @@ fn handle_readiness(state: &BrokerState) -> BrokerResponse {
     if let Some(reason) = target_ineligibility(&account) {
         return BrokerResponse::error(BrokerErrorCode::TargetUnavailable, reason);
     }
-    if let Err(error) = check_google_refresh_token(account.token_key.as_deref(), &account.subject)
-    {
+    if let Err(error) = check_google_refresh_token(account.token_key.as_deref(), &account.subject) {
         return map_credential_error(&error);
     }
     BrokerResponse::Ready
@@ -104,7 +114,7 @@ fn read_request<R: BufRead>(reader: &mut R) -> Result<BrokerRequest> {
     serde_json::from_slice(&line).context("parse credential broker request")
 }
 
-fn read_bounded_line<R: BufRead>(reader: &mut R, limit: usize) -> Result<Vec<u8>> {
+pub(super) fn read_bounded_line<R: BufRead>(reader: &mut R, limit: usize) -> Result<Vec<u8>> {
     let mut line = Vec::with_capacity(limit.min(4096));
     loop {
         let available = reader.fill_buf().context("read bounded line")?;
