@@ -40,7 +40,7 @@ fn run_unix(options: BrokerOptions) -> Result<()> {
         database_path: options.database_path,
         credentials_path: options.credentials_path,
         access_tokens: Arc::new(Mutex::new(HashMap::new())),
-        pending_deletions: Arc::new(Mutex::new(HashMap::new())),
+        pending_actions: Arc::new(Mutex::new(HashMap::new())),
     };
     let result = loop {
         if shutdown.load(Ordering::Relaxed) {
