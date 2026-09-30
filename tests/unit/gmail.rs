@@ -299,24 +299,22 @@ fn label_id_can_be_passed_unchanged_to_filter_list_emails() {
 
 #[test]
 fn marking_read_and_unread_changes_only_unread_and_is_idempotent() {
-    let responses = vec![
-        (
-            r#"{"id":"message-123","labelIds":["INBOX","STARRED"]}"#.to_owned(),
-            "200 OK".to_owned(),
-        ),
-        (
-            r#"{"id":"message-123","labelIds":["INBOX","STARRED"]}"#.to_owned(),
-            "200 OK".to_owned(),
-        ),
-        (
-            r#"{"id":"message-123","labelIds":["INBOX","STARRED","UNREAD"]}"#.to_owned(),
-            "200 OK".to_owned(),
-        ),
-        (
-            r#"{"id":"message-123","labelIds":["INBOX","STARRED","UNREAD"]}"#.to_owned(),
-            "200 OK".to_owned(),
-        ),
-    ];
+    let mut responses = Vec::new();
+    for labels in [
+        r#"["INBOX","STARRED"]"#,
+        r#"["INBOX","STARRED"]"#,
+        r#"["INBOX","STARRED","UNREAD"]"#,
+        r#"["INBOX","STARRED","UNREAD"]"#,
+    ] {
+        responses.push((
+            format!(r#"{{"id":"message-123","labelIds":{labels}}}"#),
+            "200 OK".into(),
+        ));
+        responses.push((
+            format!(r#"{{"id":"message-123","labelIds":{labels}}}"#),
+            "200 OK".into(),
+        ));
+    }
     let (base_url, server) = mock_gmail_responses(responses);
     let api = GmailApi::with_base_url(&base_url).unwrap();
     let request = || ReadEmailRequest {
@@ -350,7 +348,14 @@ fn marking_read_and_unread_changes_only_unread_and_is_idempotent() {
     );
     assert_eq!(unread_again, unread);
 
-    for request in &requests {
+    for request in requests.iter().step_by(2) {
+        assert!(
+            request.starts_with(
+                "GET /users/me/messages/message-123?format=minimal&fields=id%2ClabelIds"
+            )
+        );
+    }
+    for request in requests.iter().skip(1).step_by(2) {
         assert!(request.starts_with(
             "POST /users/me/messages/message-123/modify?fields=id%2ClabelIds HTTP/1.1"
         ));
@@ -362,7 +367,7 @@ fn marking_read_and_unread_changes_only_unread_and_is_idempotent() {
         let (_, body) = request.split_once("\r\n\r\n").unwrap();
         assert!(body.starts_with('{'));
     }
-    for request in &requests[..2] {
+    for request in requests.iter().skip(1).step_by(2).take(2) {
         let (_, body) = request.split_once("\r\n\r\n").unwrap();
         assert_eq!(
             serde_json::from_str::<Value>(body).unwrap(),
@@ -371,7 +376,7 @@ fn marking_read_and_unread_changes_only_unread_and_is_idempotent() {
             })
         );
     }
-    for request in &requests[2..] {
+    for request in requests.iter().skip(5).step_by(2) {
         let (_, body) = request.split_once("\r\n\r\n").unwrap();
         assert_eq!(
             serde_json::from_str::<Value>(body).unwrap(),
@@ -380,6 +385,269 @@ fn marking_read_and_unread_changes_only_unread_and_is_idempotent() {
             })
         );
     }
+}
+
+#[test]
+fn create_draft_encodes_required_headers_and_returns_distinct_ids() {
+    let (base_url, server) = mock_gmail_response(
+        r#"{"id":"draft-1","message":{"id":"message-1","threadId":"thread-1","labelIds":["DRAFT"]}}"#.into(),
+        "200 OK",
+    );
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    let result = api
+        .create_draft(
+            "token",
+            crate::gmail::CreateDraftRequest {
+                to: "person@example.com".into(),
+                subject: "Hello".into(),
+                body: "Body text".into(),
+            },
+        )
+        .unwrap();
+    let request = server.join().unwrap();
+    assert!(request.starts_with("POST /users/me/drafts HTTP/1.1"));
+    let (_, body) = request.split_once("\r\n\r\n").unwrap();
+    let payload: Value = serde_json::from_str(body).unwrap();
+    let raw = URL_SAFE_NO_PAD
+        .decode(payload["message"]["raw"].as_str().unwrap())
+        .unwrap();
+    let raw = String::from_utf8(raw).unwrap();
+    assert!(raw.contains("To: person@example.com\r\n"));
+    assert!(raw.contains("Subject: Hello\r\n"));
+    assert!(raw.ends_with("\r\n\r\nBody text"));
+    assert_eq!(result.draft_id, "draft-1");
+    assert_eq!(result.message_id, "message-1");
+}
+
+#[test]
+fn create_reply_draft_uses_source_reply_headers_and_thread() {
+    let (base_url, server) = mock_gmail_responses(vec![
+        (r#"{"id":"source-1","threadId":"thread-1","payload":{"headers":[{"name":"From","value":"sender@example.com"},{"name":"Subject","value":"Question"},{"name":"Message-ID","value":"<original@example.com>"}]}}"#.into(), "200 OK".into()),
+        (r#"{"id":"draft-1","message":{"id":"draft-message-1","threadId":"thread-1","labelIds":["DRAFT"]}}"#.into(), "200 OK".into()),
+    ]);
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    let result = api
+        .create_reply_draft(
+            "token",
+            crate::gmail::CreateReplyDraftRequest {
+                message_id: "source-1".into(),
+                body: "A reply".into(),
+            },
+        )
+        .unwrap();
+    let requests = server.join().unwrap();
+    assert!(requests[0].starts_with("GET /users/me/messages/source-1?format=full&fields="));
+    assert!(requests[1].starts_with("POST /users/me/drafts HTTP/1.1"));
+    let (_, body) = requests[1].split_once("\r\n\r\n").unwrap();
+    let payload: Value = serde_json::from_str(body).unwrap();
+    assert_eq!(payload["message"]["threadId"], "thread-1");
+    let raw = URL_SAFE_NO_PAD
+        .decode(payload["message"]["raw"].as_str().unwrap())
+        .unwrap();
+    let raw = String::from_utf8(raw).unwrap();
+    assert!(raw.contains("To: sender@example.com\r\n"));
+    assert!(raw.contains("Subject: Re: Question\r\n"));
+    assert!(raw.contains("In-Reply-To: <original@example.com>\r\n"));
+    assert_eq!(result.draft_id, "draft-1");
+}
+
+#[test]
+fn create_reply_draft_reports_missing_source_message() {
+    let (base_url, server) = mock_gmail_response(
+        r#"{"error":{"code":404,"message":"private provider detail"}}"#.into(),
+        "404 Not Found",
+    );
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    let error = api
+        .create_reply_draft(
+            "token",
+            crate::gmail::CreateReplyDraftRequest {
+                message_id: "source-1".into(),
+                body: "Reply".into(),
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        error
+            .downcast_ref::<super::GmailApiError>()
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::NOT_FOUND
+    );
+    assert!(
+        server
+            .join()
+            .unwrap()
+            .starts_with("GET /users/me/messages/source-1?")
+    );
+}
+
+#[test]
+fn list_drafts_returns_draft_and_message_ids_separately() {
+    let (base_url, server) = mock_gmail_responses(vec![
+        (r#"{"drafts":[{"id":"draft-1"}],"resultSizeEstimate":1}"#.into(), "200 OK".into()),
+        (r#"{"id":"draft-1","message":{"id":"message-1","threadId":"thread-1","labelIds":["DRAFT"],"snippet":"Draft preview","payload":{"headers":[{"name":"To","value":"person@example.com"},{"name":"Subject","value":"Hello"}]}}}"#.into(), "200 OK".into()),
+    ]);
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    let result = api
+        .list_drafts("token", "target@example.com", Default::default())
+        .unwrap();
+    let requests = server.join().unwrap();
+    assert!(requests[0].starts_with("GET /users/me/drafts?"));
+    assert!(requests[1].starts_with("GET /users/me/drafts/draft-1?format=metadata&fields="));
+    assert_eq!(result.drafts[0].draft_id, "draft-1");
+    assert_eq!(result.drafts[0].message_id, "message-1");
+    assert_eq!(result.drafts[0].to, vec!["person@example.com"]);
+}
+
+#[test]
+fn delete_draft_uses_drafts_resource_and_accepts_empty_success_response() {
+    let (base_url, server) = mock_gmail_response(String::new(), "204 No Content");
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    api.delete_draft("token", "draft-1").unwrap();
+    let request = server.join().unwrap();
+    assert!(request.starts_with("DELETE /users/me/drafts/draft-1 HTTP/1.1"));
+}
+
+#[test]
+fn send_draft_uses_the_existing_draft_id_and_returns_sent_message_id() {
+    let (base_url, server) = mock_gmail_response(
+        r#"{"id":"sent-message-1","threadId":"thread-1"}"#.into(),
+        "200 OK",
+    );
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    let result = api.send_draft("token", "draft-1").unwrap();
+    let request = server.join().unwrap();
+    assert!(request.starts_with("POST /users/me/drafts/send HTTP/1.1"));
+    let (_, body) = request.split_once("\r\n\r\n").unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(body).unwrap(),
+        json!({"id":"draft-1"})
+    );
+    assert_eq!(result.draft_id, "draft-1");
+    assert_eq!(result.message_id, "sent-message-1");
+}
+
+#[test]
+fn draft_validation_rejects_header_injection_and_blank_fields() {
+    for request in [
+        crate::gmail::CreateDraftRequest {
+            to: "not-an-email".into(),
+            subject: "Hi".into(),
+            body: "body".into(),
+        },
+        crate::gmail::CreateDraftRequest {
+            to: "person@example.com\r\nBcc:other@example.com".into(),
+            subject: "Hi".into(),
+            body: "body".into(),
+        },
+        crate::gmail::CreateDraftRequest {
+            to: "person@example.com".into(),
+            subject: "  ".into(),
+            body: "body".into(),
+        },
+        crate::gmail::CreateDraftRequest {
+            to: "person@example.com".into(),
+            subject: "Hello".into(),
+            body: " \t ".into(),
+        },
+    ] {
+        assert!(request.validate().is_err());
+    }
+    assert!(
+        crate::gmail::CreateReplyDraftRequest {
+            message_id: "source-1".into(),
+            body: String::new(),
+        }
+        .validate()
+        .is_err()
+    );
+    for body in ["body\0unsafe".to_owned(), "x".repeat(24_577)] {
+        assert!(
+            crate::gmail::CreateDraftRequest {
+                to: "person@example.com".into(),
+                subject: "Hello".into(),
+                body,
+            }
+            .validate()
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn label_and_read_state_mutations_reject_draft_messages_before_modifying_them() {
+    let (base_url, server) = mock_gmail_response(
+        r#"{"id":"draft-message","labelIds":["DRAFT"]}"#.into(),
+        "200 OK",
+    );
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    let error = api
+        .mark_email_read(
+            "token",
+            ReadEmailRequest {
+                message_id: "draft-message".into(),
+            },
+        )
+        .unwrap_err();
+    assert!(super::is_draft_message_mutation(&error));
+    let request = server.join().unwrap();
+    assert!(
+        request.starts_with(
+            "GET /users/me/messages/draft-message?format=minimal&fields=id%2ClabelIds"
+        )
+    );
+
+    let (base_url, server) = mock_gmail_response(
+        r#"{"id":"draft-message","labelIds":["DRAFT"]}"#.into(),
+        "200 OK",
+    );
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    let error = api
+        .apply_label(
+            "token",
+            crate::gmail::ApplyLabelRequest {
+                message_id: "draft-message".into(),
+                label_id: "Label_1".into(),
+            },
+        )
+        .unwrap_err();
+    match error {
+        crate::gmail::ApplyLabelFailure::MessageModify(error) => {
+            assert!(super::is_draft_message_mutation(&error))
+        }
+        other => panic!("unexpected draft label result: {other:?}"),
+    }
+    let request = server.join().unwrap();
+    assert!(
+        request.starts_with(
+            "GET /users/me/messages/draft-message?format=minimal&fields=id%2ClabelIds"
+        )
+    );
+}
+
+#[test]
+fn message_trash_rejects_draft_messages_before_modifying_them() {
+    let (base_url, server) = mock_gmail_response(
+        r#"{"id":"draft-message","labelIds":["DRAFT"]}"#.into(),
+        "200 OK",
+    );
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    let error = api
+        .trash_email(
+            "token",
+            ReadEmailRequest {
+                message_id: "draft-message".into(),
+            },
+        )
+        .unwrap_err();
+    assert!(super::is_draft_message_mutation(&error));
+    let request = server.join().unwrap();
+    assert!(
+        request.starts_with(
+            "GET /users/me/messages/draft-message?format=minimal&fields=id%2ClabelIds"
+        )
+    );
 }
 
 #[test]
@@ -399,9 +667,9 @@ fn mark_email_preserves_gmail_not_found_status_without_provider_details() {
         .unwrap_err();
     let request = server.join().unwrap();
 
-    assert!(
-        request.starts_with("POST /users/me/messages/valid-message-id/modify?fields=id%2ClabelIds")
-    );
+    assert!(request.starts_with(
+        "GET /users/me/messages/valid-message-id?format=minimal&fields=id%2ClabelIds"
+    ));
     assert_eq!(
         error
             .downcast_ref::<super::GmailApiError>()
