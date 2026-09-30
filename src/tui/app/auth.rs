@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl App {
-    fn start_login(&mut self, intent: LoginIntent) {
+    pub(in crate::tui) fn start_login(&mut self, intent: LoginIntent) {
         self.stop_browser();
         let result = (|| -> Result<Screen> {
             let remote = oauth_remote_mode();
@@ -53,7 +55,12 @@ impl App {
         };
     }
 
-    fn finish_login(&mut self, oauth: &mut GoogleOAuth, input: &str, intent: &LoginIntent) {
+    pub(in crate::tui) fn finish_login(
+        &mut self,
+        oauth: &mut GoogleOAuth,
+        input: &str,
+        intent: &LoginIntent,
+    ) {
         let result = (|| -> Result<Account> {
             let expected_subject = match intent {
                 LoginIntent::Add => None,
@@ -92,7 +99,7 @@ impl App {
         }
     }
 
-    fn complete_login(&mut self, _account: Account) {
+    pub(in crate::tui) fn complete_login(&mut self, _account: Account) {
         match self.reload_accounts() {
             Ok(()) => {}
             Err(error) => {
