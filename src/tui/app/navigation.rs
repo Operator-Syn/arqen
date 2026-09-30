@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl App {
-    fn select_account(&mut self, selected: usize) {
+    pub(in crate::tui) fn select_account(&mut self, selected: usize) {
         let selected = selected.min(self.accounts.len().saturating_sub(1));
         if selected != self.selected {
             self.details_scroll = 0;
@@ -8,7 +10,7 @@ impl App {
         self.selected = selected;
     }
 
-    fn toggle_mcp_target(&mut self) {
+    pub(in crate::tui) fn toggle_mcp_target(&mut self) {
         let Some(account) = self.accounts.get(self.selected) else {
             return;
         };
@@ -37,7 +39,7 @@ impl App {
         self.notice = Some(format!("Cannot set MCP target: {reason}"));
     }
 
-    fn viewport_rows(&self) -> usize {
+    pub(in crate::tui) fn viewport_rows(&self) -> usize {
         let Ok((width, height)) = crossterm::terminal::size() else {
             return 5;
         };
@@ -51,7 +53,7 @@ impl App {
         )
     }
 
-    fn move_selection(&mut self, delta: isize) {
+    pub(in crate::tui) fn move_selection(&mut self, delta: isize) {
         if self.accounts.is_empty() {
             return;
         }
@@ -65,7 +67,7 @@ impl App {
         self.select_account(selected);
     }
 
-    fn scroll_details(&mut self, delta: isize) {
+    pub(in crate::tui) fn scroll_details(&mut self, delta: isize) {
         if delta.is_negative() {
             self.details_scroll = self.details_scroll.saturating_sub(delta.unsigned_abs());
         } else {
@@ -73,7 +75,7 @@ impl App {
         }
     }
 
-    fn move_page(&mut self, forward: bool) {
+    pub(in crate::tui) fn move_page(&mut self, forward: bool) {
         let amount = self.viewport_rows().max(1);
         match self.pane_focus {
             PaneFocus::Accounts => self.move_selection(if forward {
@@ -89,14 +91,14 @@ impl App {
         }
     }
 
-    fn move_home(&mut self) {
+    pub(in crate::tui) fn move_home(&mut self) {
         match self.pane_focus {
             PaneFocus::Accounts => self.select_account(0),
             PaneFocus::Details => self.details_scroll = 0,
         }
     }
 
-    fn move_end(&mut self) {
+    pub(in crate::tui) fn move_end(&mut self) {
         match self.pane_focus {
             PaneFocus::Accounts => {
                 self.select_account(self.accounts.len().saturating_sub(1));
