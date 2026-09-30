@@ -45,6 +45,20 @@ store, and starts the account screen, credential broker, and MCP server. The
 OAuth file is kept private on your computer; Compose stages a readable copy for
 the non-root app containers automatically.
 
+To fetch the newest published images later and recreate containers that use
+changed images, run:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+The root Compose file defaults `ARQEN_DOCKER_IMAGE_TAG` to `latest` and always
+checks GHCR when starting services. `pull` only updates the local image cache;
+the `up` command applies changed images to running services while preserving
+their named volumes. See [Docker image releases](operations/docker-images.md)
+for the published version and tag policy.
+
 If you replace the OAuth JSON later, rerun the staging step and restart the
 services that use it:
 
