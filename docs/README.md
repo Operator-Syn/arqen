@@ -1,9 +1,8 @@
 # Documentation
 
-Use this map to find the right guide for Arqen's account manager, Gmail MCP
-service, development workflow, and local operations. These pages describe
-checked-in code and examples; they do not claim that services have been
-activated or deployed.
+Use this map to find the right guide for trying Arqen, understanding its Gmail
+MCP service, or developing the project. These pages describe checked-in code
+and examples; they do not claim that services have been activated or deployed.
 
 > **Operational boundary:** OAuth, keyring/OpenBao persistence, service
 > activation, TLS, and public exposure require operator action and separate
@@ -13,8 +12,9 @@ activated or deployed.
 
 | Goal | Guide |
 | --- | --- |
-| Get oriented and start Arqen | [Project README](../README.md) |
-| Choose native or Docker-native setup | [Local workflows](development/local-workflows.md) |
+| Try Arqen with prebuilt Docker images | [Quickstart](quickstart.md) |
+| Get oriented | [Project README](../README.md) |
+| Build and run from source | [Development workflows](development/local-workflows.md) |
 | Understand process ownership and data flow | [Architecture overview](architecture/overview.md) · [Runtime topology](architecture/runtime-topology.md) |
 | Connect an MCP client | [MCP API](api/mcp.md) · [MCP server](components/mcp-server.md) |
 | Review account and credential handling | [Authentication and data](security/auth-and-data.md) · [Credential broker](operations/credential-broker.md) |
@@ -25,9 +25,11 @@ activated or deployed.
 
 ## Product boundaries
 
-- The Docker-native Compose profile is the maintained container workflow. The
-  former host-broker-plus-Docker-MCP deployment is retired; its ADR remains as
-  historical context.
+- The root `compose.yaml` is the user path and pulls published GHCR images.
+  The Compose profile under `deploy/containers/` is the source-build desktop
+  workflow used by developer Make commands.
+- The former host-broker-plus-Docker-MCP deployment is retired; its ADR remains
+  as historical context.
 - Native local operation and SSH-forwarded remote OAuth login remain supported.
 - MCP requests use the account explicitly selected in the TUI. Callers cannot
   choose an account or access credential values.
