@@ -3,8 +3,10 @@ use anyhow::Context;
 use arqen::{
     broker::BrokerClient,
     gmail::{
-        CreateLabelRequest, DeleteLabelRequest, EmailLabel, EmailListResponse, EmailReadResponse,
-        EmailReadState, LabelDeleteResult, LabelListResponse, ListEmailsRequest, ReadEmailRequest,
+        ApplyLabelRequest, CreateLabelRequest, DeleteLabelRequest, DeleteMarkedEmailRequest,
+        EmailDeletionMark, EmailLabel, EmailListResponse, EmailReadResponse, EmailReadState,
+        EmailTrashResult, LabelApplyResult, LabelDeleteResult, LabelListResponse,
+        ListEmailsRequest, ReadEmailRequest,
     },
     mcp::BrokerFailure,
 };
@@ -41,8 +43,17 @@ pub struct ServerOptions {
     pub bearer_token: String,
 }
 
-include!("config.rs");
-include!("auth.rs");
-include!("routes.rs");
-include!("runtime.rs");
-include!("tests.rs");
+mod auth;
+mod config;
+mod routes;
+mod runtime;
+
+use auth::*;
+pub use routes::EmailMcpServer;
+use routes::*;
+pub use runtime::run;
+#[cfg(test)]
+use runtime::{build_router, request_is_authorized};
+#[cfg(test)]
+#[path = "../../tests/unit/server/mod.rs"]
+mod tests;
