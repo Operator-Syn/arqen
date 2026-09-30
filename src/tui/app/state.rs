@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl App {
-    fn new(store: AccountStore) -> Result<Self> {
+    pub(in crate::tui) fn new(store: AccountStore) -> Result<Self> {
         let accounts = store.list_accounts()?;
         let mcp_target_subject = store.mcp_configuration()?.target_google_subject;
         Ok(Self {
@@ -18,23 +20,23 @@ impl App {
         })
     }
 
-    fn show_error(&mut self, context: &str, error: impl std::fmt::Display) {
+    pub(in crate::tui) fn show_error(&mut self, context: &str, error: impl std::fmt::Display) {
         self.stop_browser();
         self.notice = None;
         self.screen = Screen::Error(format!("{context}\n\n{error}"));
     }
 
-    fn stop_browser(&mut self) {
+    pub(in crate::tui) fn stop_browser(&mut self) {
         self.browser.take();
     }
 
-    fn selected_subject(&self) -> Option<String> {
+    pub(in crate::tui) fn selected_subject(&self) -> Option<String> {
         self.accounts
             .get(self.selected)
             .map(|account| account.subject.clone())
     }
 
-    fn reconnectable_subject(&self) -> Option<String> {
+    pub(in crate::tui) fn reconnectable_subject(&self) -> Option<String> {
         self.accounts
             .get(self.selected)
             .filter(|account| {
@@ -46,7 +48,7 @@ impl App {
             .map(|account| account.subject.clone())
     }
 
-    fn reload_accounts(&mut self) -> Result<()> {
+    pub(in crate::tui) fn reload_accounts(&mut self) -> Result<()> {
         self.accounts = self.store.list_accounts()?;
         self.mcp_target_subject = self.store.mcp_configuration()?.target_google_subject;
         self.selected = self.selected.min(self.accounts.len().saturating_sub(1));
