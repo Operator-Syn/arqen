@@ -4,9 +4,10 @@
 `assumption` for host/container wiring until an operator deploys it.
 
 The intended deployment separates the process that can read credentials from
-the process that is reachable over the network. The Docker-native local profile
-places the TUI, broker, SQLite, OpenBao, and MCP roles in one Compose project;
-the native host profile retains the OS-keyring variant.
+the process that is reachable over the network. Both Docker Compose paths place
+the TUI, broker, SQLite, OpenBao, and MCP roles in one project; the native host
+profile retains the OS-keyring variant. The root user Compose file pulls
+published images, while the developer Compose profile builds them from source.
 
 ```mermaid
 sequenceDiagram
@@ -36,13 +37,14 @@ mounts that socket read-only and binds its HTTP port to loopback; Nginx is the
 public TLS boundary. The service templates do not create certificates, DNS,
 firewall rules, users, or secret files.
 
-The Docker-native path publishes only loopback ports 7681 (Arqen control
+Both Compose paths publish only loopback ports 7681 (Arqen control
 gateway), 8765 (OAuth callback), and 8787 (MCP); ttyd stays on control-container
 loopback port 7682, and OpenBao is internal-only. The gateway owns the generated
 control-password check and forwards an internal auth header to ttyd; it keeps
 browser sessions in memory and does not persist credentials. The MCP container
 receives only its bearer-token file and broker socket. `make docker-up` mounts a
-detected Wayland or X11 clipboard interface only into the control container.
+detected Wayland or X11 clipboard interface only into the developer Compose
+control container. The user Compose path runs without a host display mount.
 In both paths,
 `/healthz` reports HTTP liveness and `/readyz` reports broker/database/target
 readiness without calling Gmail. The native `arqen-mcp.service` remains an
