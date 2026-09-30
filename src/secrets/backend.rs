@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn configured_backend() -> Result<Backend> {
+use super::*;
+
+pub(super) fn configured_backend() -> Result<Backend> {
     match env::var("ARQEN_SECRET_BACKEND")
         .unwrap_or_else(|_| "keyring".into())
         .to_ascii_lowercase()
@@ -13,7 +15,7 @@ fn configured_backend() -> Result<Backend> {
     }
 }
 
-fn backend_for_reference(reference: Option<&str>) -> Result<Backend> {
+pub(super) fn backend_for_reference(reference: Option<&str>) -> Result<Backend> {
     if reference.is_some_and(|value| value.starts_with(OPENBAO_REFERENCE_PREFIX)) {
         return Ok(Backend::OpenBao);
     }
@@ -61,7 +63,7 @@ pub(crate) fn delete_refresh_token(token_key: Option<&str>, subject: &str) -> Re
     }
 }
 
-fn keyring_coordinates(token_key: Option<&str>, subject: &str) -> (String, String) {
+pub(super) fn keyring_coordinates(token_key: Option<&str>, subject: &str) -> (String, String) {
     let Some(reference) = token_key.and_then(|value| value.strip_prefix("keyring:")) else {
         return (KEYRING_SERVICE.to_owned(), subject.to_owned());
     };
