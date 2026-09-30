@@ -26,13 +26,17 @@ single-operator control for v1; MCP-native OAuth authorization is a later
 decision, not implied by the current route.
 
 The server advertises `list_labels`, `list_emails`, `read_email`,
-`create_label`, `delete_label`, `mark_email_read`, and `mark_email_unread`.
+`create_label`, `apply_label`, `delete_label`, `mark_email_read`, and
+`mark_email_unread`, `mark_email_for_deletion`, and `delete_marked_email`.
 `list_labels` takes no arguments and returns each selected-account Gmail
 label's unchanged `id`, human-readable `name`, and `system`/`user` type,
 including custom labels. Agents call it first, choose a label by name, then
 pass that record's `id` explicitly to `list_emails.label_ids` in a separate
 call. For deletion, pass the selected record's ID unchanged to `delete_label`
 in a separate call; it checks that label's type without calling `list_labels`.
+To apply a custom label, pass a `list_emails` message ID and a custom
+`list_labels` ID unchanged to `apply_label` in a separate call. It changes that
+message only, preserves its other labels, and rejects system labels.
 `list_emails` remains independently usable and accepts IDs rather than
 display names; its message `labels` remain Gmail IDs. Neither tool accepts an
 account identifier. `list_emails` returns
@@ -53,17 +57,30 @@ grant on the selected target; missing grant evidence returns
 `insufficient_scope` before the broker obtains credentials or contacts Gmail.
 The existing selected-account rule still requires only `gmail.readonly`.
 
-`create_label` and `delete_label` also require a locally recorded
+For message removal, call `list_emails`, pass one returned ID to
+`mark_email_for_deletion`, then pass its `marker_id` unchanged in a separate
+`delete_marked_email` call. Marking does not change Gmail. The broker marker is
+bound to the selected account and exact message, expires after 10 minutes, and
+is consumed atomically before the Gmail request. Missing, expired, replayed, or
+wrong-account markers fail with `deletion_mark_required`. The delete tool moves
+one message to recoverable Trash under the explicit user-authorization policy;
+a failed attempt requires a fresh marker before retrying.
+
+`create_label`, `apply_label`, and `delete_label` also require a locally recorded
 `gmail.modify` grant. Creation returns the new user label's exact ID, name, and
-type. Deletion permanently removes the label definition and its association
-from all messages and threads using it, without deleting those messages. It
-rejects system labels and must follow the [user-authorization
-policy](../security/destructive-operations.md). Stable errors include
-`invalid_label_name`, `label_already_exists`, `invalid_label_id`,
-`label_not_found`, and `system_label`.
+type. Applying returns the message ID, label ID, and `applied: true` after
+Gmail confirms the association. Deletion permanently removes the label
+definition and its association from all messages and threads using it, without
+deleting those messages. It rejects system labels and must follow the
+[user-authorization policy](../security/destructive-operations.md). Stable
+label errors include `invalid_label_name`, `label_already_exists`,
+`invalid_label_id`, `label_not_found`, and `system_label`. `apply_label` also
+returns `invalid_message_id` or `message_not_found` for an invalid or missing
+message.
 
 Destructive operations must follow the [user-authorization
 policy](../security/destructive-operations.md): invoke a delete only when the
 user's explicit authorization clearly covers the exact target and scope; ask
-first when permission or consequences are unclear. The tool description and
-API contract state the label-deletion effect before an agent invokes it.
+first when permission or consequences are unclear. The tool descriptions and
+API contract state both label-deletion and message-to-Trash effects before an
+agent invokes them.
