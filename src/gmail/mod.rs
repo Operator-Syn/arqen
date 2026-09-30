@@ -110,6 +110,42 @@ impl DeleteLabelRequest {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
+pub struct ApplyLabelRequest {
+    /// Message ID returned by `list_emails`; this applies the label to one message only.
+    #[schemars(length(min = 1, max = 256), regex(pattern = r"^[A-Za-z0-9_-]+$"))]
+    pub message_id: String,
+    /// Exact custom Gmail label ID returned by `list_labels`; names are not accepted.
+    #[schemars(length(min = 1), regex(pattern = r"^[^\u0000-\u001F\u007F-\u009F]+$"))]
+    pub label_id: String,
+}
+
+impl ApplyLabelRequest {
+    pub fn validate_message_id(&self) -> Result<()> {
+        ReadEmailRequest {
+            message_id: self.message_id.clone(),
+        }
+        .validate()
+        .map(|_| ())
+    }
+
+    pub fn validate_label_id(&self) -> Result<()> {
+        DeleteLabelRequest {
+            label_id: self.label_id.clone(),
+        }
+        .validate()
+        .map(|_| ())
+    }
+
+    pub fn validate(self) -> Result<Self> {
+        self.validate_message_id()?;
+        self.validate_label_id()?;
+        Ok(self)
+    }
+}
+
 impl ReadEmailRequest {
     pub fn validate(self) -> Result<Self> {
         anyhow::ensure!(
@@ -144,8 +180,20 @@ impl Default for ListEmailsRequest {
     }
 }
 
-include!("validation.rs");
-include!("models.rs");
-include!("client.rs");
-include!("responses.rs");
-include!("tests.rs");
+mod client;
+mod models;
+mod validation;
+#[cfg(test)]
+pub(crate) use client::ReadEmailTooLarge;
+pub(crate) use client::{
+    ApplyLabelFailure, LabelNotFoundError, SystemLabelError, is_read_email_too_large,
+};
+pub use client::{GmailApi, GmailApiError, is_unauthorized};
+#[cfg(test)]
+use client::{MessagePayload, MessageResource};
+#[cfg(test)]
+use client::{email_read_response, read_body_text, truncate_snippet};
+pub use models::*;
+#[cfg(test)]
+#[path = "../../tests/unit/gmail.rs"]
+mod tests;
