@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::layout::layout;
+use super::*;
+
 #[derive(Debug, Clone, Copy)]
-struct Areas {
-    header: Rect,
-    accounts: Rect,
-    details: Rect,
-    footer: Rect,
-    mode: UiMode,
+pub(super) struct Areas {
+    pub(super) header: Rect,
+    pub(super) accounts: Rect,
+    pub(super) details: Rect,
+    pub(super) footer: Rect,
+    pub(super) mode: UiMode,
 }
 
 #[allow(clippy::too_many_arguments)]
