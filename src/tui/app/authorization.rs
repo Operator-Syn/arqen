@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl App {
-    fn handle_authorization_key(&mut self, key: KeyEvent) {
+    pub(in crate::tui) fn handle_authorization_key(&mut self, key: KeyEvent) {
         let Screen::Authorization {
             oauth,
             url,
