@@ -60,10 +60,15 @@ services together, but it does not duplicate their rules.
   lifecycle, state transitions, input, OAuth orchestration, and browser work.
 - `src/ui/` owns pure Ratatui layout, rendering, modal, and hit-testing code.
 - `src/auth/`, `src/gmail/`, `src/broker/`, `src/server/`, and `src/control/`
-  separate provider, protocol, and process boundaries.
+  separate provider, protocol, and process boundaries. Broker request handling
+  is divided into email operations, label operations, target policy, token
+  refresh, and error conversion; control login retry policy lives in
+  `src/control/login_rate_limit.rs`.
 - `src/store/` owns account models, SQLite schema/migrations, CRUD, and target
   invariants; `src/secrets/` owns credential backends.
-- `src/mcp.rs` remains the small broker wire-contract module.
+- `src/mcp.rs` owns the broker wire contract. All test files live under the
+  root `tests/` tree: Rust unit modules in `tests/unit/` mirror their source
+  owner, and Python tests live in `tests/python/`.
 
 When adding a feature, place the rule in the narrowest owning module, expose it
 through the existing facade only when another boundary needs it, and keep
@@ -76,7 +81,9 @@ that imply live verification.
   available, then verify every important edge in source.
 - Preserve public names, wire shapes, schema/migration behavior, secret
   boundaries, keyboard/mouse behavior, and error semantics.
-- Move tests with the implementation and retain failure-path coverage.
+- Keep test code under `tests/`, grouped by source owner under `tests/unit/` or
+  by language/scope in a deeper subdirectory. Wire Rust unit modules to their
+  owner with `#[path]` so private implementation contracts remain testable.
 - Run the focused Cargo checks before expanding to the full repository checks.
 - Record remaining graph parse gaps, live/runtime limits, and any intentionally
   cohesive file in `docs/audits/code-modularization.md`.
