@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn create_browser_profile() -> Result<PathBuf> {
+use super::*;
+
+pub(in crate::tui) fn create_browser_profile() -> Result<PathBuf> {
     let base = env::temp_dir();
     for _ in 0..8 {
         let path = base.join(format!("arqen-oauth-{}", uuid::Uuid::new_v4().simple()));
@@ -22,7 +24,7 @@ fn create_browser_profile() -> Result<PathBuf> {
     anyhow::bail!("could not allocate a unique temporary browser profile")
 }
 
-fn secure_browser_profile(path: &Path) -> Result<()> {
+pub(in crate::tui) fn secure_browser_profile(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
