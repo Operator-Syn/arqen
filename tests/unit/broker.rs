@@ -71,7 +71,7 @@ fn write_operations_require_modify_on_selected_account_before_credentials() {
         database_path,
         credentials_path: directory.join("missing-credentials"),
         access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-        pending_deletions: std::sync::Arc::new(std::sync::Mutex::new(
+        pending_actions: std::sync::Arc::new(std::sync::Mutex::new(
             std::collections::HashMap::new(),
         )),
     };
@@ -145,7 +145,7 @@ fn read_email_account_store_failures_use_the_stable_internal_code() {
             .join("accounts.sqlite3"),
         credentials_path: std::path::PathBuf::from("unused"),
         access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-        pending_deletions: std::sync::Arc::new(std::sync::Mutex::new(
+        pending_actions: std::sync::Arc::new(std::sync::Mutex::new(
             std::collections::HashMap::new(),
         )),
     };
@@ -165,6 +165,175 @@ fn read_email_account_store_failures_use_the_stable_internal_code() {
 }
 
 #[test]
+fn action_marks_replace_opposites_share_message_identity_and_block_in_flight_transitions() {
+    let state = super::BrokerState {
+        database_path: std::env::temp_dir().join("unused-arqen-actions.sqlite3"),
+        credentials_path: std::path::PathBuf::from("unused"),
+        access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        pending_actions: std::sync::Arc::new(std::sync::Mutex::new(
+            std::collections::HashMap::new(),
+        )),
+    };
+    let deletion = super::register_action_mark(
+        &state,
+        "subject",
+        "message-1",
+        None,
+        super::PendingActionKind::TrashMessage,
+    )
+    .unwrap();
+    let sending = super::register_action_mark(
+        &state,
+        "subject",
+        "message-1",
+        Some("draft-1"),
+        super::PendingActionKind::SendDraft,
+    )
+    .unwrap();
+    assert!(matches!(
+        super::consume_action_mark(
+            &state,
+            &deletion,
+            "subject",
+            super::PendingActionKind::TrashMessage
+        ),
+        Err(super::ActionMarkFailure::Required)
+    ));
+    let draft_delete = super::register_action_mark(
+        &state,
+        "subject",
+        "message-1",
+        Some("draft-1"),
+        super::PendingActionKind::DeleteDraft,
+    )
+    .unwrap();
+    assert!(matches!(
+        super::consume_action_mark(
+            &state,
+            &sending,
+            "subject",
+            super::PendingActionKind::SendDraft
+        ),
+        Err(super::ActionMarkFailure::Required)
+    ));
+    let sending_again = super::register_action_mark(
+        &state,
+        "subject",
+        "message-1",
+        Some("draft-1"),
+        super::PendingActionKind::SendDraft,
+    )
+    .unwrap();
+    assert!(matches!(
+        super::consume_action_mark(
+            &state,
+            &draft_delete,
+            "subject",
+            super::PendingActionKind::DeleteDraft
+        ),
+        Err(super::ActionMarkFailure::Required)
+    ));
+    let executing = super::consume_action_mark(
+        &state,
+        &sending_again,
+        "subject",
+        super::PendingActionKind::SendDraft,
+    )
+    .unwrap();
+    assert!(matches!(
+        super::register_action_mark(
+            &state,
+            "subject",
+            "message-1",
+            None,
+            super::PendingActionKind::TrashMessage
+        ),
+        Err(super::ActionMarkFailure::InProgress)
+    ));
+    assert!(matches!(
+        super::consume_action_mark(
+            &state,
+            &sending_again,
+            "subject",
+            super::PendingActionKind::SendDraft
+        ),
+        Err(super::ActionMarkFailure::Required)
+    ));
+    super::finish_action_mark(&state, &executing);
+    let deletion_again = super::register_action_mark(
+        &state,
+        "subject",
+        "message-1",
+        None,
+        super::PendingActionKind::TrashMessage,
+    )
+    .unwrap();
+    assert!(
+        super::consume_action_mark(
+            &state,
+            &deletion_again,
+            "other-subject",
+            super::PendingActionKind::TrashMessage
+        )
+        .is_err()
+    );
+    let consumed = super::consume_action_mark(
+        &state,
+        &deletion_again,
+        "subject",
+        super::PendingActionKind::TrashMessage,
+    )
+    .unwrap();
+    assert!(matches!(
+        super::consume_action_mark(
+            &state,
+            &deletion_again,
+            "subject",
+            super::PendingActionKind::TrashMessage
+        ),
+        Err(super::ActionMarkFailure::Required)
+    ));
+    super::finish_action_mark(&state, &consumed);
+}
+
+#[test]
+fn action_marks_expire_after_the_configured_lifetime() {
+    let state = super::BrokerState {
+        database_path: std::env::temp_dir().join("unused-arqen-expired-actions.sqlite3"),
+        credentials_path: std::path::PathBuf::from("unused"),
+        access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        pending_actions: std::sync::Arc::new(std::sync::Mutex::new(
+            std::collections::HashMap::new(),
+        )),
+    };
+    let marker = super::register_action_mark(
+        &state,
+        "subject",
+        "message-1",
+        Some("draft-1"),
+        super::PendingActionKind::DeleteDraft,
+    )
+    .unwrap();
+    assert_eq!(super::DELETION_MARK_TTL.as_secs(), 600);
+    state
+        .pending_actions
+        .lock()
+        .unwrap()
+        .get_mut(&("subject".into(), "message-1".into()))
+        .unwrap()
+        .expires_at = std::time::Instant::now() - std::time::Duration::from_secs(1);
+    assert!(matches!(
+        super::consume_action_mark(
+            &state,
+            &marker,
+            "subject",
+            super::PendingActionKind::DeleteDraft
+        ),
+        Err(super::ActionMarkFailure::Required)
+    ));
+}
+
+#[test]
 fn list_labels_account_store_failures_use_the_stable_internal_code() {
     let state = super::BrokerState {
         database_path: std::env::temp_dir()
@@ -172,7 +341,7 @@ fn list_labels_account_store_failures_use_the_stable_internal_code() {
             .join("accounts.sqlite3"),
         credentials_path: std::path::PathBuf::from("unused"),
         access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-        pending_deletions: std::sync::Arc::new(std::sync::Mutex::new(
+        pending_actions: std::sync::Arc::new(std::sync::Mutex::new(
             std::collections::HashMap::new(),
         )),
     };
@@ -194,7 +363,7 @@ fn mark_email_account_store_failures_use_the_stable_internal_code() {
             .join("accounts.sqlite3"),
         credentials_path: std::path::PathBuf::from("unused"),
         access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-        pending_deletions: std::sync::Arc::new(std::sync::Mutex::new(
+        pending_actions: std::sync::Arc::new(std::sync::Mutex::new(
             std::collections::HashMap::new(),
         )),
     };
@@ -405,7 +574,7 @@ fn label_account_store_failures_use_the_stable_internal_code() {
             .join(format!("missing-{}/accounts.sqlite3", uuid::Uuid::new_v4())),
         credentials_path: std::env::temp_dir().join("unused-credentials"),
         access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-        pending_deletions: std::sync::Arc::new(std::sync::Mutex::new(
+        pending_actions: std::sync::Arc::new(std::sync::Mutex::new(
             std::collections::HashMap::new(),
         )),
     };
