@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl Drop for CallbackServer {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Relaxed);
