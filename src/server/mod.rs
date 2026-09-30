@@ -3,10 +3,12 @@ use anyhow::Context;
 use arqen::{
     broker::BrokerClient,
     gmail::{
-        ApplyLabelRequest, CreateLabelRequest, DeleteLabelRequest, DeleteMarkedEmailRequest,
+        ActionMarkerRequest, ApplyLabelRequest, CreateDraftRequest, CreateLabelRequest,
+        CreateReplyDraftRequest, DeleteLabelRequest, DeleteMarkedEmailRequest, DraftActionMark,
+        DraftCreateResult, DraftDeleteResult, DraftIdRequest, DraftListResponse, DraftSendResult,
         EmailDeletionMark, EmailLabel, EmailListResponse, EmailReadResponse, EmailReadState,
         EmailTrashResult, LabelApplyResult, LabelDeleteResult, LabelListResponse,
-        ListEmailsRequest, ReadEmailRequest,
+        ListDraftsRequest, ListEmailsRequest, ReadEmailRequest,
     },
     mcp::BrokerFailure,
 };
