@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
-fn split_list_env(name: &str) -> anyhow::Result<Vec<String>> {
+use super::*;
+
+pub(super) fn split_list_env(name: &str) -> anyhow::Result<Vec<String>> {
     let raw = std::env::var(name).with_context(|| format!("set {name}"))?;
     split_values(name, &raw)
 }
 
-fn split_values(name: &str, raw: &str) -> anyhow::Result<Vec<String>> {
+pub(super) fn split_values(name: &str, raw: &str) -> anyhow::Result<Vec<String>> {
     let values: Vec<String> = raw
         .split(',')
         .map(str::trim)
@@ -20,7 +22,7 @@ fn split_values(name: &str, raw: &str) -> anyhow::Result<Vec<String>> {
     Ok(values)
 }
 
-fn bearer_token_from_env() -> anyhow::Result<String> {
+pub(super) fn bearer_token_from_env() -> anyhow::Result<String> {
     match std::env::var("ARQEN_MCP_BEARER_TOKEN") {
         Ok(token) => Ok(token),
         Err(std::env::VarError::NotPresent) => {
@@ -49,7 +51,7 @@ fn bearer_token_from_env() -> anyhow::Result<String> {
     }
 }
 
-fn validate_secret(value: &str, name: &str) -> anyhow::Result<()> {
+pub(super) fn validate_secret(value: &str, name: &str) -> anyhow::Result<()> {
     anyhow::ensure!(!value.is_empty(), "{name} cannot be empty");
     anyhow::ensure!(
         !value.chars().any(char::is_control),
