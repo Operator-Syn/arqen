@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn render_stacked_footer<'a>(
+use super::*;
+
+pub(crate) fn render_stacked_footer<'a>(
     frame: &mut Frame<'_>,
     area: Rect,
     actions: Line<'static>,
@@ -24,7 +26,7 @@ fn render_stacked_footer<'a>(
     }
 }
 
-fn render_notice<'a>(frame: &mut Frame<'_>, area: Rect, notice: Line<'a>) {
+pub(crate) fn render_notice<'a>(frame: &mut Frame<'_>, area: Rect, notice: Line<'a>) {
     if area.width == 0 || area.height == 0 {
         return;
     }
@@ -55,7 +57,7 @@ pub(crate) fn header_height(width: u16, mode: UiMode) -> u16 {
         );
     }
     let inner = width
-        .saturating_sub(2 + super::content_padding(width).saturating_mul(2))
+        .saturating_sub(2 + crate::ui::content_padding(width).saturating_mul(2))
         .max(1);
     if mode == UiMode::Narrow {
         let left = wrapped_height(
@@ -109,7 +111,7 @@ pub(crate) fn footer_height(
         .saturating_add(wrapped_height(Text::from(notice_text.as_str()), width));
     }
     let inner = width
-        .saturating_sub(2 + super::content_padding(width).saturating_mul(2))
+        .saturating_sub(2 + crate::ui::content_padding(width).saturating_mul(2))
         .max(1);
     if mode == UiMode::Narrow {
         let actions_height = wrapped_height(
@@ -130,7 +132,7 @@ pub(crate) fn footer_height(
     action_height.max(notice_height).saturating_add(2)
 }
 
-fn notice_label(notice: &str) -> String {
+pub(crate) fn notice_label(notice: &str) -> String {
     if is_positive_notice(notice) {
         format!("[OK] {notice}")
     } else {
@@ -138,7 +140,7 @@ fn notice_label(notice: &str) -> String {
     }
 }
 
-fn notice_line<'a>(notice: &str, rendered: &'a str) -> Line<'a> {
+pub(crate) fn notice_line<'a>(notice: &str, rendered: &'a str) -> Line<'a> {
     let color = if is_positive_notice(notice) {
         theme::SUCCESS
     } else {
@@ -156,7 +158,7 @@ fn notice_line<'a>(notice: &str, rendered: &'a str) -> Line<'a> {
     ))
 }
 
-fn is_positive_notice(notice: &str) -> bool {
+pub(crate) fn is_positive_notice(notice: &str) -> bool {
     notice.starts_with("Authorization URL copied")
         || notice.starts_with("Authorization URL opened")
         || notice.starts_with("Browser opened")
@@ -168,7 +170,7 @@ fn is_positive_notice(notice: &str) -> bool {
         || notice.starts_with("Selected ")
 }
 
-fn title_line() -> Span<'static> {
+pub(crate) fn title_line() -> Span<'static> {
     Span::styled(
         "ARQEN",
         Style::default()
