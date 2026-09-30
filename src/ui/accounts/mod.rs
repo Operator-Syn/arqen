@@ -19,8 +19,14 @@ const SCROLLBAR_PADDING: u16 = 1;
 const SCROLLBAR_RESERVED_WIDTH: u16 = SCROLLBAR_TRACK_WIDTH + SCROLLBAR_PADDING;
 const DETAIL_COLUMN_GAP: usize = 2;
 
-include!("status.rs");
-include!("list.rs");
-include!("details.rs");
-include!("scroll.rs");
-include!("interaction.rs");
+mod details;
+mod interaction;
+mod list;
+mod scroll;
+mod status;
+
+pub(crate) use details::*;
+pub(crate) use interaction::*;
+pub(crate) use list::*;
+pub(crate) use scroll::*;
+pub(crate) use status::*;
