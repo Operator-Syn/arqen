@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-async fn proxy_http(State(state): State<GatewayState>, request: Request) -> Response {
+use super::*;
+
+pub(super) async fn proxy_http(State(state): State<GatewayState>, request: Request) -> Response {
     if !origin_is_allowed(request.headers()) {
         return plain_response(StatusCode::FORBIDDEN);
     }
@@ -59,7 +61,7 @@ async fn proxy_http(State(state): State<GatewayState>, request: Request) -> Resp
     response
 }
 
-fn should_forward_request_header(name: &reqwest::header::HeaderName) -> bool {
+pub(super) fn should_forward_request_header(name: &reqwest::header::HeaderName) -> bool {
     !matches!(
         name.as_str(),
         "host"
@@ -75,7 +77,7 @@ fn should_forward_request_header(name: &reqwest::header::HeaderName) -> bool {
     )
 }
 
-fn should_forward_response_header(name: &reqwest::header::HeaderName) -> bool {
+pub(super) fn should_forward_response_header(name: &reqwest::header::HeaderName) -> bool {
     !matches!(
         name.as_str(),
         "connection"
