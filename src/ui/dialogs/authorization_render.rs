@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_authorization(
     frame: &mut Frame<'_>,
