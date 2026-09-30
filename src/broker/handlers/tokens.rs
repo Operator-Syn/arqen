@@ -32,6 +32,34 @@ pub(super) enum TrashEmailFailure {
 }
 
 #[derive(Debug)]
+pub(super) enum DraftOperationFailure {
+    Credential(anyhow::Error),
+    Gmail(anyhow::Error),
+}
+
+pub(super) fn draft_operation_with_refresh<T, F>(
+    account: &Account,
+    state: &BrokerState,
+    operation: F,
+) -> std::result::Result<T, DraftOperationFailure>
+where
+    F: Fn(&GmailApi, &str) -> Result<T>,
+{
+    let api = GmailApi::new().map_err(DraftOperationFailure::Gmail)?;
+    let token =
+        cached_or_refresh_token(account, state).map_err(DraftOperationFailure::Credential)?;
+    match operation(&api, &token) {
+        Ok(result) => Ok(result),
+        Err(error) if is_unauthorized(&error) => {
+            invalidate_token(&account.subject, state);
+            let token = refresh_token(account, state).map_err(DraftOperationFailure::Credential)?;
+            operation(&api, &token).map_err(DraftOperationFailure::Gmail)
+        }
+        Err(error) => Err(DraftOperationFailure::Gmail(error)),
+    }
+}
+
+#[derive(Debug)]
 pub(super) enum LabelOperationFailure {
     Credential(anyhow::Error),
     Gmail(anyhow::Error),
