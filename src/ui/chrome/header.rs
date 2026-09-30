@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) fn render_header(frame: &mut Frame<'_>, area: Rect, accounts: &[Account], mode: UiMode) {
     let title = title_line();
     if mode == UiMode::Compact || area.height < 3 {
@@ -15,7 +17,7 @@ pub(crate) fn render_header(frame: &mut Frame<'_>, area: Rect, accounts: &[Accou
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .padding(Padding::horizontal(super::content_padding(area.width)))
+        .padding(Padding::horizontal(crate::ui::content_padding(area.width)))
         .border_style(Style::default().fg(theme::BORDER))
         .style(Style::default().bg(theme::SURFACE));
     let inner = block.inner(area);
