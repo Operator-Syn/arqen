@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::layout::{contains, layout, ui_mode};
+use super::*;
+
 #[cfg(test)]
 pub(crate) fn mouse_target(
     area: Rect,
