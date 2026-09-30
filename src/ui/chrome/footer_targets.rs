@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) fn reauthenticate_target(
     area: Rect,
     mode: UiMode,
@@ -39,7 +41,7 @@ pub(crate) fn focus_target(
     action_target(area, mode, selected_state, "[Tab]", column, row)
 }
 
-fn action_target(
+pub(crate) fn action_target(
     area: Rect,
     mode: UiMode,
     selected_state: Option<ConnectionState>,
@@ -92,7 +94,9 @@ fn action_target(
             < column_offset + target.chars().count()
 }
 
-fn footer_tokens(selected_state: Option<ConnectionState>) -> Vec<(&'static str, &'static str)> {
+pub(crate) fn footer_tokens(
+    selected_state: Option<ConnectionState>,
+) -> Vec<(&'static str, &'static str)> {
     let mut tokens = vec![("[a]", "add")];
     if let Some(state) = selected_state {
         match state {
@@ -115,7 +119,7 @@ fn footer_tokens(selected_state: Option<ConnectionState>) -> Vec<(&'static str, 
     tokens
 }
 
-fn compact_footer_tokens(
+pub(crate) fn compact_footer_tokens(
     selected_state: Option<ConnectionState>,
 ) -> Vec<(&'static str, &'static str)> {
     let mut tokens = vec![("[a]", "add")];
@@ -139,7 +143,7 @@ fn compact_footer_tokens(
     tokens
 }
 
-fn narrow_footer_tokens(
+pub(crate) fn narrow_footer_tokens(
     selected_state: Option<ConnectionState>,
 ) -> Vec<(&'static str, &'static str)> {
     let mut tokens = vec![("[a]", "add")];
@@ -164,14 +168,14 @@ fn narrow_footer_tokens(
     tokens
 }
 
-fn connected_count(accounts: &[Account]) -> usize {
+pub(crate) fn connected_count(accounts: &[Account]) -> usize {
     accounts
         .iter()
         .filter(|account| account.connection_state == ConnectionState::Connected)
         .count()
 }
 
-fn wrapped_height(text: Text<'_>, width: u16) -> u16 {
+pub(crate) fn wrapped_height(text: Text<'_>, width: u16) -> u16 {
     let width = usize::from(width.max(1));
     let lines = text
         .lines
