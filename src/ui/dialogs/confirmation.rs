@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) fn confirm_quit_spec(compact: bool) -> ModalSpec {
     ModalSpec {
         title: "Confirm quit".into(),
@@ -7,7 +9,7 @@ pub(crate) fn confirm_quit_spec(compact: bool) -> ModalSpec {
             Text::from(vec![Line::from(vec![
                 Span::styled(
                     "[!]",
-                    ratatui::style::Style::default().fg(super::theme::WARNING),
+                    ratatui::style::Style::default().fg(crate::ui::theme::WARNING),
                 ),
                 Span::raw(" Exit Arqen?"),
             ])])
@@ -16,7 +18,7 @@ pub(crate) fn confirm_quit_spec(compact: bool) -> ModalSpec {
                 Line::from(vec![
                     Span::styled(
                         "[!]",
-                        ratatui::style::Style::default().fg(super::theme::WARNING),
+                        ratatui::style::Style::default().fg(crate::ui::theme::WARNING),
                     ),
                     Span::raw(" Exit Arqen?"),
                 ]),
