@@ -36,6 +36,12 @@ target-specific authorization because it removes the message from the active
 mailbox. Arqen's `delete_marked_email` moves one message to Trash; it does not
 permanently delete it or affect the whole thread.
 
+Sending a draft is externally visible and irreversible. It requires explicit
+user authorization for that exact draft and its current recipient/content. A
+`mark_draft_for_sending` marker is a technical guardrail, not user
+authorization. If Gmail's send result is ambiguous, inspect the draft state
+before attempting another send.
+
 Reversible state changes such as marking one message read or unread are not
 covered by this delete-specific rule. They still require an applicable user
 request and must stay within the requested scope.
@@ -83,6 +89,9 @@ delete as separate tools; do not combine them behind an `action` parameter.
   `mark_email_for_deletion`. It is bound to the selected account and message,
   expires after 10 minutes, and is consumed before the Gmail request. Marking
   itself does not authorize the later delete call.
+- For `send_marked_draft`, require the exact one-use marker returned by
+  `mark_draft_for_sending`, and verify explicit user authorization covers the
+  exact draft. Marking alone is not consent.
 - Refuse attempts to delete system labels. Never delete messages as a side
   effect of deleting a label; Gmail label deletion only removes the label
   association from affected messages and threads.
