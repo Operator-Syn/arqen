@@ -67,9 +67,11 @@ These qualities are implemented through the following Unix philosophy in code:
    Unix-socket, and HTTP boundaries. Record each boundary's purpose and
    failure path. Compose typed inputs/outputs, fail fast with contextual
    errors, and keep internal code silent.
-5. Move tests with their implementation and retain success and failure-path
-   coverage. Update the repository map and canonical code-organization note
-   only for claims established by source or checks.
+5. Keep test files under the root `tests/` tree, grouped by source owner under
+   `tests/unit/`; wire Rust unit tests with `#[path]` where private module
+   behavior must remain accessible. Retain success and failure-path coverage.
+   Update the repository map and canonical code-organization note only for
+   claims established by source or checks.
 6. Run focused checks first, then `cargo fmt --check`, `cargo test`, clippy with
    warnings denied, `cargo build`, `nix flake check --no-build`, and
    `git diff --check`. Validate the script, references, and this skill with the
