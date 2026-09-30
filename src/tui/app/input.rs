@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
-include!("poll.rs");
-include!("keyboard.rs");
-include!("authorization.rs");
-include!("redirect.rs");
-include!("error.rs");
-include!("disconnect.rs");
+use super::*;
+
+#[path = "authorization.rs"]
+mod authorization;
+#[path = "disconnect.rs"]
+mod disconnect;
+#[path = "error.rs"]
+mod error;
+#[path = "keyboard.rs"]
+mod keyboard;
+#[path = "poll.rs"]
+mod poll;
+#[path = "redirect.rs"]
+mod redirect;
