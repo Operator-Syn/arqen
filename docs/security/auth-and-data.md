@@ -4,8 +4,9 @@
 linked.
 
 1. The TUI is the only component that lets a person choose the MCP target.
-   Selection is restricted to a connected identity with recorded Gmail
-   read-only consent and a protected credential reference.
+   Selection requires a connected identity with recorded Gmail read access
+   and a protected credential reference. Label changes and read-state tools
+   also require the account's recorded `gmail.modify` grant.
 2. The broker socket is local and user-only (`0700` directory, `0600` socket).
    Native runs read refresh tokens from the OS keyring; Docker runs read them
    from OpenBao through a broker-only AppRole. Neither mode serializes them.
