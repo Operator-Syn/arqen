@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl App {
-    fn handle_disconnect_key(&mut self, key: KeyEvent) {
+    pub(in crate::tui) fn handle_disconnect_key(&mut self, key: KeyEvent) {
         let Screen::ConfirmDisconnect { subject, .. } = &self.screen else {
             return;
         };
