@@ -34,6 +34,27 @@ pub(super) fn handle_connection(stream: std::os::unix::net::UnixStream, state: &
             Ok(crate::mcp::BrokerRequest::DeleteMarkedEmail { request }) => {
                 handle_delete_marked_email(request, state)
             }
+            Ok(crate::mcp::BrokerRequest::ListDrafts { request }) => {
+                handle_list_drafts(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::CreateDraft { request }) => {
+                handle_create_draft(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::CreateReplyDraft { request }) => {
+                handle_create_reply_draft(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::MarkDraftForDeletion { request }) => {
+                handle_mark_draft_for_deletion(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::DeleteMarkedDraft { request }) => {
+                handle_delete_marked_draft(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::MarkDraftForSending { request }) => {
+                handle_mark_draft_for_sending(request, state)
+            }
+            Ok(crate::mcp::BrokerRequest::SendMarkedDraft { request }) => {
+                handle_send_marked_draft(request, state)
+            }
             Ok(crate::mcp::BrokerRequest::Readiness { .. }) => handle_readiness(state),
             Err(failure) => BrokerResponse::error(failure.code, failure.message),
         },
