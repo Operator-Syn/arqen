@@ -140,9 +140,24 @@ pub struct GoogleOAuth {
     redirect_uri: String,
 }
 
-include!("oauth.rs");
-include!("credentials.rs");
-include!("tokens.rs");
-include!("revocation.rs");
-include!("scopes.rs");
-include!("tests.rs");
+mod credentials;
+mod oauth;
+mod revocation;
+mod scopes;
+mod tokens;
+
+use credentials::read_credentials;
+pub use revocation::revoke_google_account;
+#[cfg(test)]
+use revocation::{keyring_coordinates, validate_revocation_response};
+#[cfg(test)]
+use scopes::canonical_scopes;
+pub use scopes::token_key;
+use scopes::{ensure_expected_subject, granted_scopes};
+pub(crate) use tokens::{
+    check_google_refresh_token, is_invalid_grant, is_missing_refresh_token,
+    refresh_google_access_token,
+};
+#[cfg(test)]
+#[path = "../../tests/unit/auth.rs"]
+mod tests;
