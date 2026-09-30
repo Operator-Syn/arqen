@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[doc(hidden)]
 pub enum OpenBaoFailure {
@@ -115,7 +117,7 @@ impl OpenBaoClient {
     }
 
     #[cfg(test)]
-    fn for_test(address: impl Into<String>) -> Self {
+    pub(super) fn for_test(address: impl Into<String>) -> Self {
         Self {
             client: Client::new(),
             address: address.into().trim_end_matches('/').to_owned(),
@@ -146,8 +148,9 @@ impl OpenBaoClient {
             }
             return Err(OpenBaoFailure::LoginFailed(status.as_u16()).into());
         }
-        let payload: AppRoleLoginResponse =
-            response.json().map_err(|_| OpenBaoFailure::InvalidResponse)?;
+        let payload: AppRoleLoginResponse = response
+            .json()
+            .map_err(|_| OpenBaoFailure::InvalidResponse)?;
         let token = payload
             .auth
             .map(|auth| auth.client_token)
@@ -165,7 +168,7 @@ impl OpenBaoClient {
         Ok(path)
     }
 
-    fn get(&self, token_key: Option<&str>, subject: &str) -> Result<String> {
+    pub(super) fn get(&self, token_key: Option<&str>, subject: &str) -> Result<String> {
         let token = self.login()?;
         let path = self.secret_path(token_key, subject)?;
         let response = self
@@ -192,7 +195,12 @@ impl OpenBaoClient {
             .ok_or(OpenBaoFailure::InvalidResponse.into())
     }
 
-    fn put(&self, token_key: Option<&str>, subject: &str, refresh_token: &str) -> Result<()> {
+    pub(super) fn put(
+        &self,
+        token_key: Option<&str>,
+        subject: &str,
+        refresh_token: &str,
+    ) -> Result<()> {
         let token = self.login()?;
         let path = self.secret_path(token_key, subject)?;
         let response = self
@@ -211,7 +219,7 @@ impl OpenBaoClient {
         Ok(())
     }
 
-    fn delete(&self, token_key: Option<&str>, subject: &str) -> Result<()> {
+    pub(super) fn delete(&self, token_key: Option<&str>, subject: &str) -> Result<()> {
         let token = self.login()?;
         let path = self.secret_path(token_key, subject)?;
         let response = self
