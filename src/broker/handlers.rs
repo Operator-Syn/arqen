@@ -2,6 +2,7 @@
 use super::*;
 
 mod deletion;
+mod drafts;
 mod emails;
 mod errors;
 mod labels;
@@ -9,6 +10,10 @@ mod target;
 mod tokens;
 
 pub(super) use deletion::{handle_delete_marked_email, handle_mark_email_for_deletion};
+pub(super) use drafts::{
+    handle_create_draft, handle_create_reply_draft, handle_delete_marked_draft, handle_list_drafts,
+    handle_mark_draft_for_deletion, handle_mark_draft_for_sending, handle_send_marked_draft,
+};
 pub(super) use emails::{
     handle_list_emails, handle_mark_email_read, handle_mark_email_unread, handle_read_email,
 };
