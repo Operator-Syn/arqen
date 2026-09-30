@@ -1,4 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
+#[path = "responses.rs"]
+mod responses;
+use responses::*;
+#[cfg(test)]
+pub(super) use responses::{email_read_response, read_body_text, truncate_snippet};
+
 #[derive(Debug)]
 pub struct GmailApiError {
     status: StatusCode,
@@ -45,6 +53,35 @@ impl fmt::Display for SystemLabelError {
 
 impl std::error::Error for SystemLabelError {}
 
+#[derive(Debug)]
+pub(crate) enum ApplyLabelFailure {
+    InvalidMessageId,
+    InvalidLabelId,
+    LabelLookup(anyhow::Error),
+    SystemLabel,
+    MessageModify(anyhow::Error),
+}
+
+impl ApplyLabelFailure {
+    pub(crate) fn is_unauthorized(&self) -> bool {
+        match self {
+            Self::LabelLookup(error) | Self::MessageModify(error) => is_unauthorized(error),
+            Self::InvalidMessageId | Self::InvalidLabelId | Self::SystemLabel => false,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct LabelNotFoundError;
+
+impl fmt::Display for LabelNotFoundError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Gmail label was not found")
+    }
+}
+
+impl std::error::Error for LabelNotFoundError {}
+
 pub(crate) fn is_read_email_too_large(error: &anyhow::Error) -> bool {
     error.downcast_ref::<ReadEmailTooLarge>().is_some()
 }
@@ -73,7 +110,7 @@ struct MessageReference {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct MessageResource {
+pub(super) struct MessageResource {
     id: String,
     #[serde(rename = "threadId")]
     thread_id: String,
@@ -93,6 +130,11 @@ struct ModifiedMessageResource {
 }
 
 #[derive(Debug, Deserialize)]
+struct TrashedMessageResource {
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct LabelTypeResponse {
     id: String,
     #[serde(rename = "type")]
@@ -100,7 +142,7 @@ struct LabelTypeResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct MessagePayload {
+pub(super) struct MessagePayload {
     #[serde(default, rename = "mimeType")]
     mime_type: String,
     #[serde(default)]
@@ -303,6 +345,107 @@ impl GmailApi {
         })
     }
 
+    pub(crate) fn apply_label(
+        &self,
+        access_token: &str,
+        request: crate::gmail::ApplyLabelRequest,
+    ) -> std::result::Result<crate::gmail::LabelApplyResult, ApplyLabelFailure> {
+        request
+            .validate_message_id()
+            .map_err(|_| ApplyLabelFailure::InvalidMessageId)?;
+        request
+            .validate_label_id()
+            .map_err(|_| ApplyLabelFailure::InvalidLabelId)?;
+
+        let mut label_url = self
+            .base_url
+            .join("users/me/labels")
+            .map_err(|error| ApplyLabelFailure::LabelLookup(error.into()))?;
+        label_url
+            .path_segments_mut()
+            .map_err(|_| {
+                ApplyLabelFailure::LabelLookup(anyhow::anyhow!(
+                    "Gmail API base URL cannot accept path segments"
+                ))
+            })?
+            .push(&request.label_id);
+        let label: LabelTypeResponse = self
+            .client
+            .get(label_url)
+            .bearer_auth(access_token)
+            .query(&[("fields", "id,type")])
+            .send()
+            .context("check Gmail label type before applying it")
+            .and_then(parse_json_response)
+            .map_err(|error| {
+                if error
+                    .downcast_ref::<GmailApiError>()
+                    .is_some_and(|api_error| api_error.status() == StatusCode::NOT_FOUND)
+                {
+                    ApplyLabelFailure::LabelLookup(anyhow::Error::new(LabelNotFoundError))
+                } else {
+                    ApplyLabelFailure::LabelLookup(error)
+                }
+            })?;
+        if label.id != request.label_id {
+            return Err(ApplyLabelFailure::LabelLookup(anyhow::anyhow!(
+                "Gmail returned an unexpected label ID"
+            )));
+        }
+        if label.label_type == crate::gmail::EmailLabelType::System {
+            return Err(ApplyLabelFailure::SystemLabel);
+        }
+        if label.label_type != crate::gmail::EmailLabelType::User {
+            return Err(ApplyLabelFailure::LabelLookup(anyhow::anyhow!(
+                "Gmail returned an unknown label type"
+            )));
+        }
+
+        let mut message_url = self
+            .base_url
+            .join("users/me/messages")
+            .map_err(|error| ApplyLabelFailure::MessageModify(error.into()))?;
+        message_url
+            .path_segments_mut()
+            .map_err(|_| {
+                ApplyLabelFailure::MessageModify(anyhow::anyhow!(
+                    "Gmail API base URL cannot accept path segments"
+                ))
+            })?
+            .push(&request.message_id)
+            .push("modify");
+        let message: ModifiedMessageResource = self
+            .client
+            .post(message_url)
+            .bearer_auth(access_token)
+            .query(&[("fields", "id,labelIds")])
+            .json(&serde_json::json!({"addLabelIds": [request.label_id.clone()]}))
+            .send()
+            .context("apply Gmail label to message")
+            .and_then(parse_json_response)
+            .map_err(ApplyLabelFailure::MessageModify)?;
+        if message.id != request.message_id {
+            return Err(ApplyLabelFailure::MessageModify(anyhow::anyhow!(
+                "Gmail returned an unexpected message ID"
+            )));
+        }
+        if !message
+            .label_ids
+            .iter()
+            .any(|label_id| label_id == &request.label_id)
+        {
+            return Err(ApplyLabelFailure::MessageModify(anyhow::anyhow!(
+                "Gmail did not return the applied label"
+            )));
+        }
+
+        Ok(crate::gmail::LabelApplyResult {
+            message_id: request.message_id,
+            label_id: request.label_id,
+            applied: true,
+        })
+    }
+
     pub fn read_email(
         &self,
         access_token: &str,
@@ -318,7 +461,10 @@ impl GmailApi {
             .client
             .get(message_url)
             .bearer_auth(access_token)
-            .query(&[("format", "full"), ("fields", "id,threadId,labelIds,payload")])
+            .query(&[
+                ("format", "full"),
+                ("fields", "id,threadId,labelIds,payload"),
+            ])
             .send()
             .context("request Gmail message")
             .and_then(parse_read_email_response)?;
@@ -339,6 +485,36 @@ impl GmailApi {
         request: crate::gmail::ReadEmailRequest,
     ) -> Result<crate::gmail::EmailReadState> {
         self.modify_unread_label(access_token, request, false)
+    }
+
+    pub fn trash_email(
+        &self,
+        access_token: &str,
+        request: crate::gmail::ReadEmailRequest,
+    ) -> Result<crate::gmail::EmailTrashResult> {
+        let request = request.validate()?;
+        let mut message_url = self.base_url.join("users/me/messages")?;
+        message_url
+            .path_segments_mut()
+            .map_err(|_| anyhow::anyhow!("Gmail API base URL cannot accept path segments"))?
+            .push(&request.message_id)
+            .push("trash");
+        let message: TrashedMessageResource = self
+            .client
+            .post(message_url)
+            .bearer_auth(access_token)
+            .query(&[("fields", "id")])
+            .send()
+            .context("move Gmail message to Trash")
+            .and_then(parse_json_response)?;
+        anyhow::ensure!(
+            message.id == request.message_id,
+            "Gmail trash response has an unexpected message ID"
+        );
+        Ok(crate::gmail::EmailTrashResult {
+            message_id: message.id,
+            trashed: true,
+        })
     }
 
     fn modify_unread_label(
