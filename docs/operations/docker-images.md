@@ -29,6 +29,21 @@ affected Rust layer.
 | `ghcr.io/operator-syn/arqen-runtime` | `arqen-control`, `arqen-broker` | `X.Y.Z`, `latest` |
 | `ghcr.io/operator-syn/arqen-openbao` | OpenBao with Arqen policies and automatic first-run bootstrap | `X.Y.Z`, `latest` |
 
+The root `compose.yaml` is the published-image stack. Its services use
+`ARQEN_DOCKER_IMAGE_TAG`, defaulting to `latest`, and set `pull_policy: always`.
+To refresh the local cache and replace running containers when the remote image
+has changed, use:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+`docker compose pull` alone does not restart existing containers. The
+`ARQEN_DOCKER_IMAGE_TAG` value from the shell or `.env` selects the same tag for
+the Arqen images; for a pinned release, set it to an existing `X.Y.Z` tag listed
+on the GHCR package page before running these commands.
+
 Each published source version is also tagged `vX.Y.Z`. The tag points to the
 verified source commit; an unsigned source commit fails validation before
 images are published. After a normal successful publication, the workflow
