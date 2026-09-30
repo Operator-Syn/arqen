@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
+use super::*;
+
+pub(super) fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
     let Ok((width, height)) = crossterm::terminal::size() else {
         return false;
     };
@@ -11,7 +13,12 @@ fn handle_mouse(app: &mut App, column: u16, row: u16) -> bool {
     false
 }
 
-fn handle_modal_mouse(app: &mut App, area: ratatui::layout::Rect, column: u16, row: u16) -> bool {
+pub(super) fn handle_modal_mouse(
+    app: &mut App,
+    area: ratatui::layout::Rect,
+    column: u16,
+    row: u16,
+) -> bool {
     let Some(action) = ui::modal_action(area, &app.screen, column, row, app.notice.as_deref())
     else {
         return false;
@@ -44,7 +51,7 @@ fn handle_modal_mouse(app: &mut App, area: ratatui::layout::Rect, column: u16, r
     false
 }
 
-fn handle_account_mouse(
+pub(super) fn handle_account_mouse(
     app: &mut App,
     area: ratatui::layout::Rect,
     column: u16,
@@ -75,7 +82,7 @@ fn handle_account_mouse(
     apply_account_mouse_target(app, target);
 }
 
-fn apply_account_mouse_target(app: &mut App, target: Option<ui::MouseTarget>) {
+pub(super) fn apply_account_mouse_target(app: &mut App, target: Option<ui::MouseTarget>) {
     match target {
         Some(ui::MouseTarget::Account(index)) => {
             app.pane_focus = PaneFocus::Accounts;
@@ -95,9 +102,10 @@ fn apply_account_mouse_target(app: &mut App, target: Option<ui::MouseTarget>) {
             }
         }
         Some(ui::MouseTarget::Disconnect) => {
-            let retry = app.accounts.get(app.selected).is_some_and(|account| {
-                account.connection_state == ConnectionState::Indeterminate
-            });
+            let retry = app
+                .accounts
+                .get(app.selected)
+                .is_some_and(|account| account.connection_state == ConnectionState::Indeterminate);
             app.confirm_disconnect(retry);
         }
         Some(ui::MouseTarget::Login) => {
@@ -116,7 +124,7 @@ fn apply_account_mouse_target(app: &mut App, target: Option<ui::MouseTarget>) {
     }
 }
 
-fn handle_badge_mouse(app: &mut App) {
+pub(super) fn handle_badge_mouse(app: &mut App) {
     app.pane_focus = PaneFocus::Details;
     match app
         .accounts
@@ -134,7 +142,7 @@ fn handle_badge_mouse(app: &mut App) {
     }
 }
 
-fn handle_scroll_mouse(app: &mut App, column: u16, row: u16, forward: bool) {
+pub(super) fn handle_scroll_mouse(app: &mut App, column: u16, row: u16, forward: bool) {
     if !matches!(app.screen, Screen::Accounts) {
         return;
     }
@@ -145,7 +153,7 @@ fn handle_scroll_mouse(app: &mut App, column: u16, row: u16, forward: bool) {
     handle_scroll_mouse_at(app, area, column, row, forward);
 }
 
-fn handle_scroll_mouse_at(
+pub(super) fn handle_scroll_mouse_at(
     app: &mut App,
     area: ratatui::layout::Rect,
     column: u16,
@@ -172,7 +180,7 @@ fn handle_scroll_mouse_at(
     }
 }
 
-fn handle_mouse_move(app: &mut App, column: u16, row: u16) {
+pub(super) fn handle_mouse_move(app: &mut App, column: u16, row: u16) {
     if !matches!(app.screen, Screen::Accounts) {
         return;
     }
