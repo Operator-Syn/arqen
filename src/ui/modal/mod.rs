@@ -57,6 +57,10 @@ pub(crate) struct ModalLayout {
 
 pub(crate) struct Modal;
 
-include!("render.rs");
-include!("layout.rs");
-include!("tests.rs");
+mod layout;
+mod render;
+
+pub(crate) use layout::*;
+#[cfg(test)]
+#[path = "../../../tests/unit/ui/modal.rs"]
+mod tests;
