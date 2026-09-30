@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub fn run(options: BrokerOptions) -> Result<()> {
     #[cfg(unix)]
     {
@@ -38,6 +40,7 @@ fn run_unix(options: BrokerOptions) -> Result<()> {
         database_path: options.database_path,
         credentials_path: options.credentials_path,
         access_tokens: Arc::new(Mutex::new(HashMap::new())),
+        pending_deletions: Arc::new(Mutex::new(HashMap::new())),
     };
     let result = loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -68,7 +71,7 @@ fn run_unix(options: BrokerOptions) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn prepare_socket_path(path: &Path) -> Result<()> {
+pub(super) fn prepare_socket_path(path: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
 
     let parent = path
