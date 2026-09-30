@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) fn connection_badge_target(area: Rect, mode: UiMode, column: u16, row: u16) -> bool {
     let badge = connection_badge_area(area, mode);
     column >= badge.x
@@ -15,7 +17,7 @@ pub(crate) fn scope_heading(account: &Account) -> &'static str {
     }
 }
 
-fn panel(title: &str, border: ratatui::style::Color, _width: u16) -> Block<'static> {
+pub(crate) fn panel(title: &str, border: ratatui::style::Color, _width: u16) -> Block<'static> {
     Block::default()
         .title(title.to_string())
         .borders(Borders::ALL)
@@ -23,8 +25,8 @@ fn panel(title: &str, border: ratatui::style::Color, _width: u16) -> Block<'stat
         .style(Style::default().bg(theme::SURFACE))
 }
 
-fn detail_content(inner: Rect, width: u16) -> Rect {
-    let inset = super::content_padding(width).saturating_add(1).min(3);
+pub(crate) fn detail_content(inner: Rect, width: u16) -> Rect {
+    let inset = crate::ui::content_padding(width).saturating_add(1).min(3);
     Rect {
         x: inner.x.saturating_add(inset),
         width: inner.width.saturating_sub(inset.saturating_mul(2)),
@@ -32,11 +34,11 @@ fn detail_content(inner: Rect, width: u16) -> Rect {
     }
 }
 
-fn identity_height(mode: UiMode) -> u16 {
+pub(crate) fn identity_height(mode: UiMode) -> u16 {
     if mode == UiMode::Wide { 4 } else { 3 }
 }
 
-fn render_panel_header(frame: &mut Frame<'_>, inner: Rect) {
+pub(crate) fn render_panel_header(frame: &mut Frame<'_>, inner: Rect) {
     let header = Rect {
         height: 2.min(inner.height),
         ..inner
@@ -59,7 +61,7 @@ fn render_panel_header(frame: &mut Frame<'_>, inner: Rect) {
     );
 }
 
-fn detail_line_styled(
+pub(crate) fn detail_line_styled(
     label: &str,
     value: &str,
     color: ratatui::style::Color,
@@ -79,7 +81,7 @@ fn detail_line_styled(
     ])
 }
 
-fn section_heading(text: &str) -> Line<'static> {
+pub(crate) fn section_heading(text: &str) -> Line<'static> {
     Line::from(vec![
         Span::raw(" "),
         Span::styled(
@@ -91,7 +93,7 @@ fn section_heading(text: &str) -> Line<'static> {
     ])
 }
 
-fn separator(width: u16) -> Line<'static> {
+pub(crate) fn separator(width: u16) -> Line<'static> {
     Line::from(Span::styled(
         "─".repeat(width as usize),
         Style::default().fg(theme::BORDER),
@@ -105,7 +107,7 @@ pub(crate) fn mouse_target_with_scroll(
     row: u16,
     mode: UiMode,
     scroll_offset: usize,
-) -> Option<super::MouseTarget> {
+) -> Option<crate::ui::MouseTarget> {
     if column < area.x
         || column >= area.x.saturating_add(area.width)
         || row < area.y
@@ -114,7 +116,7 @@ pub(crate) fn mouse_target_with_scroll(
         return None;
     }
     if count == 0 {
-        return Some(super::MouseTarget::AddAccount);
+        return Some(crate::ui::MouseTarget::AddAccount);
     }
     let list_top = if mode != UiMode::Wide { 2 } else { 3 };
     let row_start = area.y.saturating_add(1).saturating_add(list_top);
@@ -129,15 +131,15 @@ pub(crate) fn mouse_target_with_scroll(
     let local_index = usize::from(offset / row_height);
     let index = scroll_offset.saturating_add(local_index);
     if index < count {
-        Some(super::MouseTarget::Account(index))
+        Some(crate::ui::MouseTarget::Account(index))
     } else if index == count {
-        Some(super::MouseTarget::AddAccount)
+        Some(crate::ui::MouseTarget::AddAccount)
     } else {
         None
     }
 }
 
-fn row_height(area: Rect, count: usize, mode: UiMode) -> u16 {
+pub(crate) fn row_height(area: Rect, count: usize, mode: UiMode) -> u16 {
     if count == 0 {
         return 1;
     }
