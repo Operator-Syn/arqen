@@ -1,0 +1,162 @@
+# User-facing stack. Pulls published images; it does not build from source.
+services:
+  openbao:
+    image: ghcr.io/operator-syn/arqen-openbao:${ARQEN_DOCKER_IMAGE_TAG:-latest}
+    pull_policy: always
+    environment:
+      ARQEN_OPENBAO_SETUP_DIR: /run/arqen/admin
+      ARQEN_OPENBAO_CONTROL_DIR: /run/arqen/control
+      ARQEN_OPENBAO_BROKER_DIR: /run/arqen/broker
+      ARQEN_CONTROL_SECRET_DIR: /run/arqen/control-secret
+      ARQEN_MCP_SECRET_DIR: /run/arqen/mcp-secret
+      ARQEN_OPENBAO_SECRET_UID: "65532"
+      ARQEN_OPENBAO_SECRET_GID: "0"
+    volumes:
+      - openbao-data:/openbao/file
+      - openbao-admin:/run/arqen/admin
+      - openbao-control:/run/arqen/control
+      - openbao-broker:/run/arqen/broker
+      - arqen-control-secret:/run/arqen/control-secret
+      - arqen-mcp-secret:/run/arqen/mcp-secret
+    restart: unless-stopped
+    user: "0:0"
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          test -s /run/arqen/admin/openbao-bootstrap-ready &&
+          test -s /run/arqen/control/openbao-control-role-id &&
+          test -s /run/arqen/control/openbao-control-secret-id &&
+          test -s /run/arqen/broker/openbao-broker-role-id &&
+          test -s /run/arqen/broker/openbao-broker-secret-id &&
+          test -s /run/arqen/control-secret/control-password &&
+          test -s /run/arqen/mcp-secret/mcp-bearer-token &&
+          bao status -address=http://127.0.0.1:8200 -format=json 2>/dev/null | grep -q 'sealed.*false'
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  arqen-oauth-client-init:
+    image: ghcr.io/operator-syn/arqen-runtime:${ARQEN_DOCKER_IMAGE_TAG:-latest}
+    pull_policy: always
+    entrypoint: ["/bin/sh", "-ec"]
+    command: >-
+      install -d -m 0700 -o 65532 -g 65532 /run/arqen-oauth;
+      install -m 0400 -o 65532 -g 65532
+      /run/secrets/google-client-secret
+      /run/arqen-oauth/google-client-secret.json
+    secrets:
+      - google-client-secret
+    volumes:
+      - oauth-client-cache:/run/arqen-oauth
+    network_mode: none
+    restart: "no"
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+
+  arqen-broker:
+    image: ghcr.io/operator-syn/arqen-runtime:${ARQEN_DOCKER_IMAGE_TAG:-latest}
+    pull_policy: always
+    command: ["credential-broker"]
+    environment:
+      XDG_DATA_HOME: /var/lib/arqen
+      XDG_RUNTIME_DIR: /run
+      GOOGLE_CLIENT_SECRET: /run/arqen-oauth/google-client-secret.json
+      ARQEN_GMAIL_BROKER_SOCKET: /run/arqen/gmail-broker.sock
+      ARQEN_SECRET_BACKEND: openbao
+      ARQEN_OPENBAO_ADDR: http://openbao:8200
+      ARQEN_OPENBAO_ROLE_ID_FILE: /run/arqen-secrets/openbao-broker-role-id
+      ARQEN_OPENBAO_SECRET_ID_FILE: /run/arqen-secrets/openbao-broker-secret-id
+    volumes:
+      - arqen-data:/var/lib/arqen
+      - arqen-runtime:/run/arqen
+      - openbao-broker:/run/arqen-secrets:ro
+      - oauth-client-cache:/run/arqen-oauth:ro
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      openbao:
+        condition: service_healthy
+      arqen-oauth-client-init:
+        condition: service_completed_successfully
+
+  arqen-control:
+    image: ghcr.io/operator-syn/arqen-runtime:${ARQEN_DOCKER_IMAGE_TAG:-latest}
+    pull_policy: always
+    command: ["control-gateway"]
+    environment:
+      XDG_DATA_HOME: /var/lib/arqen
+      XDG_RUNTIME_DIR: /run
+      ARQEN_CONTROL_PASSWORD_FILE: /run/arqen-control/control-password
+      GOOGLE_CLIENT_SECRET: /run/arqen-oauth/google-client-secret.json
+      ARQEN_SECRET_BACKEND: openbao
+      ARQEN_OPENBAO_ADDR: http://openbao:8200
+      ARQEN_OPENBAO_ROLE_ID_FILE: /run/arqen-secrets/openbao-control-role-id
+      ARQEN_OPENBAO_SECRET_ID_FILE: /run/arqen-secrets/openbao-control-secret-id
+      ARQEN_OAUTH_REMOTE: "1"
+      ARQEN_OAUTH_CALLBACK_PORT: "8765"
+      ARQEN_OAUTH_CALLBACK_BIND_ADDR: 0.0.0.0
+      ARQEN_OAUTH_CALLBACK_PUBLIC_HOST: 127.0.0.1
+    ports:
+      - "127.0.0.1:${ARQEN_CONTROL_HOST_PORT:-7681}:7681"
+      - "127.0.0.1:${ARQEN_OAUTH_CALLBACK_HOST_PORT:-8765}:8765"
+    volumes:
+      - arqen-data:/var/lib/arqen
+      - arqen-control-secret:/run/arqen-control:ro
+      - openbao-control:/run/arqen-secrets:ro
+      - oauth-client-cache:/run/arqen-oauth:ro
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      arqen-broker:
+        condition: service_started
+      arqen-oauth-client-init:
+        condition: service_completed_successfully
+
+  arqen-mcp:
+    image: ghcr.io/operator-syn/arqen-mcp:${ARQEN_DOCKER_IMAGE_TAG:-latest}
+    pull_policy: always
+    environment:
+      ARQEN_MCP_LISTEN_ADDR: 0.0.0.0:8787
+      ARQEN_MCP_ALLOWED_HOSTS: "${ARQEN_MCP_ALLOWED_HOSTS:-127.0.0.1:8787}"
+      ARQEN_MCP_ALLOWED_ORIGINS: "${ARQEN_MCP_ALLOWED_ORIGINS:-http://127.0.0.1:8787}"
+      ARQEN_GMAIL_BROKER_SOCKET: /run/arqen/gmail-broker.sock
+      ARQEN_MCP_BEARER_TOKEN_FILE: /run/arqen-mcp/mcp-bearer-token
+    ports:
+      - "127.0.0.1:${ARQEN_MCP_HOST_PORT:-8787}:8787"
+    volumes:
+      - arqen-runtime:/run/arqen:ro
+      - arqen-mcp-secret:/run/arqen-mcp:ro
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      arqen-broker:
+        condition: service_started
+
+secrets:
+  google-client-secret:
+    file: ./.secrets/google-client-secret.json
+
+volumes:
+  arqen-data:
+  arqen-runtime:
+  openbao-data:
+  openbao-admin:
+  openbao-control:
+  openbao-broker:
+  arqen-control-secret:
+  arqen-mcp-secret:
+  oauth-client-cache:
