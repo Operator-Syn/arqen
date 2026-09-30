@@ -11,13 +11,15 @@ account metadata, the opaque reference, connection state, and scope evidence.
 
 Arqen requests both Gmail's restricted `gmail.readonly` and `gmail.modify`
 scopes. The latter permits reading, composing, and sending email; the product
-uses its message-modification ability only for the separate read-state tools.
+uses its write access for label management/application, per-message read-state,
+and the guarded message-to-Trash flow, and exposes no compose or send tool.
 The persisted target-selection requirement remains `gmail.readonly`, while the
-broker checks for an exact recorded `gmail.modify` grant before either
-read-state operation. Reauthorize the selected account after deploying code
-that requests this new grant: an existing refresh token does not inherit newly
-requested scopes. Google also limits refresh tokens for external OAuth apps in
-Testing to seven days when Gmail scopes are requested.
+broker checks for an exact recorded `gmail.modify` grant before label create,
+apply, delete, read-state, or message-to-Trash operations. Reauthorize the
+selected account
+after deploying code that requests this new grant: an existing refresh token
+does not inherit newly requested scopes. Google also limits refresh tokens for
+external OAuth apps in Testing to seven days when Gmail scopes are requested.
 
 The broker calls `refresh_google_access_token` with the selected subject,
 rotates a returned refresh token in the same protected-store entry, and keeps the
