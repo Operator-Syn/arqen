@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
-fn login_response(status: StatusCode, error: Option<&str>) -> Response {
+use super::*;
+
+pub(super) fn login_response(status: StatusCode, error: Option<&str>) -> Response {
     let mut response = Html(login_page(error)).into_response();
     *response.status_mut() = status;
     set_page_headers(response.headers_mut());
     response
 }
 
-fn redirect_with_cookie(status: StatusCode, cookie: String) -> Response {
+pub(super) fn redirect_with_cookie(status: StatusCode, cookie: String) -> Response {
     let mut response = status.into_response();
     response
         .headers_mut()
@@ -18,13 +20,13 @@ fn redirect_with_cookie(status: StatusCode, cookie: String) -> Response {
     response
 }
 
-fn plain_response(status: StatusCode) -> Response {
+pub(super) fn plain_response(status: StatusCode) -> Response {
     let mut response = status.into_response();
     set_page_headers(response.headers_mut());
     response
 }
 
-fn set_page_headers(headers: &mut HeaderMap) {
+pub(super) fn set_page_headers(headers: &mut HeaderMap) {
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(
         header::REFERRER_POLICY,
@@ -42,7 +44,7 @@ fn set_page_headers(headers: &mut HeaderMap) {
     );
 }
 
-fn login_page(error: Option<&str>) -> String {
+pub(super) fn login_page(error: Option<&str>) -> String {
     let mut page = LOGIN_PAGE_TEMPLATE.to_owned();
     for (placeholder, value) in [
         ("__BACKGROUND__", theme::BACKGROUND_HEX),
@@ -66,7 +68,7 @@ fn login_page(error: Option<&str>) -> String {
     .replace("__ERROR__", &error)
 }
 
-fn escape_html(value: &str) -> String {
+pub(super) fn escape_html(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
