@@ -2,7 +2,8 @@
 
 **Source:** `src/gmail/`; external contract: [Gmail
 `users.messages.list`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list)
-and [`users.messages.get`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get).
+[`users.messages.get`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/get),
+and [`users.messages.trash`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/trash).
 
 Arqen uses the Gmail REST API with `users/me` after refreshing the selected
 account’s token. A list request sends `q`, `maxResults`,
@@ -42,14 +43,24 @@ object; only then does Arqen return `{label_id, deleted:true}`. Gmail's delete
 operation removes the label from every message and thread using it but does not
 delete the messages.
 
-The Google Gmail API discovery document and both method references list
-`gmail.modify` as an accepted scope for label create and delete (along with
-`gmail.labels` and the broader `mail.google.com`). Arqen already requests and
-checks the selected account's recorded `gmail.modify` grant; this change does
-not broaden OAuth scopes. The documented `Label.name` schema requires a string
-but specifies no length or character pattern. Arqen rejects blank names and
-control characters; Gmail remains the authority for reserved-name conflicts
-and other provider name rules. Gmail documents a 10,000-label mailbox maximum.
+`apply_label` accepts a message ID from `list_emails` and a custom label ID
+from `list_labels`. It calls
+[`users.labels.get`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels/get)
+to confirm that the exact label ID belongs to a user label, then calls
+[`users.messages.modify`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/modify)
+on `users/me/messages/{messageId}/modify` with only
+`addLabelIds: [labelId]`. It affects one message, not its thread, preserves
+other labels, and returns the IDs plus `applied: true` only after Gmail's
+response includes the label. System labels are rejected before the modify call.
+
+The Gmail API method references list `gmail.modify` as an accepted scope for
+label create, apply, and delete (along with `gmail.labels` and the broader
+`mail.google.com`). Arqen already requests and checks the selected account's
+recorded `gmail.modify` grant; this operation does not broaden OAuth scopes.
+The documented `Label.name` schema requires a string but specifies no length or
+character pattern. Arqen rejects blank names and control characters; Gmail
+remains the authority for reserved-name conflicts and other provider name
+rules. Gmail documents a 10,000-label mailbox maximum.
 
 The read-state tools use Gmail's
 [`users.messages.modify`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/modify)
@@ -60,10 +71,23 @@ the message is read. The method requires `gmail.modify` (or the broader
 `mail.google.com`); Arqen requests only `gmail.modify`, not `gmail.labels` or
 `mail.google.com`.
 
+Message deletion uses an explicit two-call guard. `mark_email_for_deletion`
+does not call Gmail: it returns an opaque, account-bound, one-use marker for
+the exact message ID, held in broker memory for 10 minutes. A separate
+`delete_marked_email` call must supply that exact marker; the broker checks the
+selected Google subject, expiry, and single-use state before consuming it.
+After consumption, Arqen calls Gmail's
+[`users.messages.trash`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/trash)
+at `POST users/me/messages/{messageId}/trash`, requesting only the response ID.
+This moves one message to recoverable Trash, not permanent deletion, and uses
+the existing `gmail.modify` grant. Failed calls consume their marker and
+require a fresh mark before retrying.
+
 The selected account's recorded OAuth grants must contain
 [`gmail.readonly`](https://developers.google.com/workspace/gmail/api/auth/scopes)
-for target eligibility; the two read-state tools additionally require
-`gmail.modify`. Both scopes are restricted. Google's `gmail.modify` description
+for target eligibility; `apply_label`, the two read-state tools, and both
+message-to-Trash tools additionally require `gmail.modify`. Both scopes are
+restricted. Google's `gmail.modify` description
 includes reading, composing, and sending email. After Arqen begins requesting
 that new scope, the selected account must be reauthorized to record the actual
 grant; a refresh of its existing token does not retroactively add the scope.
