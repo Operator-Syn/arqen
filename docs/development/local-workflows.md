@@ -1,10 +1,12 @@
-# Local-first workflows
+# Developer and local workflows
 
-The repository supports a Docker-native local profile and a native loopback
-workflow. Docker runs the clean-slate stack; native mode uses the host OS
-keyring. Named commands load settings from the ignored `.env` file. The tracked
-`.env.example` contains local defaults and paths, not credentials. Create `.env`
-with:
+This guide covers Make commands, source builds, and local service development.
+For the no-build user setup, start with the [Docker Quickstart](../quickstart.md).
+
+The developer Docker profile runs a clean-slate stack; native mode uses the
+host OS keyring. Named commands load settings from the ignored `.env` file. The
+tracked `.env.example` contains local defaults and paths, not credentials.
+Create `.env` with:
 
 ```bash
 make setup-local
