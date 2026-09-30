@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) fn pane_viewport(
     area: Rect,
     account_count: usize,
@@ -14,14 +16,14 @@ pub(crate) fn pane_viewport(
     }
 }
 
-fn contains(area: Rect, column: u16, row: u16) -> bool {
+pub(crate) fn contains(area: Rect, column: u16, row: u16) -> bool {
     column >= area.x
         && column < area.x.saturating_add(area.width)
         && row >= area.y
         && row < area.y.saturating_add(area.height)
 }
 
-fn layout(
+pub(super) fn layout(
     area: Rect,
     _account_count: usize,
     selected_state: Option<ConnectionState>,
@@ -72,12 +74,12 @@ fn layout(
     }
 }
 
-fn proportional_inset(area: Rect) -> u16 {
+pub(crate) fn proportional_inset(area: Rect) -> u16 {
     let basis = area.width.min(area.height);
     basis.saturating_div(24).clamp(1, 3)
 }
 
-fn ui_mode(area: Rect) -> UiMode {
+pub(crate) fn ui_mode(area: Rect) -> UiMode {
     // Terminal-column breakpoints approximating common 576px/960px web breakpoints.
     if area.height < 20 || area.width < 72 {
         UiMode::Compact
