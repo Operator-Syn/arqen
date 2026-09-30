@@ -29,9 +29,19 @@ use crate::config::{
 };
 use crate::{callback, ui};
 
-include!("state.rs");
-include!("app/mod.rs");
-include!("browser.rs");
-include!("input.rs");
-include!("runtime.rs");
-include!("tests.rs");
+mod app;
+mod browser;
+mod input;
+mod runtime;
+mod state;
+
+use browser::*;
+use input::*;
+#[cfg(test)]
+use runtime::handle_event;
+pub(crate) use runtime::run;
+use state::{App, OwnedBrowser};
+pub(crate) use state::{LOGIN_HELPER_ENABLED, LoginIntent, PaneFocus, Screen};
+#[cfg(test)]
+#[path = "../../tests/unit/tui.rs"]
+mod tests;
