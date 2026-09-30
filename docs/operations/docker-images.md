@@ -41,43 +41,29 @@ permissions, and repository branch rules must allow its direct patch-bump
 commit to `main`. It uses `GITHUB_TOKEN`; those commits do not start another
 push workflow.
 
-## On-demand branch beta images
+## Building a beta from source
 
-Pushes to `main` continue to publish stable `X.Y.Z` and `latest` tags. To publish
-a beta from another branch, open **Actions → Publish Docker images → Run
-workflow**, choose the branch, and start the run. Manual dispatch on `main` is
-rejected before image builds; tag dispatches are rejected, and non-`main` pushes
-do not publish automatically.
-The workflow must first be present on the repository's default branch for the
-manual run button to be available ([GitHub instructions](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)).
+The release workflow publishes stable images from `main` only. To try a beta,
+clone the repository, check out the desired branch or commit, then let the
+Docker-native workflow build images from that checkout:
 
-The beta image version is `X.Y.Z-beta.<branch-slug>.<run-number>`, based on the
-selected branch's Cargo version. Branch names are lowercased and normalized for
-SemVer and Docker tags. For example, branch `feature/openbao-setup` might
-publish `0.1.2-beta.feature-openbao-setup.42`. Beta runs publish that tag for
-all three images and write digest metadata to
-`prereleases/<version>.json` on `docker-images`. They do not update stable
-`latest.json`, stable tags, source tags, or Cargo versions.
-
-To use a beta MCP/runtime release in the Docker-native stack, set the exact
-published tag in the ignored `.env` file and run `make docker-up`:
-
-```dotenv
-ARQEN_DOCKER_IMAGE_SOURCE=registry
-ARQEN_DOCKER_IMAGE_TAG=0.1.2-beta.feature-openbao-setup.42
+```bash
+git clone https://github.com/Operator-Syn/arqen.git
+cd arqen
+git switch --detach <branch-or-commit>
+make docker-setup   # first run only
+ARQEN_DOCKER_IMAGE_SOURCE=build make docker-up
 ```
 
-Registry mode pulls that versioned multi-platform tag for MCP and runtime.
-The Docker-native stack continues to use upstream `openbao/openbao:2.6.0`; the
-project OpenBao beta remains available as a GHCR package but is not consumed by
-this Compose profile.
+This uses local `arqen-local` image references and does not publish beta images
+to GHCR. See [Docker-native local stack](../development/local-workflows.md#docker-native-local-stack)
+for host requirements and setup details.
 
 The `docker-images` branch is an orphan metadata branch. It contains
-`releases/<version>.json`, `prereleases/<version>.json`, `latest.json`, and a
-short index README, including image references, manifest digests, supported
-platforms, source commit, and pull commands. Versioned tags are accompanied by
-content digests. Image layers, source archives, and binaries are not stored on
-that branch.
+`releases/<version>.json`, `latest.json`, and a short index README, including
+image references, manifest digests, supported platforms, source commit, and
+pull commands. Versioned tags are accompanied by content digests. Image layers,
+source archives, and binaries are not stored on that branch.
 
 The recorded image digests identify the published multi-platform indexes. The
 metadata branch initialization handles an empty orphan index before adding
