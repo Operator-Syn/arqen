@@ -186,7 +186,8 @@ mod validation;
 #[cfg(test)]
 pub(crate) use client::ReadEmailTooLarge;
 pub(crate) use client::{
-    ApplyLabelFailure, LabelNotFoundError, SystemLabelError, is_read_email_too_large,
+    ApplyLabelFailure, LabelNotFoundError, SystemLabelError, is_draft_message_mutation,
+    is_read_email_too_large,
 };
 pub use client::{GmailApi, GmailApiError, is_unauthorized};
 #[cfg(test)]
