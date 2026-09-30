@@ -22,8 +22,19 @@ enum Backend {
     OpenBao,
 }
 
-include!("backend.rs");
-include!("keyring.rs");
-include!("openbao.rs");
-include!("config.rs");
-include!("tests.rs");
+mod backend;
+mod config;
+#[path = "keyring.rs"]
+mod keyring_backend;
+mod openbao;
+
+pub use backend::token_reference;
+use backend::*;
+pub(crate) use backend::{delete_refresh_token, load_refresh_token, store_refresh_token};
+use config::*;
+use keyring_backend::*;
+pub(crate) use openbao::OpenBaoClient;
+pub use openbao::OpenBaoFailure;
+#[cfg(test)]
+#[path = "../../tests/unit/secrets.rs"]
+mod tests;
