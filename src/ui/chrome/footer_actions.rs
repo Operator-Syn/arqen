@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn footer_actions(
+use super::*;
+
+pub(crate) fn footer_actions(
     selected_state: Option<ConnectionState>,
     pane_focus: PaneFocus,
 ) -> Vec<Span<'static>> {
@@ -105,7 +107,7 @@ fn footer_actions(
     actions
 }
 
-fn wide_footer_columns(inner: Rect) -> [Rect; 3] {
+pub(crate) fn wide_footer_columns(inner: Rect) -> [Rect; 3] {
     let columns = Layout::horizontal([
         Constraint::Percentage(60),
         Constraint::Length(1),
@@ -115,7 +117,9 @@ fn wide_footer_columns(inner: Rect) -> [Rect; 3] {
     [columns[0], columns[1], columns[2]]
 }
 
-fn compact_footer_actions(selected_state: Option<ConnectionState>) -> Vec<Span<'static>> {
+pub(crate) fn compact_footer_actions(
+    selected_state: Option<ConnectionState>,
+) -> Vec<Span<'static>> {
     let mut actions = vec![
         Span::styled(
             "[a]",
@@ -167,7 +171,7 @@ fn compact_footer_actions(selected_state: Option<ConnectionState>) -> Vec<Span<'
     actions
 }
 
-fn narrow_footer_actions(selected_state: Option<ConnectionState>) -> Vec<Span<'static>> {
+pub(crate) fn narrow_footer_actions(selected_state: Option<ConnectionState>) -> Vec<Span<'static>> {
     let mut actions = vec![
         Span::styled(
             "[a]",
