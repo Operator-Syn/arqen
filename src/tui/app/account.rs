@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl App {
-    fn confirm_disconnect(&mut self, retry: bool) {
+    pub(in crate::tui) fn confirm_disconnect(&mut self, retry: bool) {
         let Some(account) = self.accounts.get(self.selected) else {
             return;
         };
@@ -20,7 +22,7 @@ impl App {
         };
     }
 
-    fn disconnect_account(&mut self, subject: &str) {
+    pub(in crate::tui) fn disconnect_account(&mut self, subject: &str) {
         let token_key = self
             .accounts
             .iter()
