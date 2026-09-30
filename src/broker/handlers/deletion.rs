@@ -29,33 +29,39 @@ pub(in crate::broker) fn handle_mark_email_for_deletion(
         return insufficient_scope_response();
     }
 
-    let now = Instant::now();
-    let mut marks = match state.pending_deletions.lock() {
-        Ok(marks) => marks,
-        Err(_) => {
+    let marker_id = match register_action_mark(
+        state,
+        &account.subject,
+        &request.message_id,
+        None,
+        PendingActionKind::TrashMessage,
+    ) {
+        Ok(id) => id,
+        Err(ActionMarkFailure::StoreUnavailable) => {
             return BrokerResponse::error(
                 BrokerErrorCode::Internal,
-                "the deletion-mark store is unavailable",
+                "the action-mark store is unavailable",
+            );
+        }
+        Err(ActionMarkFailure::Limit) => {
+            return BrokerResponse::error(
+                BrokerErrorCode::DeletionMarkLimit,
+                "too many pending action marks; complete an action or wait for marks to expire",
+            );
+        }
+        Err(ActionMarkFailure::InProgress) => {
+            return BrokerResponse::error(
+                BrokerErrorCode::ActionInProgress,
+                "an action is already executing for this message",
+            );
+        }
+        Err(ActionMarkFailure::Required) => {
+            return BrokerResponse::error(
+                BrokerErrorCode::Internal,
+                "the action-mark state is invalid",
             );
         }
     };
-    marks.retain(|_, mark| mark.expires_at > now);
-    if marks.len() >= MAX_PENDING_DELETION_MARKS {
-        return BrokerResponse::error(
-            BrokerErrorCode::DeletionMarkLimit,
-            "too many pending deletion marks; delete marked messages or wait for marks to expire",
-        );
-    }
-
-    let marker_id = uuid::Uuid::new_v4().simple().to_string();
-    marks.insert(
-        marker_id.clone(),
-        PendingDeletionMark {
-            google_subject: account.subject,
-            message_id: request.message_id.clone(),
-            expires_at: now + DELETION_MARK_TTL,
-        },
-    );
     BrokerResponse::DeletionMarked {
         result: crate::gmail::EmailDeletionMark {
             marker_id,
@@ -93,53 +99,37 @@ pub(in crate::broker) fn handle_delete_marked_email(
         return insufficient_scope_response();
     }
 
-    let message_id = match consume_deletion_mark(&request.marker_id, &account.subject, state) {
-        Ok(message_id) => message_id,
-        Err(DeletionMarkFailure::Required) => return deletion_mark_required(),
-        Err(DeletionMarkFailure::StoreUnavailable) => {
+    let mark = match consume_action_mark(
+        state,
+        &request.marker_id,
+        &account.subject,
+        PendingActionKind::TrashMessage,
+    ) {
+        Ok(mark) => mark,
+        Err(ActionMarkFailure::Required) => return deletion_mark_required(),
+        Err(ActionMarkFailure::StoreUnavailable) => {
             return BrokerResponse::error(
                 BrokerErrorCode::Internal,
                 "the deletion-mark store is unavailable",
             );
         }
+        Err(ActionMarkFailure::Limit | ActionMarkFailure::InProgress) => {
+            return deletion_mark_required();
+        }
     };
-    let message_request = crate::gmail::ReadEmailRequest { message_id };
-    match trash_email_with_refresh(&account, message_request, state) {
+    let result = trash_email_with_refresh(
+        &account,
+        crate::gmail::ReadEmailRequest {
+            message_id: mark.message_id.clone(),
+        },
+        state,
+    );
+    finish_action_mark(state, &mark);
+    match result {
         Ok(result) => BrokerResponse::EmailTrashed { result },
         Err(TrashEmailFailure::Credential(error)) => map_credential_error(&error),
         Err(TrashEmailFailure::Gmail(error)) => map_trash_email_error(&error),
     }
-}
-
-fn consume_deletion_mark(
-    marker_id: &str,
-    google_subject: &str,
-    state: &BrokerState,
-) -> std::result::Result<String, DeletionMarkFailure> {
-    let mut marks = state
-        .pending_deletions
-        .lock()
-        .map_err(|_| DeletionMarkFailure::StoreUnavailable)?;
-    let Some(mark) = marks.get(marker_id) else {
-        return Err(DeletionMarkFailure::Required);
-    };
-    if mark.expires_at <= Instant::now() {
-        marks.remove(marker_id);
-        return Err(DeletionMarkFailure::Required);
-    }
-    if mark.google_subject != google_subject {
-        return Err(DeletionMarkFailure::Required);
-    }
-    marks
-        .remove(marker_id)
-        .map(|mark| mark.message_id)
-        .ok_or(DeletionMarkFailure::Required)
-}
-
-#[derive(Debug, Clone, Copy)]
-enum DeletionMarkFailure {
-    Required,
-    StoreUnavailable,
 }
 
 fn deletion_mark_required() -> BrokerResponse {
@@ -150,6 +140,12 @@ fn deletion_mark_required() -> BrokerResponse {
 }
 
 fn map_trash_email_error(error: &anyhow::Error) -> BrokerResponse {
+    if crate::gmail::is_draft_message_mutation(error) {
+        return BrokerResponse::error(
+            BrokerErrorCode::InvalidRequest,
+            "draft messages must use mark_draft_for_deletion and delete_marked_draft",
+        );
+    }
     if let Some(error) = error.downcast_ref::<GmailApiError>() {
         match error.status().as_u16() {
             400 => {
