@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) fn list_viewport_rows(area: Rect, count: usize, mode: UiMode) -> usize {
     let inner_height = area.height.saturating_sub(2);
     let list_top = if mode != UiMode::Wide || count == 0 {
@@ -10,7 +12,7 @@ pub(crate) fn list_viewport_rows(area: Rect, count: usize, mode: UiMode) -> usiz
     usize::from(list_height / row_height(area, count, mode).max(1)).max(1)
 }
 
-fn render_scrollbar(
+pub(crate) fn render_scrollbar(
     frame: &mut Frame<'_>,
     area: Rect,
     content_length: usize,
