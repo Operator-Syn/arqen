@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn status_presentation(
+use super::*;
+
+pub(crate) fn status_presentation(
     state: ConnectionState,
 ) -> (&'static str, &'static str, ratatui::style::Color) {
     match state {
@@ -45,7 +47,7 @@ pub(crate) fn scope_summary(account: &Account) -> String {
     }
 }
 
-fn friendly_scope(scope: &str) -> Option<&'static str> {
+pub(crate) fn friendly_scope(scope: &str) -> Option<&'static str> {
     match scope {
         "openid" => Some("OpenID identity"),
         "email" | EMAIL_SCOPE => Some("Email address"),
@@ -56,7 +58,7 @@ fn friendly_scope(scope: &str) -> Option<&'static str> {
     }
 }
 
-fn scope_lines(account: &Account) -> Vec<Line<'static>> {
+pub(crate) fn scope_lines(account: &Account) -> Vec<Line<'static>> {
     let Some(scopes) = account.granted_scopes.as_deref() else {
         return vec![Line::from(Span::styled(
             "Scopes unverified — reauthenticate to record Google's grant.",
@@ -111,7 +113,7 @@ fn scope_lines(account: &Account) -> Vec<Line<'static>> {
     lines
 }
 
-fn scope_block_height(lines: &[Line<'_>], width: u16) -> u16 {
+pub(crate) fn scope_block_height(lines: &[Line<'_>], width: u16) -> u16 {
     let inner_width = usize::from(width.saturating_sub(4).max(1));
     let content_height = lines
         .iter()
