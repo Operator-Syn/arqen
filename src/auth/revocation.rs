@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub fn revoke_google_account(token_key: Option<&str>, subject: &str) -> Result<()> {
     let refresh_token = load_refresh_token(token_key, subject).context(
         "no stored Google refresh token; reauthenticate this account before disconnecting",
@@ -8,7 +10,7 @@ pub fn revoke_google_account(token_key: Option<&str>, subject: &str) -> Result<(
 }
 
 #[cfg(test)]
-fn keyring_coordinates(token_key: Option<&str>, subject: &str) -> (String, String) {
+pub(super) fn keyring_coordinates(token_key: Option<&str>, subject: &str) -> (String, String) {
     let Some(reference) = token_key.and_then(|value| value.strip_prefix("keyring:")) else {
         return (KEYRING_SERVICE.to_owned(), subject.to_owned());
     };
@@ -39,7 +41,10 @@ fn revoke_refresh_token(refresh_token: &str) -> Result<()> {
     validate_revocation_response(status, error_code.as_deref())
 }
 
-fn validate_revocation_response(status: StatusCode, error_code: Option<&str>) -> Result<()> {
+pub(super) fn validate_revocation_response(
+    status: StatusCode,
+    error_code: Option<&str>,
+) -> Result<()> {
     if status.is_success()
         || (status == StatusCode::BAD_REQUEST && error_code == Some("invalid_token"))
     {
