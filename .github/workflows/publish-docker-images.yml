@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - '.dockerignore'
-      - '.github/workflows/publish-docker-images.yml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'Dockerfile'
@@ -28,7 +27,7 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     outputs:
       version: ${{ steps.version.outputs.value }}
       source_sha: ${{ steps.version.outputs.source_sha }}
@@ -41,6 +40,8 @@ jobs:
       - name: Validate release version
         id: version
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           source_sha="$GITHUB_SHA"
@@ -57,29 +58,33 @@ jobs:
           fi
 
           git fetch origin --tags
-          version_bumped=false
           tag="v$version"
-          while git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; do
+          if git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
             tagged_commit="$(git rev-parse "$tag^{commit}")"
-            if [[ "$tagged_commit" == "$GITHUB_SHA" && "$version_bumped" == false ]]; then
-              break
-            fi
-            if ! git merge-base --is-ancestor "$tagged_commit" "$GITHUB_SHA"; then
-              echo "Release tag $tag belongs to another history ($tagged_commit); refusing to choose a version automatically." >&2
+            if [[ "$tagged_commit" != "$source_sha" ]]; then
+              if git merge-base --is-ancestor "$tagged_commit" "$source_sha"; then
+                echo "Release version $version is already tagged. Bump Cargo.toml and Cargo.lock in a reviewed source change before publishing." >&2
+              else
+                echo "Release tag $tag belongs to another history ($tagged_commit); refusing to choose a version automatically." >&2
+              fi
               exit 1
             fi
-            version="$(python3 "$GITHUB_WORKSPACE/scripts/arqen-bump-patch-version.py" --root "$GITHUB_WORKSPACE")"
-            version_bumped=true
-            tag="v$version"
-          done
+          fi
 
-          if [[ "$version_bumped" == true ]]; then
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add Cargo.toml Cargo.lock
-            git commit -m "Bump patch version to $version"
-            git push origin HEAD:refs/heads/main
-            source_sha="$(git rev-parse HEAD)"
+          verification_json="$(curl --fail --silent --show-error \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$source_sha")"
+          verification_reason="$(python3 -c '
+          import json
+          import sys
+          verification = json.load(sys.stdin)["commit"]["verification"]
+          print("verified" if verification.get("verified") is True else verification.get("reason", "unknown"))
+          ' <<< "$verification_json")"
+          if [[ "$verification_reason" != "verified" ]]; then
+            echo "Refusing stable release from GitHub-unverified commit $source_sha (reason: $verification_reason)." >&2
+            exit 1
           fi
 
           {
