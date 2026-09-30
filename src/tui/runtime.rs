@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) fn run() -> Result<()> {
     let path = crate::config::database_path().with_context(|| "open application data directory")?;
     let store = AccountStore::open(&path)
@@ -42,7 +44,7 @@ fn run_tui(stdout: &mut io::Stdout, mut app: App) -> Result<()> {
     Ok(())
 }
 
-fn handle_event(event: Event, app: &mut App) -> bool {
+pub(super) fn handle_event(event: Event, app: &mut App) -> bool {
     match event {
         Event::Key(key) => {
             if key.code == KeyCode::Char('c')
