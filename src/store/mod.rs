@@ -53,8 +53,10 @@ pub struct McpConfiguration {
     pub target_google_subject: Option<String>,
 }
 
-include!("schema.rs");
-include!("accounts.rs");
-include!("target.rs");
-include!("queries.rs");
-include!("tests.rs");
+mod accounts;
+mod queries;
+mod schema;
+mod target;
+#[cfg(test)]
+#[path = "../../tests/unit/store.rs"]
+mod tests;
