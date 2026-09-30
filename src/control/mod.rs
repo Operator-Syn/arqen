@@ -163,50 +163,22 @@ impl SessionStore {
     }
 }
 
-#[derive(Debug)]
-struct FailedLoginState {
-    window_started: Instant,
-    failures: u8,
-}
+mod login_rate_limit;
+use login_rate_limit::FailedLoginState;
 
-impl Default for FailedLoginState {
-    fn default() -> Self {
-        Self {
-            window_started: Instant::now(),
-            failures: 0,
-        }
-    }
-}
+mod auth;
+mod pages;
+mod proxy;
+mod routes;
+mod runtime;
+mod websocket;
 
-impl FailedLoginState {
-    fn retry_after(&mut self) -> Option<Duration> {
-        let now = Instant::now();
-        if now.duration_since(self.window_started) >= FAILED_LOGIN_WINDOW {
-            self.window_started = now;
-            self.failures = 0;
-        }
-        if self.failures >= MAX_FAILED_LOGINS {
-            Some(FAILED_LOGIN_WINDOW.saturating_sub(now.duration_since(self.window_started)))
-        } else {
-            None
-        }
-    }
-
-    fn record_failure(&mut self) {
-        let _ = self.retry_after();
-        self.failures = self.failures.saturating_add(1);
-    }
-
-    fn reset(&mut self) {
-        self.window_started = Instant::now();
-        self.failures = 0;
-    }
-}
-
-include!("runtime.rs");
-include!("routes.rs");
-include!("websocket.rs");
-include!("proxy.rs");
-include!("auth.rs");
-include!("pages.rs");
-include!("tests.rs");
+use auth::*;
+use pages::*;
+use proxy::*;
+use routes::*;
+pub(crate) use runtime::run;
+use websocket::*;
+#[cfg(test)]
+#[path = "../../tests/unit/control.rs"]
+mod tests;
