@@ -21,6 +21,7 @@ and examples; they do not claim that services have been activated or deployed.
 | Run containers or configure an Nginx edge | [Container operations](operations/container-and-nginx.md) |
 | Pull images or understand releases | [Docker image releases](operations/docker-images.md) |
 | Build and verify a change | [Verification](development/verification.md) · [Code organization](development/code-organization.md) |
+| Find or add tests | [Test layout](development/testing.md) |
 | Browse design decisions and audits | [Decisions](decisions/) · [Audits](audits/) |
 
 ## Product boundaries
@@ -38,5 +39,5 @@ and examples; they do not claim that services have been activated or deployed.
 
 The [UI style guide](ui-style.md) and [mockup notes](ui-mockups/README.md)
 cover the account dashboard. The repository-local
-[`arqen-modularization` workflow](../.agents/skills/arqen-modularization/SKILL.md)
+[`arqen-modularization` workflow](agent-skills/arqen-modularization/SKILL.md)
 guides future source-boundary reviews.
