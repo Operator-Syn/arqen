@@ -32,10 +32,14 @@ labels. Agents select a record by name, then pass its ID explicitly to
 `list_emails.label_ids` in a separate request. `list_emails` does not depend on
 or call `list_labels`; its message `labels` remain Gmail IDs.
 
-`create_label` and `delete_label` are separate broker operations and both
-require the selected account's recorded `gmail.modify` scope before protected
-credential access. Creation passes only the requested name to Gmail and returns
-the typed `id`, `name`, and `type=user` record. Deletion receives the exact
+`create_label`, `apply_label`, and `delete_label` are separate broker operations
+and require the selected account's recorded `gmail.modify` scope before
+protected credential access. `apply_label` receives one message ID and one
+exact user-label ID, checks that the label is custom, then adds it to that
+message only. It distinguishes an unknown label from a missing message and
+does not return provider response bodies. Creation passes only the requested
+name to Gmail and returns the typed `id`, `name`, and `type=user` record.
+Deletion receives the exact
 label ID from an explicit earlier `list_labels` call; Gmail's labels.get call
 checks only the requested label's `id,type`, rejects system labels, and does
 not fetch or translate display names. The broker then issues labels.delete
@@ -46,6 +50,11 @@ including `invalid_label_name`, `label_already_exists`, `invalid_label_id`,
 `label_not_found`, `system_label`, rate limiting, reauthentication, and provider
 unavailability; raw response bodies are discarded.
 
+`apply_label` maps malformed message and label IDs, missing messages or labels,
+system labels, insufficient scope, reauthentication, rate limiting, and Gmail
+unavailability to stable broker errors. It checks the selected account's
+recorded `gmail.modify` scope before accessing protected credentials.
+
 `mark_email_read` and `mark_email_unread` are separate broker operations. Each
 resolves the persisted target, first requires its connected/read-only target
 eligibility and then checks that target's recorded `gmail.modify` grant before
@@ -55,3 +64,14 @@ The Gmail client sends only the requested `UNREAD` addition or removal for one
 message and asks for `id,labelIds`; it returns a typed `{message_id,is_read}`
 result based on Gmail's response. No other message labels are changed or
 returned.
+
+`mark_email_for_deletion` and `delete_marked_email` are separate broker
+operations. The first validates one message ID and stores a random marker
+bound to the selected Google subject and exact message for 10 minutes; it does
+not call Gmail. The second accepts only that marker, checks account and expiry,
+and atomically consumes it before calling Gmail's messages.trash endpoint.
+Missing, expired, replayed, or wrong-account markers fail with
+`deletion_mark_required`. Gmail moves one message to recoverable Trash using
+the existing `gmail.modify` grant. A failed call consumes its marker and
+requires a fresh mark before retrying. Marker storage is process-local and is
+cleared when the broker restarts.
