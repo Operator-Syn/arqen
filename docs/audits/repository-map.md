@@ -1,6 +1,6 @@
 # Repository map
 
-**Reviewed:** 2026-09-26. **Confidence:** `verified-repository` unless noted.
+**Reviewed:** 2026-09-30. **Confidence:** `verified-repository` unless noted.
 
 | Path | Role | Key contract |
 | --- | --- | --- |
@@ -21,6 +21,7 @@
 | `src/mcp.rs` | Broker wire types | label-list/list/readiness/read/read-state operations and result/error serialization |
 | `src/server/` | Streamable HTTP MCP process, auth, routes, and runtime | bearer/Host/Origin gate and label-list/list/read/read-state tools |
 | `Dockerfile` | Docker-native MCP (`mcp` target) and control/broker (`runtime` target) images | non-root runtimes; control command is the gateway-owned TUI process |
+| `compose.yaml` | User-facing stack using published GHCR images | no source build; loopback host ports; persistent named volumes |
 | `deploy/` | Docker-native OpenBao stack, systemd alternatives, Nginx example | operator-owned deployment boundary |
 | `.env.example` | local configuration template | safe defaults; no secrets |
 | `Makefile` / `scripts/` | named local workflows and smoke checks | sources ignored `.env`; explicit live-call opt-in |
@@ -29,6 +30,6 @@
 | `Cargo.toml` / `Cargo.lock` | Package and dependency contract | reproducible Rust dependency resolution |
 | `docs/` | architecture and evidence map | no secrets or live credentials |
 
-The root README remains the quick-start surface; this tree provides the
+The root README points users to `docs/quickstart.md`; this tree provides the
 deeper architecture, API, security, operations, decisions, and verification
-context.
+context. Make-based source-build workflows remain documented for developers.
