@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) const LOGIN_HELPER_ENABLED: bool = false;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8,11 +10,11 @@ pub(crate) enum LoginIntent {
     Reconnect { subject: String },
 }
 
-struct OwnedBrowser {
-    child: Child,
-    profile_dir: PathBuf,
+pub(in crate::tui) struct OwnedBrowser {
+    pub(in crate::tui) child: Child,
+    pub(in crate::tui) profile_dir: PathBuf,
     #[cfg(unix)]
-    process_group: libc::pid_t,
+    pub(in crate::tui) process_group: libc::pid_t,
 }
 
 impl Drop for OwnedBrowser {
@@ -83,16 +85,16 @@ pub(crate) enum Screen {
     },
 }
 
-struct App {
-    store: AccountStore,
-    accounts: Vec<Account>,
-    selected: usize,
-    mcp_target_subject: Option<String>,
-    pane_focus: PaneFocus,
-    accounts_scroll: usize,
-    details_scroll: usize,
-    screen: Screen,
-    browser: Option<OwnedBrowser>,
-    notice: Option<String>,
-    clipboard: Option<arboard::Clipboard>,
+pub(in crate::tui) struct App {
+    pub(in crate::tui) store: AccountStore,
+    pub(in crate::tui) accounts: Vec<Account>,
+    pub(in crate::tui) selected: usize,
+    pub(in crate::tui) mcp_target_subject: Option<String>,
+    pub(in crate::tui) pane_focus: PaneFocus,
+    pub(in crate::tui) accounts_scroll: usize,
+    pub(in crate::tui) details_scroll: usize,
+    pub(in crate::tui) screen: Screen,
+    pub(in crate::tui) browser: Option<OwnedBrowser>,
+    pub(in crate::tui) notice: Option<String>,
+    pub(in crate::tui) clipboard: Option<arboard::Clipboard>,
 }
