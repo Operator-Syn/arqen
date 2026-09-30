@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
-impl App {
+use super::*;
 
-    fn poll_callback(&mut self) {
+impl App {
+    pub(in crate::tui) fn poll_callback(&mut self) {
         let target = match &mut self.screen {
             Screen::Authorization {
                 callback: Some(callback),
