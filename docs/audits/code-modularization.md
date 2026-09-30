@@ -5,6 +5,80 @@
 were excluded. **Confidence:** `verified-repository` for direct source and
 local tests; graph coverage is best-effort.
 
+## Follow-up audit (2026-10-01)
+
+**Inspected revision:** `8603f1d`, with the current label tools, two-step
+deletion tools, and modularization changes included in the source review. The
+repository-scoped module audit script was available. The MCP refresh initially
+rejected the host checkout path; rerunning through the repository's isolated
+Docker launcher with `/workspace/project` refreshed the current source.
+Deployment files, generated/ignored state, and live account/runtime behavior
+were kept outside the Rust module refactor because they are separate
+operational surfaces rather than application modules.
+
+### Changes made
+
+- `src/broker/handlers.rs` is now a small facade. `emails.rs`, `labels.rs`, and
+  `target.rs` own their respective operation and eligibility rules;
+  `tokens.rs` owns credential refresh/cache composition; `errors.rs` owns
+  provider-to-broker error translation. This gives each behavior a local
+  change boundary while keeping the broker operation names and response
+  conversion explicit from `protocol.rs`.
+- `src/control/login_rate_limit.rs` owns the failed-login window and retry
+  counter. Gateway state continues to own the limiter instance, while HTTP
+  authentication calls its narrow policy interface.
+- `tests/unit/mcp.rs` now holds broker wire-contract tests separately from the
+  serialized request, validation, error, and response types in `src/mcp.rs`.
+- `tests/unit/server/mod.rs` keeps shared server-test setup and the HTTP surface
+  check; list/read, label, message-state/input-validation, and readiness tests
+  now live in focused child test modules. This removes the former 1,141-line
+  mixed test file without changing the HTTP or MCP contracts.
+
+These splits preserve typed requests and results, use ordinary `Result` and
+explicit broker responses between stages, add no incidental output, and retain
+early validation and fail-closed target/scope checks. They do not change public
+tool names, wire fields, account selection, OAuth scopes, or persistence.
+
+### Remaining review signals
+
+The audit script still flags `src/broker/client.rs` (674 lines),
+`src/broker/handlers/errors.rs` (289), `src/broker/handlers/tokens.rs` (256),
+`src/gmail/client.rs` (556), `src/gmail/responses.rs` (305), `src/mcp.rs`
+(306), `src/secrets/openbao.rs` (240), `src/server/routes.rs` (230),
+`src/tui/flow.rs` (213), `src/tui/input.rs` (201),
+`src/ui/accounts/details.rs` (313), `src/ui/accounts/list_render.rs` (216),
+and `src/ui/chrome/footer_actions.rs` (228). The 200-line value is a review
+marker, not a threshold. The Gmail
+client, response decoder, and OpenBao adapter each have one provider-boundary
+purpose. The account-details and list renderers keep one shared layout/scroll
+contract together; footer actions keep one navigation component together.
+`broker/client.rs` combines typed operation mapping with bounded Unix-socket
+framing, so it remains the clearest candidate for a later transport extraction
+if a change makes that boundary more complex. `handlers/errors.rs` is 289 lines
+but remains one stable error-translation boundary with operation-specific
+codes/messages.
+
+Test files are centralized under the root `tests/` directory, with Rust unit
+modules grouped by source owner, Python tests separated by language, and an
+integration-test scaffold documented for future suites. Rust unit modules are
+attached to their owning source modules by path so tests retain access to
+private implementation details. The former production `include!` fragments
+have been replaced with child modules and explicit facade imports/re-exports;
+`include_str!` remains only where source assets are embedded as data.
+
+### Verification
+
+`cargo fmt --check`, `cargo check --all-targets`, strict Clippy,
+`cargo build`, `nix flake check --no-build`, and `git diff --check` pass after
+centralizing tests and replacing the production `include!` fragments. Unit
+tests were not run. The current full code graph refresh completed with
+1,942 nodes and 7,366 edges, with zero skipped files and zero partial parses.
+Coverage reports only the ignored `tests/__pycache__` subtree; it reports no
+recorded gaps in `src/` or indexed files under `tests/`. These are best-effort
+index signals, not proof of completeness. No bundled skill validator was
+present in the checkout. The documented module audit script completed. No live OAuth,
+Gmail, keyring/OpenBao, deployment, or graphical behavior was verified.
+
 ## Baseline findings
 
 The baseline mixed entrypoint, state, rendering, protocol, persistence, and
@@ -51,13 +125,10 @@ change should split them further.
 
 ## Verification boundary
 
-Source-level verification covers formatting, compilation, unit/regression tests,
-clippy, and build checks. It does not establish activation, deployment, live
+Source-level verification does not establish activation, deployment, live
 Google consent, keyring/OpenBao availability, browser behavior, or graphical
-session health. A post-refactor full graph index found 173 source/module files
-and one best-effort parse gap in `src/control/tests.rs` (lines 1-379); the
-direct source and passing tests remain authoritative for that range. The graph
-also reported a `cli.run` helper cycle that direct source inspection did not
-confirm as recursive production control flow. Documentation mockup images are
-ignored by design. Re-run the codebase index after future structural changes
-and inspect any flagged coverage ranges directly.
+session health. The current graph snapshot predates no source changes in this
+follow-up and recorded zero skipped or partial files; the coverage tool still
+provides only a best-effort signal. An earlier snapshot reported a `cli.run`
+helper cycle that direct source inspection did not confirm as recursive
+production control flow. Documentation mockup images are ignored by design.
