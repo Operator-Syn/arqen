@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn open_in_browser(url: &str) -> Result<()> {
+use super::*;
+
+pub(in crate::tui) fn open_in_browser(url: &str) -> Result<()> {
     let candidates = browser_candidates(url, env::var_os("BROWSER"));
     let mut failures = Vec::new();
     for (program, args) in candidates {
@@ -24,7 +26,7 @@ fn open_in_browser(url: &str) -> Result<()> {
     }
 }
 
-fn launch_browser(url: &str) -> Result<Option<OwnedBrowser>> {
+pub(in crate::tui) fn launch_browser(url: &str) -> Result<Option<OwnedBrowser>> {
     // A unique profile is what makes terminating the child safe: Chromium and
     // Firefox cannot route this login into the user's normal browser process.
     let profile_dir = match create_browser_profile() {
