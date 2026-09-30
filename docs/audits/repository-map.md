@@ -1,6 +1,6 @@
 # Repository map
 
-**Reviewed:** 2026-09-30. **Confidence:** `verified-repository` unless noted.
+**Reviewed:** 2026-10-01. **Confidence:** `verified-repository` unless noted.
 
 | Path | Role | Key contract |
 | --- | --- | --- |
@@ -16,10 +16,10 @@
 | `src/ui/theme.rs` | Shared Ratatui color tokens | consistent status/focus colors |
 | `src/ui/` | Layout, rendering composition, pane focus, and mouse routing | responsive geometry and scroll state |
 | `src/callback/` | Loopback OAuth listener/helper, request parsing, and pages | callback and optional launcher routes |
-| `src/gmail/` | Gmail REST models, validation, client, and response mapping | label operations, bounded metadata list, message read/read-state, and move-to-Trash operation |
-| `src/broker/` | Unix credential broker/client, framing, focused email/label/target/token/error/deletion handler modules | selected target, eligibility, one-use account-bound deletion marker, refresh, stable errors |
-| `src/mcp.rs` | Broker wire types | label, list/read/read-state, mark/delete-to-Trash, readiness operations and result/error serialization |
-| `src/server/` | Streamable HTTP MCP process, auth, routes, and runtime | bearer/Host/Origin gate and Gmail list/read/label/read-state/two-step Trash tools |
+| `src/gmail/` | Gmail REST models, validation, client, response mapping, and separate draft provider adapter | labels, bounded message/draft metadata, read-state, message Trash, draft create/reply/list/delete/send |
+| `src/broker/` | Unix credential broker/client, framing, focused email/draft/label/action/target/token/error modules | selected target, eligibility, mutually exclusive one-use account-bound action marks, refresh, stable errors |
+| `src/mcp.rs` | Broker wire types | label, message, draft, action-mark, and readiness operations with result/error serialization |
+| `src/server/` | Streamable HTTP MCP process, auth, routes, and runtime | bearer/Host/Origin gate and Gmail message, label, read-state, Trash, and guarded draft tools |
 | `tests/` | Central test root: Rust unit modules mirror `src/`, Python suites, future integration suites | `tests/unit/`, `tests/python/`, and `tests/integration/` provide separate discovery and ownership scopes |
 | `Dockerfile` | Docker-native MCP (`mcp` target) and control/broker (`runtime` target) images | non-root runtimes; control command is the gateway-owned TUI process |
 | `compose.yaml` | User-facing stack using published GHCR images | no source build; loopback host ports; persistent named volumes |
