@@ -8,6 +8,11 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph, Wrap},
 };
 
-include!("header.rs");
-include!("footer.rs");
-include!("tests.rs");
+mod footer;
+mod header;
+
+pub(crate) use footer::*;
+pub(crate) use header::*;
+#[cfg(test)]
+#[path = "../../../tests/unit/ui/chrome.rs"]
+mod tests;
