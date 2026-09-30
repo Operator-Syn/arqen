@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn browser_candidates(
+use super::*;
+
+pub(in crate::tui) fn browser_candidates(
     url: &str,
     configured_browser: Option<std::ffi::OsString>,
 ) -> Vec<(std::ffi::OsString, Vec<std::ffi::OsString>)> {
@@ -23,7 +25,10 @@ fn browser_candidates(
     candidates
 }
 
-fn browser_arguments(program: &std::ffi::OsStr, url: &str) -> Vec<std::ffi::OsString> {
+pub(in crate::tui) fn browser_arguments(
+    program: &std::ffi::OsStr,
+    url: &str,
+) -> Vec<std::ffi::OsString> {
     if browser_kind(program).is_some() {
         vec!["--new-window".into(), url.into()]
     } else {
