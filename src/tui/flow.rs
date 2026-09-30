@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
-fn browser_target(callback: Option<&crate::callback::CallbackServer>, authorization_url: &str) -> String {
+use super::*;
+
+pub(in crate::tui) fn browser_target(
+    callback: Option<&crate::callback::CallbackServer>,
+    authorization_url: &str,
+) -> String {
     browser_target_with_mode(LOGIN_HELPER_ENABLED, callback, authorization_url)
 }
 
-fn browser_target_with_mode(
+pub(in crate::tui) fn browser_target_with_mode(
     login_helper_enabled: bool,
     callback: Option<&crate::callback::CallbackServer>,
     authorization_url: &str,
@@ -17,7 +22,7 @@ fn browser_target_with_mode(
     }
 }
 
-fn login_error_context(intent: &LoginIntent) -> &'static str {
+pub(in crate::tui) fn login_error_context(intent: &LoginIntent) -> &'static str {
     match intent {
         LoginIntent::Add => "Login failed",
         LoginIntent::Reauthenticate { .. } => "Reauthentication not completed",
@@ -25,7 +30,7 @@ fn login_error_context(intent: &LoginIntent) -> &'static str {
     }
 }
 
-fn mcp_target_ineligibility(account: &Account) -> Option<&'static str> {
+pub(in crate::tui) fn mcp_target_ineligibility(account: &Account) -> Option<&'static str> {
     if account.connection_state != ConnectionState::Connected {
         return Some("the account is not connected");
     }
@@ -41,7 +46,7 @@ fn mcp_target_ineligibility(account: &Account) -> Option<&'static str> {
     None
 }
 
-fn friendly_login_error(intent: &LoginIntent, error: &anyhow::Error) -> String {
+pub(in crate::tui) fn friendly_login_error(intent: &LoginIntent, error: &anyhow::Error) -> String {
     let chain = error
         .chain()
         .map(std::string::ToString::to_string)
@@ -88,10 +93,14 @@ fn friendly_login_error(intent: &LoginIntent, error: &anyhow::Error) -> String {
     if contains("save Google account metadata in SQLite") {
         let retry_action = match intent {
             LoginIntent::Add => "then retry adding the account",
-            LoginIntent::Reauthenticate { .. } => "then retry reauthentication for the same account",
+            LoginIntent::Reauthenticate { .. } => {
+                "then retry reauthentication for the same account"
+            }
             LoginIntent::Reconnect { .. } => "then retry reconnecting the account",
         };
-        return format!("Arqen saved the protected refresh token, but could not save the account details and granted scopes to its local database. The account may still show its previous connection and scope state. Check local storage, {retry_action}.");
+        return format!(
+            "Arqen saved the protected refresh token, but could not save the account details and granted scopes to its local database. The account may still show its previous connection and scope state. Check local storage, {retry_action}."
+        );
     }
     if contains("Google did not return a refresh token") {
         return "Google did not return a refresh token, so Arqen could not save the protected credential or update the account's granted scopes. Retry authorization and approve the requested access.".into();
@@ -124,10 +133,15 @@ fn friendly_login_error(intent: &LoginIntent, error: &anyhow::Error) -> String {
             "After Arqen is ready, retry reconnecting the Google account on this card."
         }
     };
-    format!("Arqen could not complete this login. It did not save the account's granted scopes. {retry_action}")
+    format!(
+        "Arqen could not complete this login. It did not save the account's granted scopes. {retry_action}"
+    )
 }
 
-fn copy_to_clipboard(clipboard: &mut Option<arboard::Clipboard>, text: &str) -> Result<()> {
+pub(in crate::tui) fn copy_to_clipboard(
+    clipboard: &mut Option<arboard::Clipboard>,
+    text: &str,
+) -> Result<()> {
     if clipboard.is_none() {
         match arboard::Clipboard::new() {
             Ok(value) => *clipboard = Some(value),
@@ -149,7 +163,7 @@ fn copy_to_clipboard(clipboard: &mut Option<arboard::Clipboard>, text: &str) -> 
     anyhow::bail!("clipboard provider was unavailable")
 }
 
-fn copy_with_fallback(text: &str, primary_error: anyhow::Error) -> Result<()> {
+pub(in crate::tui) fn copy_with_fallback(text: &str, primary_error: anyhow::Error) -> Result<()> {
     let mut failures = Vec::new();
     for (program, args) in [
         ("wl-copy", Vec::new()),
