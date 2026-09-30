@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl App {
-    fn handle_key(&mut self, key: KeyEvent) {
+    pub(in crate::tui) fn handle_key(&mut self, key: KeyEvent) {
         if matches!(self.screen, Screen::Accounts) {
             self.handle_accounts_key(key);
         } else if matches!(self.screen, Screen::Authorization { .. }) {
@@ -14,7 +16,7 @@ impl App {
         }
     }
 
-    fn handle_accounts_key(&mut self, key: KeyEvent) {
+    pub(in crate::tui) fn handle_accounts_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Tab | KeyCode::BackTab => {
                 self.pane_focus = match self.pane_focus {
