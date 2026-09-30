@@ -82,6 +82,26 @@ the desired record by `name`, then pass its `id` unchanged as one value in
 names, or use hidden shared state; it remains independently usable with an
 explicit label ID or without a label filter.
 
+## Tool: `apply_label`
+
+This tool applies one existing custom label to one message. Call `list_emails`
+and `list_labels` first, choose the message and custom label, then pass their
+IDs unchanged. The tool applies the label to the message only, not its thread;
+it does not accept a label name, account ID, or email address. System labels
+are rejected. Applying an already applied label is idempotent and preserves
+every other label.
+
+| Argument | JSON type | Constraints |
+| --- | --- | --- |
+| `message_id` | string | Required; 1–256 ASCII letters, digits, hyphens, or underscores. Use an ID returned by `list_emails`. |
+| `label_id` | string | Required; nonempty and without control characters. Use the unchanged ID of a user label returned by `list_labels`. |
+
+The result is `{"message_id":"...","label_id":"...","applied":true}`
+after Gmail confirms the label is present. Stable failures include
+`invalid_message_id`, `invalid_label_id`, `message_not_found`, `label_not_found`,
+`invalid_request`, `system_label`, `insufficient_scope`, `reauthentication_required`,
+`gmail_rate_limited`, and `gmail_unavailable`.
+
 ## Tool: `create_label`
 
 Accepts one required `name` string containing a nonblank custom label name.
@@ -107,8 +127,8 @@ specific label and consequence, following the
 result is only `{"label_id":"...","deleted":true}` after Gmail confirms
 success.
 
-Both tools require the selected account's recorded
-`https://www.googleapis.com/auth/gmail.modify` grant and return
+`create_label`, `apply_label`, and `delete_label` require the selected account's
+recorded `https://www.googleapis.com/auth/gmail.modify` grant and return
 `insufficient_scope` before credentials or Gmail are accessed when it is
 missing. Google describes `gmail.modify` as allowing email reading, composing,
 and sending; the scope is not limited to label or unread-state changes.
@@ -166,6 +186,30 @@ reference](https://developers.google.com/workspace/gmail/api/auth/scopes) and
 [OAuth refresh-token
 guidance](https://developers.google.com/identity/protocols/oauth2#expiration).
 
+## Tools: `mark_email_for_deletion` and `delete_marked_email`
+
+`mark_email_for_deletion` accepts one `message_id` from `list_emails`, scoped
+to the currently selected Arqen account. It does not call Gmail or change the
+message. It returns `{marker_id,message_id,expires_in_seconds}`. The broker
+keeps the opaque marker in memory, binds it to the selected Google subject and
+exact message ID, and expires it after 600 seconds.
+
+`delete_marked_email` accepts only the exact `marker_id` returned by the mark
+tool. It has no message or account selector. The broker checks that the marker
+exists, is unexpired, and belongs to the currently selected account, then
+atomically consumes it before contacting Gmail. Missing, expired, replayed, or
+wrong-account markers fail with `deletion_mark_required`. A failed Gmail
+attempt also consumes the marker, so the message must be marked again before a
+retry. Concurrent reuse cannot trigger a second request.
+
+After consuming a valid marker, Gmail moves that one message to Trash. It is
+recoverable through Gmail's Trash; Arqen does not permanently delete it. Both
+tools require the selected account's recorded
+`https://www.googleapis.com/auth/gmail.modify` grant. `delete_marked_email`
+must only be called when the user's explicit authorization covers moving that
+exact message to Trash. Marking is a separate call and does not itself
+authorize the later destructive call.
+
 ## Failure codes
 
 The broker uses these stable codes: `invalid_request`, `invalid_message_id`,
@@ -173,7 +217,9 @@ The broker uses these stable codes: `invalid_request`, `invalid_message_id`,
 `target_unavailable`, `reauthentication_required`,
 `credential_unavailable`, `insufficient_scope`, `gmail_rate_limited`,
 `gmail_unavailable`, `invalid_label_name`, `label_already_exists`,
-`invalid_label_id`, `label_not_found`, `system_label`, and `internal`.
+`invalid_label_id`, `label_not_found`, `system_label`,
+`deletion_mark_required`, `invalid_deletion_mark`, `deletion_mark_limit`, and
+`internal`.
 `credential_unavailable` means the broker could not access the protected
 refresh credential or obtain an access token.
 `gmail_unavailable` means a Gmail request failed for another provider or
@@ -196,3 +242,10 @@ or underscores. A syntactically valid ID that Gmail reports as absent returns
 bad-request responses use `invalid_request`. Read-state calls without a
 recorded `gmail.modify` grant return `insufficient_scope` before provider
 invocation; a Gmail HTTP 403 by itself remains `gmail_unavailable`.
+
+For message-to-Trash operations, malformed message IDs return
+`invalid_message_id`; malformed marker values return `invalid_deletion_mark`;
+missing, expired, replayed, or account-mismatched markers return
+`deletion_mark_required`. A Gmail 404 returns `message_not_found`; rate limits,
+reauthentication, and provider failures map to `gmail_rate_limited`,
+`reauthentication_required`, and `gmail_unavailable` respectively.
