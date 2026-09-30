@@ -38,7 +38,7 @@ Responsibilities are intentionally narrow:
 | Store (`src/store/`, `src/lib.rs`) | Account metadata, exact granted scopes, singleton target subject | Refresh/access token values |
 | OAuth (`src/auth/`) | PKCE, callback exchange, refresh, protected-store coordinates | Gmail message presentation |
 | Broker (`src/broker/`) | Target validation, refresh-token read, access-token cache, Gmail call | Public network listener, MCP sessions |
-| Gmail client (`src/gmail/`) | Bounded list/get metadata requests and summaries | Token persistence |
+| Gmail client (`src/gmail/`) | Bounded list/get metadata, label, read-state, and message-to-Trash requests | Token persistence |
 | MCP server (`src/server/`, `src/mcp.rs`) | Streamable HTTP, bearer gate, tool schema, wire errors | Credential-store access and account choice |
 | systemd user units (`deploy/systemd/`) | Host broker restart and optional all-native MCP lifecycle | OAuth consent, secret creation, public deployment |
 | User Compose (`compose.yaml`) | Published images for OpenBao, control TUI, broker, and loopback MCP | Public exposure, live OAuth consent |
@@ -50,13 +50,17 @@ docker-up` selects one display override for `arqen-control`: Wayland mounts the
 session socket, while X11 mounts the X socket and Xauthority file. These
 overrides do not add containers or create independent stacks.
 
-The MCP exposes `list_labels`, `list_emails`, and `read_email` plus separate
-per-message `mark_email_read` and `mark_email_unread` tools for the configured
-target. Agents can call `list_labels`, choose a label by
+The MCP exposes `list_labels`, `list_emails`, and `read_email`, label create,
+apply, and delete tools, separate per-message `mark_email_read` and
+`mark_email_unread` tools, and a two-step `mark_email_for_deletion` then
+`delete_marked_email` flow that moves one marked message to recoverable Trash.
+Agents can call
+`list_labels`, choose a label by
 name, and pass its ID explicitly to `list_emails.label_ids`; list results
 continue to return Gmail IDs. `list_emails` returns bounded metadata/snippets
 only, and an agent can pass one result's `id` to `read_email` to retrieve
-decoded body text. Read-state changes require the selected account's recorded
-`gmail.modify` grant; target selection and read-only tools still require only
-`gmail.readonly`. The tools accept no account-selection parameter, and
-attachments are not downloaded.
+decoded body text. Label create/apply/delete and read-state changes require the
+selected account's recorded `gmail.modify` grant; target selection and
+read-only tools still require only `gmail.readonly`. The deletion flow requires
+the explicit one-use marker returned by the separate mark call. The tools accept no
+account-selection parameter, and attachments are not downloaded.
