@@ -72,6 +72,12 @@ pub(crate) fn map_read_email_error(error: &anyhow::Error) -> BrokerResponse {
 }
 
 pub(crate) fn map_mark_email_error(error: &anyhow::Error) -> BrokerResponse {
+    if crate::gmail::is_draft_message_mutation(error) {
+        return BrokerResponse::error(
+            BrokerErrorCode::InvalidRequest,
+            "draft messages must be changed through draft-specific tools",
+        );
+    }
     if let Some(error) = error.downcast_ref::<GmailApiError>() {
         match error.status().as_u16() {
             400 => {
@@ -215,6 +221,14 @@ pub(crate) fn map_apply_label_error(error: crate::gmail::ApplyLabelFailure) -> B
                 );
             }
             map_apply_label_provider_error(&error, true)
+        }
+        ApplyLabelFailure::MessageModify(error)
+            if crate::gmail::is_draft_message_mutation(&error) =>
+        {
+            BrokerResponse::error(
+                BrokerErrorCode::InvalidRequest,
+                "draft messages cannot receive custom labels; use draft-specific tools",
+            )
         }
         ApplyLabelFailure::MessageModify(error) => map_apply_label_provider_error(&error, false),
     }
