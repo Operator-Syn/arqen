@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 #[cfg(unix)]
 #[derive(Clone)]
 pub struct BrokerClient {
@@ -66,7 +68,10 @@ impl BrokerClient {
             | BrokerResponse::MessageReadState { .. }
             | BrokerResponse::Labels { .. }
             | BrokerResponse::LabelCreated { .. }
-            | BrokerResponse::LabelDeleted { .. } => Err(BrokerFailure {
+            | BrokerResponse::LabelDeleted { .. }
+            | BrokerResponse::LabelApplied { .. }
+            | BrokerResponse::DeletionMarked { .. }
+            | BrokerResponse::EmailTrashed { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid mail-list response".into(),
             }),
@@ -85,12 +90,13 @@ impl BrokerClient {
         use tokio::net::UnixStream;
 
         let request = BrokerRequest::list_labels();
-        let mut stream = UnixStream::connect(&self.socket_path)
-            .await
-            .map_err(|_| BrokerFailure {
-                code: BrokerErrorCode::Internal,
-                message: "the credential broker is unavailable".into(),
-            })?;
+        let mut stream =
+            UnixStream::connect(&self.socket_path)
+                .await
+                .map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::Internal,
+                    message: "the credential broker is unavailable".into(),
+                })?;
         let mut encoded = serde_json::to_vec(&request).map_err(|_| BrokerFailure {
             code: BrokerErrorCode::Internal,
             message: "the broker request could not be encoded".into(),
@@ -127,7 +133,10 @@ impl BrokerClient {
             | BrokerResponse::ReadEmail { .. }
             | BrokerResponse::MessageReadState { .. }
             | BrokerResponse::LabelCreated { .. }
-            | BrokerResponse::LabelDeleted { .. } => Err(BrokerFailure {
+            | BrokerResponse::LabelDeleted { .. }
+            | BrokerResponse::LabelApplied { .. }
+            | BrokerResponse::DeletionMarked { .. }
+            | BrokerResponse::EmailTrashed { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid label-list response".into(),
             }),
@@ -138,10 +147,11 @@ impl BrokerClient {
         &self,
         request: crate::gmail::CreateLabelRequest,
     ) -> std::result::Result<crate::gmail::EmailLabel, BrokerFailure> {
-        let request = BrokerRequest::create_label(request.validate().map_err(|_| BrokerFailure {
-            code: BrokerErrorCode::InvalidLabelName,
-            message: "name must be nonblank and contain no control characters".into(),
-        })?);
+        let request =
+            BrokerRequest::create_label(request.validate().map_err(|_| BrokerFailure {
+                code: BrokerErrorCode::InvalidLabelName,
+                message: "name must be nonblank and contain no control characters".into(),
+            })?);
         match self.exchange_label_request(request).await? {
             BrokerResponse::LabelCreated { result } => Ok(result),
             BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
@@ -156,16 +166,86 @@ impl BrokerClient {
         &self,
         request: crate::gmail::DeleteLabelRequest,
     ) -> std::result::Result<crate::gmail::LabelDeleteResult, BrokerFailure> {
-        let request = BrokerRequest::delete_label(request.validate().map_err(|_| BrokerFailure {
-            code: BrokerErrorCode::InvalidLabelId,
-            message: "label_id must be nonempty and contain no control characters".into(),
-        })?);
+        let request =
+            BrokerRequest::delete_label(request.validate().map_err(|_| BrokerFailure {
+                code: BrokerErrorCode::InvalidLabelId,
+                message: "label_id must be nonempty and contain no control characters".into(),
+            })?);
         match self.exchange_label_request(request).await? {
             BrokerResponse::LabelDeleted { result } => Ok(result),
             BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
             _ => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid label-delete response".into(),
+            }),
+        }
+    }
+
+    pub async fn apply_label(
+        &self,
+        request: crate::gmail::ApplyLabelRequest,
+    ) -> std::result::Result<crate::gmail::LabelApplyResult, BrokerFailure> {
+        request.validate_message_id().map_err(|_| BrokerFailure {
+            code: BrokerErrorCode::InvalidMessageId,
+            message: "message_id must be 1–256 ASCII letters, digits, hyphens, or underscores"
+                .into(),
+        })?;
+        request.validate_label_id().map_err(|_| BrokerFailure {
+            code: BrokerErrorCode::InvalidLabelId,
+            message: "label_id must be nonempty and contain no control characters".into(),
+        })?;
+        match self
+            .exchange_label_request(BrokerRequest::apply_label(request))
+            .await?
+        {
+            BrokerResponse::LabelApplied { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            _ => Err(BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker returned an invalid label-apply response".into(),
+            }),
+        }
+    }
+
+    pub async fn mark_email_for_deletion(
+        &self,
+        request: crate::gmail::ReadEmailRequest,
+    ) -> std::result::Result<crate::gmail::EmailDeletionMark, BrokerFailure> {
+        let request = request.validate().map_err(|_| BrokerFailure {
+            code: BrokerErrorCode::InvalidMessageId,
+            message: "message_id must be 1–256 ASCII letters, digits, hyphens, or underscores"
+                .into(),
+        })?;
+        match self
+            .exchange_label_request(BrokerRequest::mark_email_for_deletion(request))
+            .await?
+        {
+            BrokerResponse::DeletionMarked { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            _ => Err(BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker returned an invalid email-deletion mark response".into(),
+            }),
+        }
+    }
+
+    pub async fn delete_marked_email(
+        &self,
+        request: crate::gmail::DeleteMarkedEmailRequest,
+    ) -> std::result::Result<crate::gmail::EmailTrashResult, BrokerFailure> {
+        let request = request.validate().map_err(|_| BrokerFailure {
+            code: BrokerErrorCode::InvalidDeletionMark,
+            message: "marker_id must be a 32-character deletion marker returned by mark_email_for_deletion".into(),
+        })?;
+        match self
+            .exchange_label_request(BrokerRequest::delete_marked_email(request))
+            .await?
+        {
+            BrokerResponse::EmailTrashed { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            _ => Err(BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker returned an invalid email-trash response".into(),
             }),
         }
     }
@@ -177,19 +257,25 @@ impl BrokerClient {
         use tokio::io::{AsyncWriteExt, BufReader};
         use tokio::net::UnixStream;
 
-        let mut stream = UnixStream::connect(&self.socket_path).await.map_err(|_| BrokerFailure {
-            code: BrokerErrorCode::Internal,
-            message: "the credential broker is unavailable".into(),
-        })?;
+        let mut stream =
+            UnixStream::connect(&self.socket_path)
+                .await
+                .map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::Internal,
+                    message: "the credential broker is unavailable".into(),
+                })?;
         let mut encoded = serde_json::to_vec(&request).map_err(|_| BrokerFailure {
             code: BrokerErrorCode::Internal,
             message: "the broker request could not be encoded".into(),
         })?;
         encoded.push(b'\n');
-        stream.write_all(&encoded).await.map_err(|_| BrokerFailure {
-            code: BrokerErrorCode::Internal,
-            message: "the broker request failed".into(),
-        })?;
+        stream
+            .write_all(&encoded)
+            .await
+            .map_err(|_| BrokerFailure {
+                code: BrokerErrorCode::Internal,
+                message: "the broker request failed".into(),
+            })?;
         stream.shutdown().await.map_err(|_| BrokerFailure {
             code: BrokerErrorCode::Internal,
             message: "the broker request could not finish".into(),
@@ -214,17 +300,22 @@ impl BrokerClient {
         use tokio::io::{AsyncWriteExt, BufReader};
         use tokio::net::UnixStream;
 
-        let request = BrokerRequest::read_email(request.validate().map_err(|_| BrokerFailure {
-            code: BrokerErrorCode::InvalidMessageId,
-            message: "message_id must be 1–256 ASCII letters, digits, hyphens, or underscores"
-                .into(),
-        })?);
-        let mut stream = UnixStream::connect(&self.socket_path)
-            .await
-            .map_err(|_| BrokerFailure {
-                code: BrokerErrorCode::Internal,
-                message: "the credential broker is unavailable".into(),
-            })?;
+        let request =
+            BrokerRequest::read_email(
+                request.validate().map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::InvalidMessageId,
+                    message:
+                        "message_id must be 1–256 ASCII letters, digits, hyphens, or underscores"
+                            .into(),
+                })?,
+            );
+        let mut stream =
+            UnixStream::connect(&self.socket_path)
+                .await
+                .map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::Internal,
+                    message: "the credential broker is unavailable".into(),
+                })?;
         let mut encoded = serde_json::to_vec(&request).map_err(|_| BrokerFailure {
             code: BrokerErrorCode::Internal,
             message: "the broker request could not be encoded".into(),
@@ -261,7 +352,10 @@ impl BrokerClient {
             | BrokerResponse::Labels { .. }
             | BrokerResponse::MessageReadState { .. }
             | BrokerResponse::LabelCreated { .. }
-            | BrokerResponse::LabelDeleted { .. } => Err(BrokerFailure {
+            | BrokerResponse::LabelDeleted { .. }
+            | BrokerResponse::LabelApplied { .. }
+            | BrokerResponse::DeletionMarked { .. }
+            | BrokerResponse::EmailTrashed { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid message-read response".into(),
             }),
@@ -300,12 +394,13 @@ impl BrokerClient {
         } else {
             BrokerRequest::mark_email_unread(request)
         };
-        let mut stream = UnixStream::connect(&self.socket_path)
-            .await
-            .map_err(|_| BrokerFailure {
-                code: BrokerErrorCode::Internal,
-                message: "the credential broker is unavailable".into(),
-            })?;
+        let mut stream =
+            UnixStream::connect(&self.socket_path)
+                .await
+                .map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::Internal,
+                    message: "the credential broker is unavailable".into(),
+                })?;
         let mut encoded = serde_json::to_vec(&request).map_err(|_| BrokerFailure {
             code: BrokerErrorCode::Internal,
             message: "the broker request could not be encoded".into(),
@@ -342,7 +437,10 @@ impl BrokerClient {
             | BrokerResponse::Labels { .. }
             | BrokerResponse::ReadEmail { .. }
             | BrokerResponse::LabelCreated { .. }
-            | BrokerResponse::LabelDeleted { .. } => Err(BrokerFailure {
+            | BrokerResponse::LabelDeleted { .. }
+            | BrokerResponse::LabelApplied { .. }
+            | BrokerResponse::DeletionMarked { .. }
+            | BrokerResponse::EmailTrashed { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid message-state response".into(),
             }),
@@ -407,7 +505,10 @@ impl BrokerClient {
             | BrokerResponse::Labels { .. }
             | BrokerResponse::MessageReadState { .. }
             | BrokerResponse::LabelCreated { .. }
-            | BrokerResponse::LabelDeleted { .. } => Err(BrokerFailure {
+            | BrokerResponse::LabelDeleted { .. }
+            | BrokerResponse::LabelApplied { .. }
+            | BrokerResponse::DeletionMarked { .. }
+            | BrokerResponse::EmailTrashed { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid readiness response".into(),
             }),
@@ -439,6 +540,26 @@ impl BrokerClient {
         })
     }
 
+    pub async fn mark_email_for_deletion(
+        &self,
+        _request: crate::gmail::ReadEmailRequest,
+    ) -> std::result::Result<crate::gmail::EmailDeletionMark, BrokerFailure> {
+        Err(BrokerFailure {
+            code: BrokerErrorCode::Internal,
+            message: "the credential broker currently requires a Unix host".into(),
+        })
+    }
+
+    pub async fn delete_marked_email(
+        &self,
+        _request: crate::gmail::DeleteMarkedEmailRequest,
+    ) -> std::result::Result<crate::gmail::EmailTrashResult, BrokerFailure> {
+        Err(BrokerFailure {
+            code: BrokerErrorCode::Internal,
+            message: "the credential broker currently requires a Unix host".into(),
+        })
+    }
+
     pub async fn list_labels(
         &self,
     ) -> std::result::Result<crate::gmail::LabelListResponse, BrokerFailure> {
@@ -462,6 +583,16 @@ impl BrokerClient {
         &self,
         _request: crate::gmail::DeleteLabelRequest,
     ) -> std::result::Result<crate::gmail::LabelDeleteResult, BrokerFailure> {
+        Err(BrokerFailure {
+            code: BrokerErrorCode::Internal,
+            message: "the credential broker currently requires a Unix host".into(),
+        })
+    }
+
+    pub async fn apply_label(
+        &self,
+        _request: crate::gmail::ApplyLabelRequest,
+    ) -> std::result::Result<crate::gmail::LabelApplyResult, BrokerFailure> {
         Err(BrokerFailure {
             code: BrokerErrorCode::Internal,
             message: "the credential broker currently requires a Unix host".into(),
