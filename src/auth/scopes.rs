@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn canonical_scopes(raw: &str) -> Result<Vec<String>> {
+use super::*;
+
+pub(super) fn canonical_scopes(raw: &str) -> Result<Vec<String>> {
     let mut scopes: Vec<String> = raw.split_whitespace().map(str::to_owned).collect();
     scopes.sort();
     scopes.dedup();
@@ -10,12 +12,15 @@ fn canonical_scopes(raw: &str) -> Result<Vec<String>> {
     Ok(scopes)
 }
 
-fn granted_scopes(raw: Option<&str>) -> Result<Vec<String>> {
+pub(super) fn granted_scopes(raw: Option<&str>) -> Result<Vec<String>> {
     raw.context("Google did not return granted scopes")
         .and_then(canonical_scopes)
 }
 
-fn ensure_expected_subject(profile: &GoogleProfile, expected_subject: Option<&str>) -> Result<()> {
+pub(super) fn ensure_expected_subject(
+    profile: &GoogleProfile,
+    expected_subject: Option<&str>,
+) -> Result<()> {
     if let Some(expected_subject) = expected_subject {
         anyhow::ensure!(profile.sub == expected_subject, SUBJECT_MISMATCH_MESSAGE);
     }
