@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 use crate::gmail::{
-    ApplyLabelRequest, CreateLabelRequest, DeleteLabelRequest, DeleteMarkedEmailRequest,
+    ActionMarkerRequest, ApplyLabelRequest, CreateDraftRequest, CreateLabelRequest,
+    CreateReplyDraftRequest, DeleteLabelRequest, DeleteMarkedEmailRequest, DraftActionMark,
+    DraftCreateResult, DraftDeleteResult, DraftIdRequest, DraftListResponse, DraftSendResult,
     EmailDeletionMark, EmailLabel, EmailListResponse, EmailReadResponse, EmailReadState,
-    EmailTrashResult, LabelApplyResult, LabelDeleteResult, LabelListResponse, ListEmailsRequest,
-    ReadEmailRequest,
+    EmailTrashResult, LabelApplyResult, LabelDeleteResult, LabelListResponse, ListDraftsRequest,
+    ListEmailsRequest, ReadEmailRequest,
 };
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +48,34 @@ pub enum BrokerRequest {
     DeleteMarkedEmail {
         #[serde(flatten)]
         request: DeleteMarkedEmailRequest,
+    },
+    ListDrafts {
+        #[serde(flatten)]
+        request: ListDraftsRequest,
+    },
+    CreateDraft {
+        #[serde(flatten)]
+        request: CreateDraftRequest,
+    },
+    CreateReplyDraft {
+        #[serde(flatten)]
+        request: CreateReplyDraftRequest,
+    },
+    MarkDraftForDeletion {
+        #[serde(flatten)]
+        request: DraftIdRequest,
+    },
+    DeleteMarkedDraft {
+        #[serde(flatten)]
+        request: ActionMarkerRequest,
+    },
+    MarkDraftForSending {
+        #[serde(flatten)]
+        request: DraftIdRequest,
+    },
+    SendMarkedDraft {
+        #[serde(flatten)]
+        request: ActionMarkerRequest,
     },
     Readiness {
         #[serde(flatten)]
@@ -92,6 +122,28 @@ impl BrokerRequest {
 
     pub fn delete_marked_email(request: DeleteMarkedEmailRequest) -> Self {
         Self::DeleteMarkedEmail { request }
+    }
+
+    pub fn list_drafts(request: ListDraftsRequest) -> Self {
+        Self::ListDrafts { request }
+    }
+    pub fn create_draft(request: CreateDraftRequest) -> Self {
+        Self::CreateDraft { request }
+    }
+    pub fn create_reply_draft(request: CreateReplyDraftRequest) -> Self {
+        Self::CreateReplyDraft { request }
+    }
+    pub fn mark_draft_for_deletion(request: DraftIdRequest) -> Self {
+        Self::MarkDraftForDeletion { request }
+    }
+    pub fn delete_marked_draft(request: ActionMarkerRequest) -> Self {
+        Self::DeleteMarkedDraft { request }
+    }
+    pub fn mark_draft_for_sending(request: DraftIdRequest) -> Self {
+        Self::MarkDraftForSending { request }
+    }
+    pub fn send_marked_draft(request: ActionMarkerRequest) -> Self {
+        Self::SendMarkedDraft { request }
     }
 
     pub fn readiness() -> Self {
@@ -170,6 +222,13 @@ impl BrokerRequest {
                     code: BrokerErrorCode::InvalidDeletionMark,
                     message: "marker_id must be a 32-character deletion marker returned by mark_email_for_deletion",
                 }),
+            Self::ListDrafts { request } => request.validate().map(|request| Self::ListDrafts { request }).map_err(|_| BrokerValidationFailure { code: BrokerErrorCode::InvalidRequest, message: "the draft-list request is invalid" }),
+            Self::CreateDraft { request } => request.validate().map(|request| Self::CreateDraft { request }).map_err(|_| BrokerValidationFailure { code: BrokerErrorCode::InvalidRequest, message: "the draft content is invalid" }),
+            Self::CreateReplyDraft { request } => request.validate().map(|request| Self::CreateReplyDraft { request }).map_err(|_| BrokerValidationFailure { code: BrokerErrorCode::InvalidRequest, message: "the reply-draft request is invalid" }),
+            Self::MarkDraftForDeletion { request } => request.validate().map(|request| Self::MarkDraftForDeletion { request }).map_err(|_| BrokerValidationFailure { code: BrokerErrorCode::InvalidRequest, message: "the draft ID is invalid" }),
+            Self::MarkDraftForSending { request } => request.validate().map(|request| Self::MarkDraftForSending { request }).map_err(|_| BrokerValidationFailure { code: BrokerErrorCode::InvalidRequest, message: "the draft ID is invalid" }),
+            Self::DeleteMarkedDraft { request } => request.validate().map(|request| Self::DeleteMarkedDraft { request }).map_err(|_| BrokerValidationFailure { code: BrokerErrorCode::InvalidActionMarker, message: "the action marker is invalid" }),
+            Self::SendMarkedDraft { request } => request.validate().map(|request| Self::SendMarkedDraft { request }).map_err(|_| BrokerValidationFailure { code: BrokerErrorCode::InvalidActionMarker, message: "the action marker is invalid" }),
             Self::Readiness { request } => Ok(Self::Readiness { request }),
         }
     }
@@ -212,6 +271,10 @@ pub enum BrokerErrorCode {
     InvalidLabelId,
     LabelNotFound,
     SystemLabel,
+    ActionInProgress,
+    ActionMarkRequired,
+    InvalidActionMarker,
+    ActionMarkLimit,
 }
 
 impl BrokerErrorCode {
@@ -237,6 +300,10 @@ impl BrokerErrorCode {
             Self::InvalidLabelId => "invalid_label_id",
             Self::LabelNotFound => "label_not_found",
             Self::SystemLabel => "system_label",
+            Self::ActionInProgress => "action_in_progress",
+            Self::ActionMarkRequired => "action_mark_required",
+            Self::InvalidActionMarker => "invalid_action_marker",
+            Self::ActionMarkLimit => "action_mark_limit",
         }
     }
 }
@@ -284,6 +351,24 @@ pub enum BrokerResponse {
     },
     EmailTrashed {
         result: EmailTrashResult,
+    },
+    Drafts {
+        result: DraftListResponse,
+    },
+    DraftCreated {
+        result: DraftCreateResult,
+    },
+    DraftDeletionMarked {
+        result: DraftActionMark,
+    },
+    DraftSendingMarked {
+        result: DraftActionMark,
+    },
+    DraftDeleted {
+        result: DraftDeleteResult,
+    },
+    DraftSent {
+        result: DraftSendResult,
     },
     Ready,
     Error {
