@@ -19,6 +19,9 @@ Hermes or another agent runtime.
 - `src/ui/` contains focused Ratatui layout, rendering, dialogs, and
   interaction modules. Keep UI changes aligned with
   [`docs/ui-style.md`](docs/ui-style.md).
+- `tests/` is the single test-code root. Rust unit tests live under
+  `tests/unit/` in source-mirrored modules; Python tests live under
+  `tests/python/`; reserve `tests/integration/` for black-box suites.
 
 The canonical responsibility and Unix-oriented code conventions are in
 [`docs/development/code-organization.md`](docs/development/code-organization.md).
