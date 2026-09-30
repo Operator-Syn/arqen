@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn parse_json_response<T: for<'de> Deserialize<'de>>(
+use super::*;
+
+pub(super) fn parse_json_response<T: for<'de> Deserialize<'de>>(
     response: reqwest::blocking::Response,
 ) -> Result<T> {
     let status = response.status();
@@ -9,17 +11,20 @@ fn parse_json_response<T: for<'de> Deserialize<'de>>(
     response.json().context("parse Gmail API response")
 }
 
-fn parse_empty_json_response(response: reqwest::blocking::Response) -> Result<()> {
+pub(super) fn parse_empty_json_response(response: reqwest::blocking::Response) -> Result<()> {
     let status = response.status();
     if !status.is_success() {
         return Err(anyhow::Error::new(GmailApiError { status }));
     }
     let body: serde_json::Value = response.json().context("parse Gmail API response")?;
-    anyhow::ensure!(body.is_object(), "Gmail returned an invalid delete response");
+    anyhow::ensure!(
+        body.is_object(),
+        "Gmail returned an invalid delete response"
+    );
     Ok(())
 }
 
-fn parse_read_email_response(
+pub(super) fn parse_read_email_response(
     response: reqwest::blocking::Response,
 ) -> Result<MessageResource> {
     let status = response.status();
@@ -48,7 +53,7 @@ fn parse_read_email_response(
     serde_json::from_slice(&body).context("parse Gmail message response")
 }
 
-fn email_summary(detail: MessageResource, reference: &MessageReference) -> EmailSummary {
+pub(super) fn email_summary(detail: MessageResource, reference: &MessageReference) -> EmailSummary {
     let headers = detail
         .payload
         .map(|payload| payload.headers)
@@ -80,18 +85,14 @@ fn email_summary(detail: MessageResource, reference: &MessageReference) -> Email
     }
 }
 
-fn email_read_response(message: MessageResource) -> Result<EmailReadResponse> {
+pub(in crate::gmail) fn email_read_response(message: MessageResource) -> Result<EmailReadResponse> {
     let (headers, body_text, body_status) = match message.payload {
         Some(payload) => {
             let headers = payload.headers.clone();
             let (body_text, body_status) = read_body_text(&payload)?;
             (headers, body_text, body_status)
         }
-        None => (
-            Vec::new(),
-            None,
-            EmailBodyStatus::NoReadableBody,
-        ),
+        None => (Vec::new(), None, EmailBodyStatus::NoReadableBody),
     };
     let header = |name: &str| {
         headers
@@ -145,7 +146,9 @@ struct DecodedText {
     had_errors: bool,
 }
 
-fn read_body_text(payload: &MessagePayload) -> Result<(Option<String>, EmailBodyStatus)> {
+pub(in crate::gmail) fn read_body_text(
+    payload: &MessagePayload,
+) -> Result<(Option<String>, EmailBodyStatus)> {
     const MAX_MIME_DEPTH: usize = 32;
     const MAX_MIME_PARTS: usize = 1_024;
     let mut candidates = TextBodyCandidates::default();
@@ -295,7 +298,7 @@ fn decode_mime_body(data: &str, part: &MessagePayload) -> Result<DecodedText> {
     })
 }
 
-fn truncate_snippet(snippet: &str) -> (String, bool) {
+pub(in crate::gmail) fn truncate_snippet(snippet: &str) -> (String, bool) {
     let mut chars = snippet.chars();
     let truncated: String = chars.by_ref().take(MAX_SNIPPET_CHARS).collect();
     (truncated, chars.next().is_some())
