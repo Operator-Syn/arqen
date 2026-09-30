@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl AccountStore {
     pub fn list_accounts(&self) -> Result<Vec<Account>> {
         let mut statement = self.connection.prepare(
