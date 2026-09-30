@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
-fn is_authenticated(state: &GatewayState, headers: &HeaderMap) -> bool {
+use super::*;
+
+pub(super) fn is_authenticated(state: &GatewayState, headers: &HeaderMap) -> bool {
     session_token(headers).is_some_and(|token| state.sessions.contains(&token))
 }
 
-fn session_token(headers: &HeaderMap) -> Option<String> {
+pub(super) fn session_token(headers: &HeaderMap) -> Option<String> {
     let cookie = headers.get(header::COOKIE)?.to_str().ok()?;
     cookie.split(';').find_map(|part| {
         let (name, value) = part.trim().split_once('=')?;
@@ -11,18 +13,18 @@ fn session_token(headers: &HeaderMap) -> Option<String> {
     })
 }
 
-fn session_cookie(token: &str) -> String {
+pub(super) fn session_cookie(token: &str) -> String {
     format!(
         "{SESSION_COOKIE}={token}; Path=/; Max-Age={}; HttpOnly; SameSite=Strict",
         SESSION_TTL.as_secs()
     )
 }
 
-fn expired_session_cookie() -> String {
+pub(super) fn expired_session_cookie() -> String {
     format!("{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict")
 }
 
-fn origin_is_allowed(headers: &HeaderMap) -> bool {
+pub(super) fn origin_is_allowed(headers: &HeaderMap) -> bool {
     let Some(origin) = headers.get(header::ORIGIN) else {
         return true;
     };
@@ -46,7 +48,7 @@ fn origin_is_allowed(headers: &HeaderMap) -> bool {
     origin == format!("http://{host}")
 }
 
-fn parse_login_form(body: &[u8]) -> Option<(String, String)> {
+pub(super) fn parse_login_form(body: &[u8]) -> Option<(String, String)> {
     let mut username = None;
     let mut password = None;
     for (key, value) in url::form_urlencoded::parse(body) {
@@ -60,7 +62,7 @@ fn parse_login_form(body: &[u8]) -> Option<(String, String)> {
     Some((username?, password?))
 }
 
-fn validate_secret(value: &str, name: &str) -> Result<()> {
+pub(super) fn validate_secret(value: &str, name: &str) -> Result<()> {
     anyhow::ensure!(!value.is_empty(), "{name} cannot be empty");
     anyhow::ensure!(
         !value.chars().any(char::is_control),
@@ -69,7 +71,7 @@ fn validate_secret(value: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
-fn read_password_file(path: &std::path::Path) -> Result<String> {
+pub(super) fn read_password_file(path: &std::path::Path) -> Result<String> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("read control password file at {}", path.display()))?;
     let password = content
