@@ -151,6 +151,20 @@ async fn http_surface_requires_bearer_auth_and_exposes_tools() {
     assert_eq!(tools.status(), StatusCode::OK);
     let body: serde_json::Value = tools.json().await.unwrap();
     let tools = body["result"]["tools"].as_array().unwrap();
+    for expected in [
+        "create_reply_draft",
+        "create_draft",
+        "list_drafts",
+        "mark_draft_for_deletion",
+        "delete_marked_draft",
+        "mark_draft_for_sending",
+        "send_marked_draft",
+    ] {
+        assert!(
+            tools.iter().any(|tool| tool["name"] == expected),
+            "missing MCP tool {expected}"
+        );
+    }
     let tool = tools
         .iter()
         .find(|tool| tool["name"] == "list_emails")
@@ -440,6 +454,7 @@ fn schema_supports_type(schema: &serde_json::Value, expected: &str) -> bool {
             .is_some_and(|types| types.iter().any(|kind| kind == expected))
 }
 
+mod draft_tools;
 mod email_tools;
 mod label_tools;
 mod message_tools;
