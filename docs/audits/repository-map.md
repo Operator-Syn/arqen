@@ -16,10 +16,11 @@
 | `src/ui/theme.rs` | Shared Ratatui color tokens | consistent status/focus colors |
 | `src/ui/` | Layout, rendering composition, pane focus, and mouse routing | responsive geometry and scroll state |
 | `src/callback/` | Loopback OAuth listener/helper, request parsing, and pages | callback and optional launcher routes |
-| `src/gmail/` | Gmail REST models, validation, client, and response mapping | label list, bounded metadata list, full-message text read, and per-message read-state changes |
-| `src/broker/` | Unix credential broker/client, framing, handlers, and cache | selected target, eligibility, refresh, stable errors |
-| `src/mcp.rs` | Broker wire types | label-list/list/readiness/read/read-state operations and result/error serialization |
-| `src/server/` | Streamable HTTP MCP process, auth, routes, and runtime | bearer/Host/Origin gate and label-list/list/read/read-state tools |
+| `src/gmail/` | Gmail REST models, validation, client, and response mapping | label operations, bounded metadata list, message read/read-state, and move-to-Trash operation |
+| `src/broker/` | Unix credential broker/client, framing, focused email/label/target/token/error/deletion handler modules | selected target, eligibility, one-use account-bound deletion marker, refresh, stable errors |
+| `src/mcp.rs` | Broker wire types | label, list/read/read-state, mark/delete-to-Trash, readiness operations and result/error serialization |
+| `src/server/` | Streamable HTTP MCP process, auth, routes, and runtime | bearer/Host/Origin gate and Gmail list/read/label/read-state/two-step Trash tools |
+| `tests/` | Central test root: Rust unit modules mirror `src/`, Python suites, future integration suites | `tests/unit/`, `tests/python/`, and `tests/integration/` provide separate discovery and ownership scopes |
 | `Dockerfile` | Docker-native MCP (`mcp` target) and control/broker (`runtime` target) images | non-root runtimes; control command is the gateway-owned TUI process |
 | `compose.yaml` | User-facing stack using published GHCR images | no source build; loopback host ports; persistent named volumes |
 | `deploy/` | Docker-native OpenBao stack, systemd alternatives, Nginx example | operator-owned deployment boundary |
