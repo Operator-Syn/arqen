@@ -75,3 +75,19 @@ Missing, expired, replayed, or wrong-account markers fail with
 the existing `gmail.modify` grant. A failed call consumes its marker and
 requires a fresh mark before retrying. Marker storage is process-local and is
 cleared when the broker restarts.
+
+Draft operations use Gmail's `users.drafts` API. New drafts contain one
+recipient, subject, and text body; reply drafts derive their recipient,
+subject, and thread from an existing message and require a caller-supplied body.
+Draft listing returns separate draft and underlying message IDs. Draft IDs are
+resolved to message IDs before action marks are registered, so draft send,
+draft deletion, and existing message-to-Trash marks share one per-account,
+per-message action slot. An explicit new mark replaces an opposite pending
+mark; an in-flight action blocks transitions. Markers remain account-bound,
+one-use, and 10-minute, process-local state.
+
+Draft deletion uses Gmail's permanent `users.drafts.delete`; draft sending uses
+`users.drafts.send` and reports uncertain provider outcomes without claiming
+success. Custom labels remain organizational metadata, and system labels are
+provider-managed. Label application and read-state changes reject DRAFT-labeled
+messages so draft changes stay on the drafts resource boundary.
