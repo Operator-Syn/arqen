@@ -4,9 +4,11 @@
 
 Arqen has one Rust package and one binary with four runtime entry points:
 the default TUI, `control-gateway`, `credential-broker`, and `mcp-server`.
-The Docker-native local profile runs the gateway/TUI, broker, and MCP roles in
-one Compose project, with OpenBao as the refresh-token store and ttyd kept
-behind the gateway. Native user services remain the host-side alternative.
+The user-facing Compose stack pulls published images. The developer Compose
+stack builds from source and adds host display access to the control terminal.
+Both run the gateway/TUI, broker, and MCP roles with OpenBao as the refresh-token
+store and ttyd behind the gateway. Native user services remain the host-side
+alternative.
 The MCP server never reads a credential
 store directly. It asks the broker to resolve the one explicitly selected
 Google subject and to call Gmail with a short-lived access token.
@@ -39,13 +41,14 @@ Responsibilities are intentionally narrow:
 | Gmail client (`src/gmail/`) | Bounded list/get metadata requests and summaries | Token persistence |
 | MCP server (`src/server/`, `src/mcp.rs`) | Streamable HTTP, bearer gate, tool schema, wire errors | Credential-store access and account choice |
 | systemd user units (`deploy/systemd/`) | Host broker restart and optional all-native MCP lifecycle | OAuth consent, secret creation, public deployment |
-| Docker-native Compose (`deploy/containers/docker-native-compose.yml`) | OpenBao, control TUI, broker, and loopback MCP lifecycle; native display access is limited to the control override | Public exposure, live OAuth consent, account migration |
+| User Compose (`compose.yaml`) | Published images for OpenBao, control TUI, broker, and loopback MCP | Public exposure, live OAuth consent |
+| Developer Compose (`deploy/containers/docker-native-compose.yml`) | Source-built app images and host display access for the control TUI | Public exposure, live OAuth consent, account migration |
 
-The base Compose file defines the four services once. `make docker-up` selects
-exactly one small display override for `arqen-control`: Wayland mounts the
-session socket; X11 mounts the X socket and Xauthority file. These files are
-merged with the base file and do not create extra containers or independent
-stacks.
+The user Compose file pulls the current stable images and binds host ports to
+localhost. The developer Compose file defines the services once; `make
+docker-up` selects one display override for `arqen-control`: Wayland mounts the
+session socket, while X11 mounts the X socket and Xauthority file. These
+overrides do not add containers or create independent stacks.
 
 The MCP exposes `list_labels`, `list_emails`, and `read_email` plus separate
 per-message `mark_email_read` and `mark_email_unread` tools for the configured
