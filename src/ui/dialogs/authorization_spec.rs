@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) fn authorization_spec(
     url: &str,
     compact: bool,
@@ -50,7 +52,7 @@ pub(crate) fn authorization_spec(
             }),
             Line::from(Span::styled(
                 url.to_owned(),
-                ratatui::style::Style::default().fg(super::theme::PRIMARY),
+                ratatui::style::Style::default().fg(crate::ui::theme::PRIMARY),
             )),
         ])
     } else {
@@ -66,7 +68,7 @@ pub(crate) fn authorization_spec(
             }),
             Line::from(Span::styled(
                 url.to_owned(),
-                ratatui::style::Style::default().fg(super::theme::PRIMARY),
+                ratatui::style::Style::default().fg(crate::ui::theme::PRIMARY),
             )),
             Line::from(""),
             Line::from(if reconnect || reauthenticate {
@@ -133,6 +135,6 @@ pub(crate) fn authorization_spec(
     }
 }
 
-fn actions_len_for_focus(remote: bool) -> usize {
+pub(crate) fn actions_len_for_focus(remote: bool) -> usize {
     if remote { 1 } else { 2 }
 }
