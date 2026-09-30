@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn build_router(state: GatewayState) -> Router {
+use super::*;
+
+pub(super) fn build_router(state: GatewayState) -> Router {
     Router::new()
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
@@ -8,7 +10,7 @@ fn build_router(state: GatewayState) -> Router {
         .with_state(state)
 }
 
-async fn login(State(state): State<GatewayState>, request: Request) -> Response {
+pub(super) async fn login(State(state): State<GatewayState>, request: Request) -> Response {
     if !origin_is_allowed(request.headers()) {
         return plain_response(StatusCode::FORBIDDEN);
     }
@@ -75,7 +77,7 @@ async fn login(State(state): State<GatewayState>, request: Request) -> Response 
     redirect_with_cookie(StatusCode::SEE_OTHER, session_cookie(&token))
 }
 
-async fn logout(State(state): State<GatewayState>, request: Request) -> Response {
+pub(super) async fn logout(State(state): State<GatewayState>, request: Request) -> Response {
     if !origin_is_allowed(request.headers()) {
         return plain_response(StatusCode::FORBIDDEN);
     }
@@ -85,7 +87,7 @@ async fn logout(State(state): State<GatewayState>, request: Request) -> Response
     redirect_with_cookie(StatusCode::SEE_OTHER, expired_session_cookie())
 }
 
-async fn websocket(
+pub(super) async fn websocket(
     State(state): State<GatewayState>,
     headers: HeaderMap,
     uri: Uri,
