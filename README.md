@@ -54,6 +54,7 @@ make check
 | Connect an MCP client or inspect its tools | [MCP API](docs/api/mcp.md) |
 | Configure a reverse proxy | [Container and proxy setup](docs/operations/container-and-nginx.md) |
 | Build or run from source | [Development workflows](docs/development/local-workflows.md) |
+| Find or add tests | [Test layout](docs/development/testing.md) |
 | Browse all guides | [Documentation map](docs/README.md) |
 
 ## License
