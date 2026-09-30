@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-fn callback_thread(
+use super::*;
+
+pub(super) fn callback_thread(
     listener: TcpListener,
     sender: mpsc::Sender<Result<String, String>>,
     shutdown: Arc<AtomicBool>,
@@ -152,7 +154,7 @@ fn write_redirect(stream: &mut TcpStream, location: &str) -> Result<()> {
     Ok(())
 }
 
-fn launcher_page(start_path: &str) -> String {
+pub(super) fn launcher_page(start_path: &str) -> String {
     let escaped_path = escape_html_attribute(start_path);
     format!(
         "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E\"><title>Continue to Google</title><style>body{{font:16px system-ui,sans-serif;max-width:42rem;margin:4rem auto;padding:0 1.5rem;line-height:1.5}}button{{font:inherit;padding:.65rem 1rem;cursor:pointer}}#fallback{{display:none}}</style><body><h1>Continue to Google</h1><p>Click the button to open Google sign-in in a new window. Arqen will close that window when login is complete.</p><button id=continue type=button data-start=\"{escaped_path}\">Continue to Google</button><p id=status role=status aria-live=polite></p><p id=fallback><a href=\"{escaped_path}\" target=\"_blank\" rel=\"noopener noreferrer\">Open Google sign-in in a new tab</a></p><noscript><p>JavaScript is disabled. <a href=\"{escaped_path}\" target=\"_blank\" rel=\"noopener noreferrer\">Open Google sign-in in a new tab</a>.</p></noscript><script>const button=document.getElementById('continue');const status=document.getElementById('status');const fallback=document.getElementById('fallback');button.addEventListener('click',()=>{{const popup=window.open(button.dataset.start,'arqen-google-login','popup');if(!popup){{status.textContent='The popup was blocked. Allow popups for this local Arqen page, then try again.';fallback.style.display='block';return;}}try{{popup.opener=null}}catch(_){{}}try{{popup.focus()}}catch(_){{}}status.textContent='Google sign-in opened in a new window. Complete it there; this helper can be closed.';if(window.opener)setTimeout(()=>{{try{{window.close()}}catch(_){{}}}},100);}});</script></body>",
@@ -175,7 +177,7 @@ fn error_page(message: &str) -> String {
     )
 }
 
-fn callback_page(success: bool, close_after_success: bool) -> &'static str {
+pub(super) fn callback_page(success: bool, close_after_success: bool) -> &'static str {
     if !success {
         return "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><link rel=icon href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E\"><title>Arqen login error</title><style>:root{color-scheme:dark}html,body{background:#000;color:#fff}body{font:16px system-ui,sans-serif;max-width:42rem;margin:3rem auto;padding:0 1.5rem;line-height:1.5}</style><body><h1>Arqen could not complete login</h1><p>You may close this tab and return to Arqen.</p></body>";
     }
