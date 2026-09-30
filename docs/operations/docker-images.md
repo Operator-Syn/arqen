@@ -1,11 +1,19 @@
 # Docker image releases
 
+For a no-build installation, use the [Docker Quickstart](../quickstart.md).
+This page covers how images are published and how developers build or transfer
+them.
+
 The `Publish Docker images` workflow is triggered by pushes to `main` that
-change an image input. Documentation-only and other unrelated changes do not
-publish new images. It validates the root Cargo package's stable `X.Y.Z`
-version, builds and publishes the MCP, runtime, and project OpenBao images for
-`linux/amd64` and `linux/arm64`, then writes a source tag and bumps only the
-patch version in `Cargo.toml` and `Cargo.lock`.
+change an image input. Documentation-only, workflow-only, and other unrelated
+changes do not publish new images. This keeps monthly Dependabot updates to
+GitHub Actions from starting product releases. It validates the root Cargo
+package's stable `X.Y.Z` version and requires GitHub to verify the source
+commit's signature, builds and publishes the MCP, runtime, and project OpenBao
+images for `linux/amd64` and `linux/arm64`, creates a source tag and updates the
+metadata-only `docker-images` branch, then bumps only the patch version in
+`Cargo.toml` and `Cargo.lock` for the next release. Arqen intentionally uses
+Git tags and GHCR image tags without creating GitHub Release entries.
 
 The two architectures build in parallel on native GitHub-hosted runners. Each
 architecture job builds all three images and pushes commit-scoped staging tags;
@@ -21,21 +29,23 @@ affected Rust layer.
 | `ghcr.io/operator-syn/arqen-runtime` | `arqen-control`, `arqen-broker` | `X.Y.Z`, `latest` |
 | `ghcr.io/operator-syn/arqen-openbao` | OpenBao with Arqen policies and automatic first-run bootstrap | `X.Y.Z`, `latest` |
 
-Each published source version is also tagged `vX.Y.Z`. After a normal
-successful publication, the workflow advances only the patch version.
+Each published source version is also tagged `vX.Y.Z`. The tag points to the
+verified source commit; an unsigned source commit fails validation before
+images are published. After a normal successful publication, the workflow
+advances only the patch version. That next version is a placeholder until a
+subsequent signed source change triggers another release.
 Workflow concurrency serializes active releases; GitHub may replace an older
 pending run when newer pushes arrive.
 The source tag and current main version checks make a rerun safe after partial
 completion. A manually selected minor or major version in Cargo files is used
 for the next successful publication and then only its patch is incremented.
 Before starting architecture builds, the workflow checks whether the current
-version tag is already used. If it points to an ancestor in the same `main`
-history, the workflow automatically advances the patch version, commits the
-manifest and lockfile update, and builds from that new source commit. That
-version remains available for retry if a later build or publish step fails. A
-tag from unrelated history still stops the run before build compute is spent.
-When setting a major or minor release, edit `Cargo.toml` and run `cargo check`
-to update the root package version in `Cargo.lock` before pushing.
+version tag is already used. A tag pointing to an ancestor or unrelated
+history stops the run; update `Cargo.toml` and `Cargo.lock` in a reviewed,
+signature-verified source change before retrying. A tag already pointing to
+the exact source commit is allowed for a safe rerun. When setting a major or
+minor release, edit `Cargo.toml` and run `cargo check` to update the root
+package version in `Cargo.lock` before pushing.
 The workflow requires GitHub Actions `contents: write` and `packages: write`
 permissions, and repository branch rules must allow its direct patch-bump
 commit to `main`. It uses `GITHUB_TOKEN`; those commits do not start another
@@ -43,9 +53,9 @@ push workflow.
 
 ## Building a beta from source
 
-The release workflow publishes stable images from `main` only. To try a beta,
-clone the repository, check out the desired branch or commit, then let the
-Docker-native workflow build images from that checkout:
+The release workflow publishes stable images from `main` only. Developers can
+clone the repository, check out a branch or commit, then build local images
+from that checkout:
 
 ```bash
 git clone https://github.com/Operator-Syn/arqen.git
@@ -76,9 +86,9 @@ successful publication, open all three packages' GitHub settings and change
 their visibility to public. Until then, anonymous pulls will fail. The workflow
 does not change package visibility or weaken repository branch protection.
 
-## Local use
+## Developer builds and offline bundles
 
-Source builds remain the default:
+Source builds are the default for the developer Make workflow:
 
 ```bash
 make docker-up
