@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) fn details_viewport_rows(area: Rect, mode: UiMode) -> usize {
     usize::from(details_body_area(area, mode).height.max(1))
 }
 
-fn details_body_area(area: Rect, mode: UiMode) -> Rect {
+pub(crate) fn details_body_area(area: Rect, mode: UiMode) -> Rect {
     let block = panel("", theme::BORDER, area.width);
     let inner = block.inner(area);
     let content = detail_content(inner, area.width);
@@ -23,7 +25,7 @@ fn details_body_area(area: Rect, mode: UiMode) -> Rect {
     }
 }
 
-fn render_scrolled_section<'a>(
+pub(crate) fn render_scrolled_section<'a>(
     frame: &mut Frame<'_>,
     viewport: Rect,
     scroll: usize,
@@ -38,7 +40,7 @@ fn render_scrolled_section<'a>(
     frame.render_widget(widget.scroll((local_scroll, 0)), visible_area);
 }
 
-fn render_scrolled_scope(
+pub(crate) fn render_scrolled_scope(
     frame: &mut Frame<'_>,
     viewport: Rect,
     scroll: usize,
@@ -72,7 +74,7 @@ fn render_scrolled_scope(
     frame.render_widget(paragraph.scroll((paragraph_scroll, 0)), visible_area);
 }
 
-fn visible_section(
+pub(crate) fn visible_section(
     viewport: Rect,
     scroll: usize,
     start: u16,
@@ -101,11 +103,11 @@ fn visible_section(
     ))
 }
 
-fn status_color(state: ConnectionState) -> ratatui::style::Color {
+pub(crate) fn status_color(state: ConnectionState) -> ratatui::style::Color {
     status_presentation(state).2
 }
 
-fn connection_badge_area(area: Rect, mode: UiMode) -> Rect {
+pub(crate) fn connection_badge_area(area: Rect, mode: UiMode) -> Rect {
     let block = panel("", theme::BORDER, area.width);
     let inner = block.inner(area);
     let content = detail_content(inner, area.width);
