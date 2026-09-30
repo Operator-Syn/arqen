@@ -210,13 +210,44 @@ must only be called when the user's explicit authorization covers moving that
 exact message to Trash. Marking is a separate call and does not itself
 authorize the later destructive call.
 
+## Draft tools
+
+`list_drafts` accepts optional `max_results` (1–50, default 20) and
+`page_token`. It returns bounded metadata with separate `draft_id` and
+underlying `message_id` fields. Pass `draft_id`, not `message_id`, to draft
+action tools. `create_draft` requires one plain recipient address, a nonblank
+subject, and a text body no larger than 24 KiB. `create_reply_draft` requires a source
+`message_id` from `list_emails` and a body; Arqen derives the reply recipient,
+subject, and thread from that source. Both create an unsent draft and return
+the distinct Gmail draft, message, and thread IDs.
+
+`mark_draft_for_deletion` and `mark_draft_for_sending` each accept one
+`draft_id` and return an opaque account-bound marker that expires after 600
+seconds. `delete_marked_draft` and `send_marked_draft` accept only the matching
+marker. Marking does not perform the Gmail operation or itself authorize it.
+The user must explicitly authorize deletion or sending of the exact draft.
+Gmail permanently deletes drafts; it does not provide a recoverable Trash path
+for this operation. A send failure with an unknown outcome consumes its marker;
+inspect `list_drafts` before considering another send attempt.
+
+Action marks are Arqen-only state, not Gmail labels. For one underlying Gmail
+message, only one pending destructive action can exist across draft send,
+draft deletion, and message-to-Trash. An explicit new mark replaces a pending
+opposite mark. A mark cannot change while its action is executing. Mark state
+is held in broker memory and clears when the broker restarts. Custom Gmail
+labels remain organizational metadata and never authorize sending or deletion.
+System labels stay provider-managed. Applying custom labels, changing
+read-state, or moving a draft message to Trash is rejected; use draft-specific
+operations.
+
 ## Failure codes
 
 The broker uses these stable codes: `invalid_request`, `invalid_message_id`,
 `message_not_found`, `message_too_large`, `target_not_configured`,
 `target_unavailable`, `reauthentication_required`,
 `credential_unavailable`, `insufficient_scope`, `gmail_rate_limited`,
-`gmail_unavailable`, `invalid_label_name`, `label_already_exists`,
+`gmail_unavailable`, `action_in_progress`, `action_mark_required`,
+`action_mark_limit`, `invalid_action_marker`, `invalid_label_name`, `label_already_exists`,
 `invalid_label_id`, `label_not_found`, `system_label`,
 `deletion_mark_required`, `invalid_deletion_mark`, `deletion_mark_limit`, and
 `internal`.
