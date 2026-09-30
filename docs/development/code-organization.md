@@ -60,9 +60,12 @@ services together, but it does not duplicate their rules.
   lifecycle, state transitions, input, OAuth orchestration, and browser work.
 - `src/ui/` owns pure Ratatui layout, rendering, modal, and hit-testing code.
 - `src/auth/`, `src/gmail/`, `src/broker/`, `src/server/`, and `src/control/`
-  separate provider, protocol, and process boundaries. Broker request handling
-  is divided into email operations, label operations, target policy, token
-  refresh, and error conversion; control login retry policy lives in
+  separate provider, protocol, and process boundaries. Gmail draft provider
+  calls live in `src/gmail/client/drafts.rs`. Broker request handling is
+  divided into email, draft, label, and target operations; `src/broker/actions.rs`
+  owns mutually exclusive one-use destructive-action marks, `tokens.rs` owns
+  token refresh/cache composition, and `errors.rs` owns provider error
+  conversion. Control login retry policy lives in
   `src/control/login_rate_limit.rs`.
 - `src/store/` owns account models, SQLite schema/migrations, CRUD, and target
   invariants; `src/secrets/` owns credential backends.
