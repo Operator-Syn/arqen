@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl AccountStore {
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let connection = Connection::open(path)?;
@@ -14,7 +16,7 @@ impl AccountStore {
         Ok(store)
     }
 
-    fn migrate(&self) -> Result<()> {
+    pub(super) fn migrate(&self) -> Result<()> {
         self.connection.execute_batch(
             "PRAGMA foreign_keys = ON;
              CREATE TABLE IF NOT EXISTS google_accounts (
@@ -66,6 +68,4 @@ impl AccountStore {
         }
         Ok(())
     }
-
-
 }
