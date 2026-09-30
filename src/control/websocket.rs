@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-async fn websocket_proxy<S>(client: WebSocket, upstream: WebSocketStream<S>)
+use super::*;
+
+pub(super) async fn websocket_proxy<S>(client: WebSocket, upstream: WebSocketStream<S>)
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -34,7 +36,7 @@ where
     }
 }
 
-fn to_upstream_message(message: AxumMessage) -> UpstreamMessage {
+pub(super) fn to_upstream_message(message: AxumMessage) -> UpstreamMessage {
     match message {
         AxumMessage::Text(text) => UpstreamMessage::Text(text.to_string().into()),
         AxumMessage::Binary(data) => UpstreamMessage::Binary(data),
@@ -48,7 +50,7 @@ fn to_upstream_message(message: AxumMessage) -> UpstreamMessage {
     }
 }
 
-fn from_upstream_message(message: UpstreamMessage) -> Option<AxumMessage> {
+pub(super) fn from_upstream_message(message: UpstreamMessage) -> Option<AxumMessage> {
     match message {
         UpstreamMessage::Text(text) => Some(AxumMessage::text(text.to_string())),
         UpstreamMessage::Binary(data) => Some(AxumMessage::binary(data)),
