@@ -42,7 +42,19 @@ pub(crate) fn content_padding(width: u16) -> u16 {
     width.saturating_div(120).clamp(1, 2)
 }
 
-include!("render.rs");
-include!("interaction.rs");
-include!("layout.rs");
-include!("tests.rs");
+mod interaction;
+mod layout;
+mod render;
+
+#[cfg(test)]
+use interaction::mouse_target;
+pub(crate) use interaction::pane_at_with_notice;
+pub(crate) use interaction::{modal_action, mouse_target_with_focus};
+#[cfg(test)]
+use layout::layout;
+pub(crate) use layout::pane_viewport;
+use render::Areas;
+pub(crate) use render::draw;
+#[cfg(test)]
+#[path = "../../tests/unit/ui.rs"]
+mod tests;
