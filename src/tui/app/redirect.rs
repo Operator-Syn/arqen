@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl App {
-    fn handle_redirect_key(&mut self, key: KeyEvent) {
+    pub(in crate::tui) fn handle_redirect_key(&mut self, key: KeyEvent) {
         let Screen::Redirect {
             oauth,
             input,
