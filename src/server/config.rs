@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl ServerOptions {
     pub fn from_env(default_broker_socket: PathBuf) -> anyhow::Result<Self> {
         let listen_addr = std::env::var("ARQEN_MCP_LISTEN_ADDR")
