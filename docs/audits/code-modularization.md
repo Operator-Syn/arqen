@@ -72,7 +72,7 @@ have been replaced with child modules and explicit facade imports/re-exports;
 `cargo build`, `nix flake check --no-build`, and `git diff --check` pass after
 centralizing tests and replacing the production `include!` fragments. Unit
 tests were not run. The current full code graph refresh completed with
-1,942 nodes and 7,366 edges, with zero skipped files and zero partial parses.
+1,942 nodes and 7,333 edges, with zero skipped files and zero partial parses.
 Coverage reports only the ignored `tests/__pycache__` subtree; it reports no
 recorded gaps in `src/` or indexed files under `tests/`. These are best-effort
 index signals, not proof of completeness. No bundled skill validator was
@@ -127,8 +127,8 @@ change should split them further.
 
 Source-level verification does not establish activation, deployment, live
 Google consent, keyring/OpenBao availability, browser behavior, or graphical
-session health. The current graph snapshot predates no source changes in this
-follow-up and recorded zero skipped or partial files; the coverage tool still
-provides only a best-effort signal. An earlier snapshot reported a `cli.run`
+session health. The refreshed graph covers the current committed source and
+recorded zero skipped or partial files; the coverage tool still provides only
+a best-effort signal. An earlier snapshot reported a `cli.run`
 helper cycle that direct source inspection did not confirm as recursive
 production control flow. Documentation mockup images are ignored by design.
