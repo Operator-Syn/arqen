@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub fn run(options: ServerOptions) -> anyhow::Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -20,7 +22,10 @@ async fn run_async(options: ServerOptions) -> anyhow::Result<()> {
         .context("serve Streamable HTTP MCP endpoint")
 }
 
-fn build_router(options: ServerOptions, cancellation_token: CancellationToken) -> Router {
+pub(super) fn build_router(
+    options: ServerOptions,
+    cancellation_token: CancellationToken,
+) -> Router {
     let config = StreamableHttpServerConfig::default()
         .with_legacy_session_mode(false)
         .with_json_response(true)
@@ -81,7 +86,7 @@ async fn authorize(State(state): State<AuthState>, request: Request, next: Next)
     response
 }
 
-fn request_is_authorized<B>(request: &axum::http::Request<B>, expected: &str) -> bool {
+pub(super) fn request_is_authorized<B>(request: &axum::http::Request<B>, expected: &str) -> bool {
     let Some(value) = request.headers().get("authorization") else {
         return false;
     };
