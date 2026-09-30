@@ -26,8 +26,11 @@ const MAX_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_ACCESS_TOKEN_SECONDS: u64 = 3_600;
 const ACCESS_TOKEN_SKEW_SECONDS: u64 = 60;
-const DELETION_MARK_TTL: Duration = Duration::from_secs(10 * 60);
-const MAX_PENDING_DELETION_MARKS: usize = 256;
+mod actions;
+use actions::{
+    ActionMarkFailure, DELETION_MARK_TTL, PendingActionKind, PendingActionMark,
+    consume_action_mark, finish_action_mark, register_action_mark,
+};
 
 #[derive(Debug, Clone)]
 pub struct BrokerOptions {
@@ -55,18 +58,11 @@ struct CachedAccessToken {
 }
 
 #[derive(Debug, Clone)]
-struct PendingDeletionMark {
-    google_subject: String,
-    message_id: String,
-    expires_at: Instant,
-}
-
-#[derive(Debug, Clone)]
 struct BrokerState {
     database_path: PathBuf,
     credentials_path: PathBuf,
     access_tokens: Arc<Mutex<HashMap<String, CachedAccessToken>>>,
-    pending_deletions: Arc<Mutex<HashMap<String, PendingDeletionMark>>>,
+    pending_actions: Arc<Mutex<HashMap<(String, String), PendingActionMark>>>,
 }
 
 mod handlers;
