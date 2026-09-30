@@ -71,7 +71,13 @@ impl BrokerClient {
             | BrokerResponse::LabelDeleted { .. }
             | BrokerResponse::LabelApplied { .. }
             | BrokerResponse::DeletionMarked { .. }
-            | BrokerResponse::EmailTrashed { .. } => Err(BrokerFailure {
+            | BrokerResponse::EmailTrashed { .. }
+            | BrokerResponse::Drafts { .. }
+            | BrokerResponse::DraftCreated { .. }
+            | BrokerResponse::DraftDeletionMarked { .. }
+            | BrokerResponse::DraftSendingMarked { .. }
+            | BrokerResponse::DraftDeleted { .. }
+            | BrokerResponse::DraftSent { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid mail-list response".into(),
             }),
@@ -136,7 +142,13 @@ impl BrokerClient {
             | BrokerResponse::LabelDeleted { .. }
             | BrokerResponse::LabelApplied { .. }
             | BrokerResponse::DeletionMarked { .. }
-            | BrokerResponse::EmailTrashed { .. } => Err(BrokerFailure {
+            | BrokerResponse::EmailTrashed { .. }
+            | BrokerResponse::Drafts { .. }
+            | BrokerResponse::DraftCreated { .. }
+            | BrokerResponse::DraftDeletionMarked { .. }
+            | BrokerResponse::DraftSendingMarked { .. }
+            | BrokerResponse::DraftDeleted { .. }
+            | BrokerResponse::DraftSent { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid label-list response".into(),
             }),
@@ -250,6 +262,139 @@ impl BrokerClient {
         }
     }
 
+    pub async fn list_drafts(
+        &self,
+        request: crate::gmail::ListDraftsRequest,
+    ) -> std::result::Result<crate::gmail::DraftListResponse, BrokerFailure> {
+        match self
+            .exchange_label_request(BrokerRequest::list_drafts(request.validate().map_err(
+                |_| BrokerFailure {
+                    code: BrokerErrorCode::InvalidRequest,
+                    message: "the draft-list request is invalid".into(),
+                },
+            )?))
+            .await?
+        {
+            BrokerResponse::Drafts { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            _ => Err(invalid_broker_response("draft-list")),
+        }
+    }
+
+    pub async fn create_draft(
+        &self,
+        request: crate::gmail::CreateDraftRequest,
+    ) -> std::result::Result<crate::gmail::DraftCreateResult, BrokerFailure> {
+        match self
+            .exchange_label_request(BrokerRequest::create_draft(request.validate().map_err(
+                |_| BrokerFailure {
+                    code: BrokerErrorCode::InvalidRequest,
+                    message: "the draft content is invalid".into(),
+                },
+            )?))
+            .await?
+        {
+            BrokerResponse::DraftCreated { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            _ => Err(invalid_broker_response("draft-create")),
+        }
+    }
+
+    pub async fn create_reply_draft(
+        &self,
+        request: crate::gmail::CreateReplyDraftRequest,
+    ) -> std::result::Result<crate::gmail::DraftCreateResult, BrokerFailure> {
+        match self
+            .exchange_label_request(BrokerRequest::create_reply_draft(
+                request.validate().map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::InvalidRequest,
+                    message: "the reply-draft request is invalid".into(),
+                })?,
+            ))
+            .await?
+        {
+            BrokerResponse::DraftCreated { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            _ => Err(invalid_broker_response("reply-draft-create")),
+        }
+    }
+
+    pub async fn mark_draft_for_deletion(
+        &self,
+        request: crate::gmail::DraftIdRequest,
+    ) -> std::result::Result<crate::gmail::DraftActionMark, BrokerFailure> {
+        match self
+            .exchange_label_request(BrokerRequest::mark_draft_for_deletion(
+                request.validate().map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::InvalidRequest,
+                    message: "the draft ID is invalid".into(),
+                })?,
+            ))
+            .await?
+        {
+            BrokerResponse::DraftDeletionMarked { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            _ => Err(invalid_broker_response("draft-deletion-mark")),
+        }
+    }
+
+    pub async fn delete_marked_draft(
+        &self,
+        request: crate::gmail::ActionMarkerRequest,
+    ) -> std::result::Result<crate::gmail::DraftDeleteResult, BrokerFailure> {
+        match self
+            .exchange_label_request(BrokerRequest::delete_marked_draft(
+                request.validate().map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::InvalidActionMarker,
+                    message: "the action marker is invalid".into(),
+                })?,
+            ))
+            .await?
+        {
+            BrokerResponse::DraftDeleted { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            _ => Err(invalid_broker_response("draft-delete")),
+        }
+    }
+
+    pub async fn mark_draft_for_sending(
+        &self,
+        request: crate::gmail::DraftIdRequest,
+    ) -> std::result::Result<crate::gmail::DraftActionMark, BrokerFailure> {
+        match self
+            .exchange_label_request(BrokerRequest::mark_draft_for_sending(
+                request.validate().map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::InvalidRequest,
+                    message: "the draft ID is invalid".into(),
+                })?,
+            ))
+            .await?
+        {
+            BrokerResponse::DraftSendingMarked { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            _ => Err(invalid_broker_response("draft-send-mark")),
+        }
+    }
+
+    pub async fn send_marked_draft(
+        &self,
+        request: crate::gmail::ActionMarkerRequest,
+    ) -> std::result::Result<crate::gmail::DraftSendResult, BrokerFailure> {
+        match self
+            .exchange_label_request(BrokerRequest::send_marked_draft(
+                request.validate().map_err(|_| BrokerFailure {
+                    code: BrokerErrorCode::InvalidActionMarker,
+                    message: "the action marker is invalid".into(),
+                })?,
+            ))
+            .await?
+        {
+            BrokerResponse::DraftSent { result } => Ok(result),
+            BrokerResponse::Error { code, message } => Err(BrokerFailure { code, message }),
+            _ => Err(invalid_broker_response("draft-send")),
+        }
+    }
+
     async fn exchange_label_request(
         &self,
         request: BrokerRequest,
@@ -355,7 +500,13 @@ impl BrokerClient {
             | BrokerResponse::LabelDeleted { .. }
             | BrokerResponse::LabelApplied { .. }
             | BrokerResponse::DeletionMarked { .. }
-            | BrokerResponse::EmailTrashed { .. } => Err(BrokerFailure {
+            | BrokerResponse::EmailTrashed { .. }
+            | BrokerResponse::Drafts { .. }
+            | BrokerResponse::DraftCreated { .. }
+            | BrokerResponse::DraftDeletionMarked { .. }
+            | BrokerResponse::DraftSendingMarked { .. }
+            | BrokerResponse::DraftDeleted { .. }
+            | BrokerResponse::DraftSent { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid message-read response".into(),
             }),
@@ -440,7 +591,13 @@ impl BrokerClient {
             | BrokerResponse::LabelDeleted { .. }
             | BrokerResponse::LabelApplied { .. }
             | BrokerResponse::DeletionMarked { .. }
-            | BrokerResponse::EmailTrashed { .. } => Err(BrokerFailure {
+            | BrokerResponse::EmailTrashed { .. }
+            | BrokerResponse::Drafts { .. }
+            | BrokerResponse::DraftCreated { .. }
+            | BrokerResponse::DraftDeletionMarked { .. }
+            | BrokerResponse::DraftSendingMarked { .. }
+            | BrokerResponse::DraftDeleted { .. }
+            | BrokerResponse::DraftSent { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid message-state response".into(),
             }),
@@ -508,11 +665,33 @@ impl BrokerClient {
             | BrokerResponse::LabelDeleted { .. }
             | BrokerResponse::LabelApplied { .. }
             | BrokerResponse::DeletionMarked { .. }
-            | BrokerResponse::EmailTrashed { .. } => Err(BrokerFailure {
+            | BrokerResponse::EmailTrashed { .. }
+            | BrokerResponse::Drafts { .. }
+            | BrokerResponse::DraftCreated { .. }
+            | BrokerResponse::DraftDeletionMarked { .. }
+            | BrokerResponse::DraftSendingMarked { .. }
+            | BrokerResponse::DraftDeleted { .. }
+            | BrokerResponse::DraftSent { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid readiness response".into(),
             }),
         }
+    }
+}
+
+#[cfg(not(unix))]
+fn unsupported_host() -> BrokerFailure {
+    BrokerFailure {
+        code: BrokerErrorCode::Internal,
+        message: "the credential broker currently requires a Unix host".into(),
+    }
+}
+
+#[cfg(unix)]
+fn invalid_broker_response(operation: &str) -> BrokerFailure {
+    BrokerFailure {
+        code: BrokerErrorCode::Internal,
+        message: format!("the broker returned an invalid {operation} response"),
     }
 }
 
@@ -627,6 +806,49 @@ impl BrokerClient {
             code: BrokerErrorCode::Internal,
             message: "the credential broker currently requires a Unix host".into(),
         })
+    }
+
+    pub async fn list_drafts(
+        &self,
+        _request: crate::gmail::ListDraftsRequest,
+    ) -> std::result::Result<crate::gmail::DraftListResponse, BrokerFailure> {
+        Err(unsupported_host())
+    }
+    pub async fn create_draft(
+        &self,
+        _request: crate::gmail::CreateDraftRequest,
+    ) -> std::result::Result<crate::gmail::DraftCreateResult, BrokerFailure> {
+        Err(unsupported_host())
+    }
+    pub async fn create_reply_draft(
+        &self,
+        _request: crate::gmail::CreateReplyDraftRequest,
+    ) -> std::result::Result<crate::gmail::DraftCreateResult, BrokerFailure> {
+        Err(unsupported_host())
+    }
+    pub async fn mark_draft_for_deletion(
+        &self,
+        _request: crate::gmail::DraftIdRequest,
+    ) -> std::result::Result<crate::gmail::DraftActionMark, BrokerFailure> {
+        Err(unsupported_host())
+    }
+    pub async fn delete_marked_draft(
+        &self,
+        _request: crate::gmail::ActionMarkerRequest,
+    ) -> std::result::Result<crate::gmail::DraftDeleteResult, BrokerFailure> {
+        Err(unsupported_host())
+    }
+    pub async fn mark_draft_for_sending(
+        &self,
+        _request: crate::gmail::DraftIdRequest,
+    ) -> std::result::Result<crate::gmail::DraftActionMark, BrokerFailure> {
+        Err(unsupported_host())
+    }
+    pub async fn send_marked_draft(
+        &self,
+        _request: crate::gmail::ActionMarkerRequest,
+    ) -> std::result::Result<crate::gmail::DraftSendResult, BrokerFailure> {
+        Err(unsupported_host())
     }
 
     pub async fn readiness(&self) -> std::result::Result<(), BrokerFailure> {
