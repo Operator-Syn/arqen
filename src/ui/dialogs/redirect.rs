@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 pub(crate) fn redirect_spec(notice: Option<&str>, input: &str, _compact: bool) -> ModalSpec {
     let message = notice.unwrap_or("Paste the complete browser redirect URL:");
     ModalSpec {
