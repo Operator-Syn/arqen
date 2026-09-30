@@ -25,10 +25,15 @@ linked.
    `gmail.readonly`. Gmail and MCP payloads have explicit size caps; attachments
    are not downloaded. Email text is untrusted data, not instructions. Tool
    responses never contain credentials or raw provider error bodies.
-   `create_label` and `delete_label` use only the Arqen-selected account and
-   require its recorded `gmail.modify` grant before credential access; label
-   deletion removes the association from all messages and threads carrying the
-   label without deleting those messages.
+   `create_label`, `apply_label`, and `delete_label` use only the
+   Arqen-selected account and require its recorded `gmail.modify` grant before
+   credential access. `apply_label` adds a custom label to one message;
+   `delete_label` removes its association from all messages and threads without
+   deleting those messages.
+   `mark_email_for_deletion` and `delete_marked_email` also use only the
+   selected account and require its recorded `gmail.modify` grant. The first
+   only stages an account-bound, expiring one-use marker; the second requires
+   that marker before moving the exact message to recoverable Trash.
 6. Headless VPS OAuth uses an SSH local port forward to a loopback callback;
    the OAuth callback listener is never bound to a public interface.
 7. `/healthz` and `/readyz` require the same bearer gate as `/mcp`; readiness
@@ -51,8 +56,8 @@ linked.
 
 Both Gmail scopes used by Arqen are restricted under Google's current scope
 policy. Google describes `gmail.modify` as allowing read, compose, and send
-access, broader than the read-state operations exposed here. See the [Gmail
-scope documentation](https://developers.google.com/workspace/gmail/api/auth/scopes),
+access, broader than the label and read-state operations exposed here. See the
+[Gmail scope documentation](https://developers.google.com/workspace/gmail/api/auth/scopes),
 [Workspace user-data
 policy](https://developers.google.com/workspace/workspace-api-user-data-developer-policy),
 and [restricted-scope verification guide](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
