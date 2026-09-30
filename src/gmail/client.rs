@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 use super::*;
 
+#[path = "client/drafts.rs"]
+mod drafts;
+
 #[path = "responses.rs"]
 mod responses;
 use responses::*;
@@ -54,6 +57,16 @@ impl fmt::Display for SystemLabelError {
 impl std::error::Error for SystemLabelError {}
 
 #[derive(Debug)]
+pub(crate) struct DraftMessageMutationError;
+
+impl fmt::Display for DraftMessageMutationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Gmail draft messages only support draft-specific operations")
+    }
+}
+impl std::error::Error for DraftMessageMutationError {}
+
+#[derive(Debug)]
 pub(crate) enum ApplyLabelFailure {
     InvalidMessageId,
     InvalidLabelId,
@@ -90,6 +103,10 @@ pub fn is_unauthorized(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<GmailApiError>()
         .is_some_and(|error| error.status == StatusCode::UNAUTHORIZED)
+}
+
+pub(crate) fn is_draft_message_mutation(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<DraftMessageMutationError>().is_some()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -132,6 +149,13 @@ struct ModifiedMessageResource {
 #[derive(Debug, Deserialize)]
 struct TrashedMessageResource {
     id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MessageLabelsResource {
+    id: String,
+    #[serde(rename = "labelIds", default)]
+    label_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -356,6 +380,8 @@ impl GmailApi {
         request
             .validate_label_id()
             .map_err(|_| ApplyLabelFailure::InvalidLabelId)?;
+        self.ensure_not_draft(access_token, &request.message_id)
+            .map_err(ApplyLabelFailure::MessageModify)?;
 
         let mut label_url = self
             .base_url
@@ -493,6 +519,7 @@ impl GmailApi {
         request: crate::gmail::ReadEmailRequest,
     ) -> Result<crate::gmail::EmailTrashResult> {
         let request = request.validate()?;
+        self.ensure_not_draft(access_token, &request.message_id)?;
         let mut message_url = self.base_url.join("users/me/messages")?;
         message_url
             .path_segments_mut()
@@ -524,6 +551,7 @@ impl GmailApi {
         is_read: bool,
     ) -> Result<crate::gmail::EmailReadState> {
         let request = request.validate()?;
+        self.ensure_not_draft(access_token, &request.message_id)?;
         let mut message_url = self.base_url.join("users/me/messages")?;
         message_url
             .path_segments_mut()
@@ -552,5 +580,28 @@ impl GmailApi {
             message_id: message.id,
             is_read: !message.label_ids.iter().any(|label| label == "UNREAD"),
         })
+    }
+
+    fn ensure_not_draft(&self, access_token: &str, message_id: &str) -> Result<()> {
+        let mut url = self.base_url.join("users/me/messages")?;
+        url.path_segments_mut()
+            .map_err(|_| anyhow::anyhow!("Gmail API base URL cannot accept path segments"))?
+            .push(message_id);
+        let message: MessageLabelsResource = self
+            .client
+            .get(url)
+            .bearer_auth(access_token)
+            .query(&[("format", "minimal"), ("fields", "id,labelIds")])
+            .send()
+            .context("check whether Gmail message is a draft")
+            .and_then(parse_json_response)?;
+        anyhow::ensure!(
+            message.id == message_id,
+            "Gmail returned an unexpected message ID"
+        );
+        if message.label_ids.iter().any(|label| label == "DRAFT") {
+            return Err(anyhow::Error::new(DraftMessageMutationError));
+        }
+        Ok(())
     }
 }
