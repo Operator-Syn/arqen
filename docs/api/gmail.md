@@ -83,10 +83,36 @@ This moves one message to recoverable Trash, not permanent deletion, and uses
 the existing `gmail.modify` grant. Failed calls consume their marker and
 require a fresh mark before retrying.
 
+Draft operations use Gmail's `users.drafts` resource. `list_drafts` lists draft
+IDs, then fetches bounded metadata for each result; it keeps Gmail's draft ID
+distinct from the message ID contained by that draft. `create_draft` builds a
+plain-text MIME message with one recipient, subject, and body (at most 24 KiB), then posts it to
+`users.drafts.create`. `create_reply_draft` reads the source message headers,
+derives its reply address and subject, supplies the source thread ID and reply
+headers, and creates a separate draft. Draft messages are provider-managed and
+cannot receive labels other than Gmail's `DRAFT` system label.
+
+Draft deletion and sending each use a dedicated mark tool and marker-only
+execution tool. The broker resolves a draft ID to its contained message ID and
+uses that message identity to enforce one pending destructive action across
+draft send, draft deletion, and message-to-Trash. A new mark replaces a pending
+opposite mark; an executing action blocks a new mark. The broker consumes a
+marker before making the provider call. Draft deletion uses
+`users.drafts.delete`, which is permanent; sending uses `users.drafts.send`.
+If send outcome cannot be confirmed, the caller must check whether the draft
+remains before retrying. Mark state is process-local and expires after 10
+minutes.
+
+`apply_label`, `mark_email_read`, `mark_email_unread`, and message-to-Trash
+inspect the message labels and reject messages carrying `DRAFT`; use the
+draft-specific operations for draft messages. Custom labels are organizational
+metadata, never pending action flags or authorization for a destructive
+operation.
+
 The selected account's recorded OAuth grants must contain
 [`gmail.readonly`](https://developers.google.com/workspace/gmail/api/auth/scopes)
-for target eligibility; `apply_label`, the two read-state tools, and both
-message-to-Trash tools additionally require `gmail.modify`. Both scopes are
+for target eligibility; `apply_label`, the two read-state tools, message-to-Trash,
+and draft creation, deletion, and sending additionally require `gmail.modify`. Both scopes are
 restricted. Google's `gmail.modify` description
 includes reading, composing, and sending email. After Arqen begins requesting
 that new scope, the selected account must be reauthorized to record the actual
