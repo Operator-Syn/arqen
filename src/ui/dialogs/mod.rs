@@ -6,6 +6,10 @@ use ratatui::{
     prelude::{Line, Span, Text},
 };
 
-include!("authorization.rs");
-include!("redirect.rs");
-include!("status.rs");
+mod authorization;
+mod redirect;
+mod status;
+
+pub(crate) use authorization::*;
+pub(crate) use redirect::*;
+pub(crate) use status::*;
