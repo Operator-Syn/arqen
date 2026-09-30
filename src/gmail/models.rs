@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct EmailSummary {
     pub id: String,
@@ -78,4 +80,47 @@ pub struct EmailReadState {
 pub struct LabelDeleteResult {
     pub label_id: String,
     pub deleted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct LabelApplyResult {
+    pub message_id: String,
+    pub label_id: String,
+    pub applied: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
+pub struct DeleteMarkedEmailRequest {
+    /// One-use marker returned by `mark_email_for_deletion`.
+    #[schemars(length(min = 32, max = 32), regex(pattern = "^[0-9a-f]{32}$"))]
+    pub marker_id: String,
+}
+
+impl DeleteMarkedEmailRequest {
+    pub fn validate(self) -> Result<Self> {
+        anyhow::ensure!(
+            self.marker_id.len() == 32
+                && self
+                    .marker_id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "marker_id must be a 32-character deletion marker returned by mark_email_for_deletion"
+        );
+        Ok(self)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct EmailDeletionMark {
+    pub marker_id: String,
+    pub message_id: String,
+    pub expires_in_seconds: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+pub struct EmailTrashResult {
+    pub message_id: String,
+    pub trashed: bool,
 }
