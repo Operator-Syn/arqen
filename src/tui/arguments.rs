@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BrowserKind {
+pub(in crate::tui) enum BrowserKind {
     Chromium,
     Firefox,
 }
 
-fn browser_kind(program: &OsStr) -> Option<BrowserKind> {
+pub(in crate::tui) fn browser_kind(program: &OsStr) -> Option<BrowserKind> {
     let name = Path::new(program)
         .file_name()
         .and_then(|name| name.to_str())
@@ -20,7 +22,7 @@ fn browser_kind(program: &OsStr) -> Option<BrowserKind> {
     }
 }
 
-fn owned_browser_arguments(
+pub(in crate::tui) fn owned_browser_arguments(
     program: &OsStr,
     url: &str,
     profile_dir: &Path,
