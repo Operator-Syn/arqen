@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 impl Modal {
     pub(crate) fn render(frame: &mut Frame<'_>, area: Rect, spec: &ModalSpec) {
         let layout = Self::layout(area, spec);
@@ -56,7 +58,7 @@ impl Modal {
     }
 
     pub(crate) fn layout(area: Rect, spec: &ModalSpec) -> ModalLayout {
-        let inset = super::content_padding(area.width);
+        let inset = crate::ui::content_padding(area.width);
         let inner_width = area.width.saturating_sub(inset.saturating_mul(2)).max(1);
         let border_width = 2u16.saturating_add(modal_padding(area.width).saturating_mul(2));
         let body_width = (spec
