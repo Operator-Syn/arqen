@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
+use super::*;
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_account_list(
     frame: &mut Frame<'_>,
@@ -11,7 +13,9 @@ pub(crate) fn render_account_list(
     scroll_offset: &mut usize,
 ) {
     let row_height = row_height(area, accounts.len(), mode);
-    let list_inset = super::content_padding(area.width).saturating_add(1).min(3);
+    let list_inset = crate::ui::content_padding(area.width)
+        .saturating_add(1)
+        .min(3);
     let list_top = if mode != UiMode::Wide || accounts.is_empty() {
         2
     } else {
