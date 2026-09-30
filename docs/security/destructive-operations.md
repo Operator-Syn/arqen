@@ -31,6 +31,11 @@ messages: deleting a label permanently removes it from every message and thread
 to which it is applied. Also treat permanent message deletion, account or
 credential removal, purges, and destructive bulk operations as destructive.
 
+Moving a message to Gmail Trash is recoverable, but still requires explicit,
+target-specific authorization because it removes the message from the active
+mailbox. Arqen's `delete_marked_email` moves one message to Trash; it does not
+permanently delete it or affect the whole thread.
+
 Reversible state changes such as marking one message read or unread are not
 covered by this delete-specific rule. They still require an applicable user
 request and must stay within the requested scope.
@@ -41,10 +46,12 @@ Before a destructive call, establish all of the following:
 
 1. The user explicitly requested or authorized the destructive action.
 2. The target is uniquely identified. For a label, use its exact Gmail label ID
-   from `list_labels`; show the human-readable name when asking the user.
+   from `list_labels`; for message-to-Trash, use the exact message ID from
+   `list_emails` and its marker from `mark_email_for_deletion`.
 3. The user understands the material consequence and affected scope. For label
    deletion, explain that it removes the label from all messages and threads,
-   but does not delete those messages.
+   but does not delete those messages. For message-to-Trash, explain that one
+   message moves to recoverable Trash.
 4. The operation does not exceed the user's authorized target, count, or scope.
 
 If any item is uncertain, ask a concise, specific question before acting. State
@@ -72,6 +79,10 @@ delete as separate tools; do not combine them behind an `action` parameter.
 - For `delete_label`, accept a Gmail `label_id`, not a display name or account
   selector. The agent should discover labels with `list_labels`, choose by
   human-readable name, and pass the selected ID unchanged in a separate call.
+- For `delete_marked_email`, require the exact one-use marker returned by
+  `mark_email_for_deletion`. It is bound to the selected account and message,
+  expires after 10 minutes, and is consumed before the Gmail request. Marking
+  itself does not authorize the later delete call.
 - Refuse attempts to delete system labels. Never delete messages as a side
   effect of deleting a label; Gmail label deletion only removes the label
   association from affected messages and threads.
