@@ -26,6 +26,8 @@ const MAX_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_ACCESS_TOKEN_SECONDS: u64 = 3_600;
 const ACCESS_TOKEN_SKEW_SECONDS: u64 = 60;
+const DELETION_MARK_TTL: Duration = Duration::from_secs(10 * 60);
+const MAX_PENDING_DELETION_MARKS: usize = 256;
 
 #[derive(Debug, Clone)]
 pub struct BrokerOptions {
@@ -53,14 +55,30 @@ struct CachedAccessToken {
 }
 
 #[derive(Debug, Clone)]
+struct PendingDeletionMark {
+    google_subject: String,
+    message_id: String,
+    expires_at: Instant,
+}
+
+#[derive(Debug, Clone)]
 struct BrokerState {
     database_path: PathBuf,
     credentials_path: PathBuf,
     access_tokens: Arc<Mutex<HashMap<String, CachedAccessToken>>>,
+    pending_deletions: Arc<Mutex<HashMap<String, PendingDeletionMark>>>,
 }
 
-include!("runtime.rs");
-include!("protocol.rs");
-include!("handlers.rs");
-include!("client.rs");
-include!("tests.rs");
+mod handlers;
+mod protocol;
+mod runtime;
+use handlers::*;
+mod client;
+pub use client::BrokerClient;
+use protocol::*;
+#[cfg(test)]
+use runtime::prepare_socket_path;
+pub use runtime::run;
+#[cfg(test)]
+#[path = "../../tests/unit/broker.rs"]
+mod tests;
