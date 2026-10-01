@@ -4,16 +4,19 @@ For a no-build installation, use the [Docker Quickstart](../quickstart.md).
 This page covers how images are published and how developers build or transfer
 them.
 
-The `Publish Docker images` workflow is triggered by pushes to `main` that
-change an image input. Documentation-only, workflow-only, and other unrelated
-changes do not publish new images. This keeps monthly Dependabot updates to
-GitHub Actions from starting product releases. It validates the root Cargo
-package's stable `X.Y.Z` version and requires GitHub to verify the source
-commit's signature, builds and publishes the MCP, runtime, and project OpenBao
-images for `linux/amd64` and `linux/arm64`, creates a source tag and updates the
-metadata-only `docker-images` branch, then bumps only the patch version in
-`Cargo.toml` and `Cargo.lock` for the next release. Arqen intentionally uses
-Git tags and GHCR image tags without creating GitHub Release entries.
+The `Publish Docker images` workflow is triggered automatically by pushes to
+`main` that change an image input. It can also be started manually from the
+Actions tab on `main`; manual runs still validate the selected source commit's
+signature and release version before publishing. Documentation-only,
+workflow-only, and other unrelated pushes do not publish new images. This keeps
+monthly Dependabot updates to GitHub Actions from starting product releases.
+It validates the root Cargo package's stable `X.Y.Z` version and requires
+GitHub to verify the source commit's signature, builds and publishes the MCP,
+runtime, and project OpenBao images for `linux/amd64` and `linux/arm64`, creates
+a source tag and updates the metadata-only `docker-images` branch, then bumps
+only the patch version in `Cargo.toml` and `Cargo.lock` for the next release.
+Arqen intentionally uses Git tags and GHCR image tags without creating GitHub
+Release entries.
 
 The two architectures build in parallel on native GitHub-hosted runners. Each
 architecture job builds all three images and pushes commit-scoped staging tags;
