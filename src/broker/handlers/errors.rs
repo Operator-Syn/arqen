@@ -114,6 +114,12 @@ pub(crate) fn map_mark_email_error(error: &anyhow::Error) -> BrokerResponse {
 }
 
 pub(crate) fn map_create_label_error(error: &anyhow::Error) -> BrokerResponse {
+    if crate::gmail::GmailApi::is_label_write_uncertain(error) {
+        return BrokerResponse::error(
+            BrokerErrorCode::GmailUnavailable,
+            "label creation may have succeeded but could not be verified; use list_labels before retrying",
+        );
+    }
     if let Some(error) = error.downcast_ref::<GmailApiError>() {
         match error.status().as_u16() {
             400 => {
@@ -150,6 +156,12 @@ pub(crate) fn map_create_label_error(error: &anyhow::Error) -> BrokerResponse {
 }
 
 pub(crate) fn map_delete_label_error(error: &anyhow::Error) -> BrokerResponse {
+    if crate::gmail::GmailApi::is_label_write_uncertain(error) {
+        return BrokerResponse::error(
+            BrokerErrorCode::GmailUnavailable,
+            "label deletion may have succeeded but could not be verified; use list_labels before retrying",
+        );
+    }
     if error
         .downcast_ref::<crate::gmail::SystemLabelError>()
         .is_some()
