@@ -8,7 +8,7 @@ use arqen::{
         DraftCreateResult, DraftDeleteResult, DraftIdRequest, DraftListResponse, DraftSendResult,
         EmailDeletionMark, EmailLabel, EmailListResponse, EmailReadResponse, EmailReadState,
         EmailTrashResult, LabelApplyResult, LabelDeleteResult, LabelListResponse,
-        ListDraftsRequest, ListEmailsRequest, ReadEmailRequest,
+        ListDraftsRequest, ListEmailsRequest, ListLabelsRequest, ReadEmailRequest,
     },
     mcp::BrokerFailure,
 };
