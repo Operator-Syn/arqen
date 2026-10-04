@@ -28,6 +28,15 @@ decision, not implied by the current route.
 The server advertises `list_labels`, `list_emails`, `read_email`,
 `create_label`, `apply_label`, `delete_label`, `mark_email_read`, and
 `mark_email_unread`, `mark_email_for_deletion`, and `delete_marked_email`.
+It also advertises seven draft tools: `list_drafts`, `create_draft`,
+`create_reply_draft`, `mark_draft_for_deletion`, `delete_marked_draft`,
+`mark_draft_for_sending`, and `send_marked_draft` (17 tools total).
+All input schemas are closed objects, including empty `list_labels` arguments;
+runtime deserialization rejects unknown selectors and typos. Text length limits
+count Unicode scalar values, not UTF-8 bytes. Draft bodies allow 24,576
+characters; response and frame caps remain byte-based. Reply source IDs use the
+same 1–256 ASCII constraints as message reads. Malformed draft IDs consistently
+return `invalid_request`, matching broker validation.
 `list_labels` takes no arguments and returns each selected-account Gmail
 label's unchanged `id`, human-readable `name`, and `system`/`user` type,
 including custom labels. Agents call it first, choose a label by name, then
@@ -65,6 +74,14 @@ is consumed atomically before the Gmail request. Missing, expired, replayed, or
 wrong-account markers fail with `deletion_mark_required`. The delete tool moves
 one message to recoverable Trash under the explicit user-authorization policy;
 a failed attempt requires a fresh marker before retrying.
+
+Draft composition is also explicit: `list_drafts` → exact `draft_id` → the
+appropriate mark tool → exact returned `marker_id` → execute tool. The broker
+binds marks to the selected account and underlying draft revision, consumes
+them once, and checks that revision immediately before mutation. Edited drafts
+require fresh marking. This preflight does not remove the external provider
+race between verification and execution. Draft metadata pages fail as a whole
+when any detail cannot be fetched or validated.
 
 `create_label`, `apply_label`, and `delete_label` also require a locally recorded
 `gmail.modify` grant. Creation returns the new user label's exact ID, name, and
