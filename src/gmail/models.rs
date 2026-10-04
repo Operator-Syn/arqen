@@ -36,6 +36,11 @@ pub struct EmailLabel {
     pub label_type: EmailLabelType,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
+pub struct ListLabelsRequest {}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 pub struct LabelListResponse {
     #[serde(default)]
@@ -164,6 +169,7 @@ impl CreateDraftRequest {
 #[serde(deny_unknown_fields)]
 #[schemars(deny_unknown_fields)]
 pub struct CreateReplyDraftRequest {
+    #[schemars(length(min = 1, max = 256), regex(pattern = r"^[A-Za-z0-9_-]+$"))]
     pub message_id: String,
     #[schemars(length(min = 1, max = 24_576))]
     pub body: String,
@@ -212,7 +218,9 @@ impl ListDraftsRequest {
         );
         if let Some(token) = &self.page_token {
             anyhow::ensure!(
-                !token.is_empty() && token.len() <= 4096 && !token.chars().any(char::is_control),
+                !token.is_empty()
+                    && token.chars().count() <= 4096
+                    && !token.chars().any(char::is_control),
                 "page_token is invalid"
             );
         }
@@ -310,9 +318,14 @@ pub struct DraftSendResult {
     pub thread_id: String,
 }
 
-fn validate_draft_header(name: &str, value: &str, max_bytes: usize) -> Result<()> {
+// Text limits use Unicode scalar values, matching JSON Schema minLength/maxLength.
+// Transport and provider response size limits remain byte-based.
+fn validate_draft_header(name: &str, value: &str, max_chars: usize) -> Result<()> {
     anyhow::ensure!(!value.trim().is_empty(), "{name} cannot be blank");
-    anyhow::ensure!(value.len() <= max_bytes, "{name} exceeds {max_bytes} bytes");
+    anyhow::ensure!(
+        value.chars().count() <= max_chars,
+        "{name} exceeds {max_chars} characters"
+    );
     anyhow::ensure!(
         !value.chars().any(char::is_control),
         "{name} contains control characters"
@@ -322,7 +335,10 @@ fn validate_draft_header(name: &str, value: &str, max_bytes: usize) -> Result<()
 
 fn validate_draft_body(body: &str) -> Result<()> {
     anyhow::ensure!(!body.trim().is_empty(), "body cannot be blank");
-    anyhow::ensure!(body.len() <= 24_576, "body exceeds the 24 KiB draft limit");
+    anyhow::ensure!(
+        body.chars().count() <= 24_576,
+        "body exceeds the 24,576-character draft limit"
+    );
     anyhow::ensure!(
         !body
             .chars()
