@@ -15,3 +15,14 @@ Add tests under the closest matching subtree. Keep test source out of `src/`
 and avoid loose test files at the root of `tests/`. `cargo test` remains the
 Rust test entry point and discovers the centralized unit modules through their
 source owners.
+
+## Gmail Trash request framing
+
+Run `cargo test message_trash` for the provider-level Trash regressions in
+`tests/unit/gmail.rs`. The local mock HTTP server exercises the production
+draft-check GET followed by the Trash POST and captures the HTTP/1.1 request.
+The empty POST must send `Content-Length: 0`, with no payload or transfer
+encoding; keep the explicit empty body in the provider client. The tests also
+cover draft protection and rejection of an unexpected response message ID.
+These tests use synthetic tokens and do not prove deployment, Google grants,
+or authenticated Gmail behavior.
