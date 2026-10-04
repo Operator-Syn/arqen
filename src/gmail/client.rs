@@ -531,6 +531,8 @@ impl GmailApi {
             .post(message_url)
             .bearer_auth(access_token)
             .query(&[("fields", "id")])
+            // Gmail requires Content-Length even for an empty HTTP/1.1 POST.
+            .body("")
             .send()
             .context("move Gmail message to Trash")
             .and_then(parse_json_response)?;
