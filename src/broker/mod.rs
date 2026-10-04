@@ -22,7 +22,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-const MAX_REQUEST_BYTES: usize = 64 * 1024;
+// Canonical UTF-8 serialization of 24,576-scalar draft bodies plus headers
+// exceeds 64 KiB. Keep a bounded frame with room for four-byte scalar values.
+const MAX_REQUEST_BYTES: usize = 128 * 1024;
 const MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const DEFAULT_ACCESS_TOKEN_SECONDS: u64 = 3_600;
 const ACCESS_TOKEN_SKEW_SECONDS: u64 = 60;
