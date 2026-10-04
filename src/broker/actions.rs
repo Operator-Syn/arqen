@@ -44,12 +44,23 @@ pub(super) fn register_action_mark(
     let now = Instant::now();
     marks.retain(|_, mark| mark.executing || mark.expires_at > now);
     let key = (google_subject.to_owned(), message_id.to_owned());
-    if marks.get(&key).is_some_and(|mark| mark.executing) {
+    // A draft ID survives edits while its underlying message ID changes. Keep
+    // both identities exclusive, including while the old revision executes.
+    let same_resource = |mark: &PendingActionMark| {
+        mark.google_subject == google_subject
+            && (mark.message_id == message_id
+                || draft_id.is_some_and(|id| mark.draft_id.as_deref() == Some(id)))
+    };
+    if marks
+        .values()
+        .any(|mark| same_resource(mark) && mark.executing)
+    {
         return Err(ActionMarkFailure::InProgress);
     }
-    if !marks.contains_key(&key) && marks.len() >= MAX_PENDING_ACTION_MARKS {
+    if !marks.values().any(same_resource) && marks.len() >= MAX_PENDING_ACTION_MARKS {
         return Err(ActionMarkFailure::Limit);
     }
+    marks.retain(|_, mark| !same_resource(mark));
     let marker_id = uuid::Uuid::new_v4().simple().to_string();
     marks.insert(
         key,
