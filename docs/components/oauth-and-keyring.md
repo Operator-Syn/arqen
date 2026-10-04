@@ -44,3 +44,11 @@ On a headless VPS, set `ARQEN_OAUTH_REMOTE=1` and a fixed
 from the laptop with SSH. The browser remains local while the code exchange
 and protected-store write happen on the VPS. Installed services use the XDG client
 configuration path; `GOOGLE_CLIENT_SECRET` remains an explicit override.
+
+The loopback listener (`src/callback/`) accumulates HTTP headers until the
+complete `\r\n\r\n` terminator, within an 8192-byte cap and the existing
+two-second socket-read timeout. TCP reads need not contain a complete request.
+Incomplete EOF, stalled reads, or headers exceeding the cap receive a safe
+400 response without consuming the OAuth callback. Complete denied callbacks
+retain the readable error page; this parsing guard does not alter OAuth state
+validation, PKCE, scopes, or credential storage.
