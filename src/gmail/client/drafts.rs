@@ -9,6 +9,83 @@ use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DraftListStage {
+    List,
+    Detail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DraftListCategory {
+    Transport,
+    ProviderStatus,
+    Decoding,
+    Validation,
+    ResponseTooLarge,
+    Configuration,
+}
+
+// Only bounded, non-sensitive facts survive this boundary. In particular,
+// never keep reqwest/serde errors, URLs, IDs, tokens or response bodies.
+#[derive(Debug)]
+pub(crate) struct DraftListError {
+    pub(crate) stage: DraftListStage,
+    pub(crate) category: DraftListCategory,
+    pub(crate) status: Option<StatusCode>,
+}
+
+impl fmt::Display for DraftListError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Gmail could not complete the draft page; no partial page was returned")
+    }
+}
+
+impl std::error::Error for DraftListError {}
+
+fn listing_error(
+    stage: DraftListStage,
+    category: DraftListCategory,
+    status: Option<StatusCode>,
+) -> anyhow::Error {
+    DraftListError {
+        stage,
+        category,
+        status,
+    }
+    .into()
+}
+
+fn listing_response<T: for<'de> Deserialize<'de>>(
+    response: reqwest::blocking::Response,
+    stage: DraftListStage,
+) -> Result<T> {
+    let status = response.status();
+    parse_json_response(response).map_err(|error| {
+        let category = if !status.is_success() {
+            DraftListCategory::ProviderStatus
+        } else if error.is::<serde_json::Error>() {
+            DraftListCategory::Decoding
+        } else if error.is::<std::io::Error>() {
+            DraftListCategory::Transport
+        } else {
+            // The bounded parser's only remaining error is its response cap.
+            DraftListCategory::ResponseTooLarge
+        };
+        let diagnostic = DraftListError {
+            stage,
+            category,
+            status: Some(status),
+        };
+        if category == DraftListCategory::ProviderStatus {
+            // Retain only the sanitized status error for existing refresh and
+            // broker mappings; never retain a transport or decoding source.
+            anyhow::Error::new(GmailApiError { status }).context(diagnostic)
+        } else {
+            diagnostic.into()
+        }
+    })
+}
+
 #[derive(Deserialize)]
 struct DraftResource {
     id: String,
@@ -68,21 +145,47 @@ impl GmailApi {
         if let Some(token) = request.page_token {
             query.push(("pageToken", token));
         }
-        let listed: DraftListResource = self
+        let response = self
             .client
-            .get(self.base_url.join("users/me/drafts")?)
+            .get(self.base_url.join("users/me/drafts").map_err(|_| {
+                listing_error(DraftListStage::List, DraftListCategory::Configuration, None)
+            })?)
             .bearer_auth(access_token)
             .query(&query)
             .send()
-            .context("list Gmail drafts")
-            .and_then(parse_json_response)?;
+            .map_err(|_| listing_error(DraftListStage::List, DraftListCategory::Transport, None))?;
+        let list_status = response.status();
+        let listed: DraftListResource = listing_response(response, DraftListStage::List)?;
         let mut drafts = Vec::with_capacity(listed.drafts.len());
         for reference in listed.drafts {
-            let mut url = self.base_url.join("users/me/drafts")?;
+            crate::gmail::DraftIdRequest {
+                draft_id: reference.id.clone(),
+            }
+            .validate()
+            .map_err(|_| {
+                listing_error(
+                    DraftListStage::List,
+                    DraftListCategory::Validation,
+                    Some(list_status),
+                )
+            })?;
+            let mut url = self.base_url.join("users/me/drafts").map_err(|_| {
+                listing_error(
+                    DraftListStage::Detail,
+                    DraftListCategory::Configuration,
+                    None,
+                )
+            })?;
             url.path_segments_mut()
-                .map_err(|_| anyhow::anyhow!("Gmail API base URL cannot accept path segments"))?
+                .map_err(|_| {
+                    listing_error(
+                        DraftListStage::Detail,
+                        DraftListCategory::Configuration,
+                        None,
+                    )
+                })?
                 .push(&reference.id);
-            let draft: DraftResource = self
+            let response = self
                 .client
                 .get(url)
                 .bearer_auth(access_token)
@@ -94,9 +197,25 @@ impl GmailApi {
                     ),
                 ])
                 .send()
-                .context("read Gmail draft metadata")
-                .and_then(parse_json_response)?;
-            drafts.push(draft_summary(draft)?);
+                .map_err(|_| {
+                    listing_error(DraftListStage::Detail, DraftListCategory::Transport, None)
+                })?;
+            let detail_status = response.status();
+            let draft: DraftResource = listing_response(response, DraftListStage::Detail)?;
+            if draft.id != reference.id {
+                return Err(listing_error(
+                    DraftListStage::Detail,
+                    DraftListCategory::Validation,
+                    Some(detail_status),
+                ));
+            }
+            drafts.push(draft_summary(draft).map_err(|_| {
+                listing_error(
+                    DraftListStage::Detail,
+                    DraftListCategory::Validation,
+                    Some(detail_status),
+                )
+            })?);
         }
         Ok(DraftListResponse {
             target_email: target_email.to_owned(),
@@ -285,8 +404,8 @@ fn draft_summary(draft: DraftResource) -> Result<DraftSummary> {
             .map(|h| h.value.clone())
     };
     anyhow::ensure!(
-        draft.message.label_ids.is_empty()
-            || draft.message.label_ids.iter().all(|label| label == "DRAFT"),
+        !draft.message.label_ids.is_empty()
+            && draft.message.label_ids.iter().all(|label| label == "DRAFT"),
         "Gmail returned labels unsupported for a draft"
     );
     Ok(DraftSummary {
@@ -296,7 +415,7 @@ fn draft_summary(draft: DraftResource) -> Result<DraftSummary> {
         to: header("To").into_iter().collect(),
         subject: header("Subject"),
         date: header("Date"),
-        snippet: draft.message.snippet,
+        snippet: truncate_snippet(&draft.message.snippet).0,
     })
 }
 
