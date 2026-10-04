@@ -32,7 +32,9 @@ specific qualities:
   can be followed from entrypoint to boundary; moved symbols retain stable
   public names or explicit re-exports.
 
-These qualities are implemented through the following Unix philosophy in code:
+These qualities are implemented through the following Unix philosophy and
+general software-design principles. Treat them as decision aids, not slogans
+or permission to refactor without evidence:
 
 1. **Doing One Thing Well (Single Responsibility).** Give each module one
    reason to change. Treat roughly 200 lines as a recommended review marker,
@@ -49,6 +51,16 @@ These qualities are implemented through the following Unix philosophy in code:
    request limits, headers, credentials, and state at the boundary. Return
    contextual errors, fail closed, and never use a broad fallback to conceal a
    broken provider, socket, database, or invariant.
+5. **Don't Repeat Yourself (DRY).** Keep each piece of knowledge or policy in
+   one authoritative place when repeated copies would need to change together.
+   Reuse a focused helper or shared contract when it removes meaningful
+   duplication; do not abstract coincidentally similar code whose behavior is
+   likely to evolve independently. Preserve explicitness when indirection
+   would make the rule harder to find.
+6. **Keep It Simple (KISS).** Prefer the smallest design that clearly meets
+   current requirements and handles known failure cases. Avoid speculative
+   layers, configuration, dependencies, and generalization; do not confuse
+   fewer lines with simpler behavior or omit necessary validation and errors.
 
 ## Workflow
 
@@ -58,7 +70,7 @@ These qualities are implemented through the following Unix philosophy in code:
 2. Run `scripts/audit-modules.sh` and measure high-cognitive functions, then
    trace callers and consumers with the repository graph when available. Treat
    direct source as authoritative when graph coverage is partial.
-3. Choose responsibility seams using the four Unix principles above, keep
+3. Choose responsibility seams using the Unix principles and DRY/KISS above, keep
    `mod.rs` facades small, and preserve
    existing public names, CLI commands, environment variables, schemas, wire
    formats, credential boundaries, and UI interactions. Do not add a dependency
@@ -67,6 +79,10 @@ These qualities are implemented through the following Unix philosophy in code:
    Unix-socket, and HTTP boundaries. Record each boundary's purpose and
    failure path. Compose typed inputs/outputs, fail fast with contextual
    errors, and keep internal code silent.
+   Identify repeated policy or knowledge and simplify only where behavior stays
+   clear; document intentional duplication when separate policies must evolve
+   independently. Reject abstractions that add more indirection than they
+   remove.
 5. Keep test files under the root `tests/` tree, grouped by source owner under
    `tests/unit/`; wire Rust unit tests with `#[path]` where private module
    behavior must remain accessible. Retain success and failure-path coverage.
@@ -82,7 +98,7 @@ These qualities are implemented through the following Unix philosophy in code:
 Report changed module boundaries and, for each meaningful seam, the
 maintainability, readability, purpose, and traceability improvement. Explicitly
 state how the refactor applies Doing One Thing Well, Expect Output to Become
-Input, the Rule of Silence, and Repair Noisily and Early. Also report preserved
+Input, the Rule of Silence, Repair Noisily and Early, DRY, and KISS. Also report preserved
 public contracts, checks and exact status, graph coverage gaps, intentionally
 cohesive files, and runtime/live verification that was not performed. Do not
 claim that a source/build check proves deployment, activation, OAuth, Gmail,
