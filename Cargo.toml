@@ -1,6 +1,6 @@
 [package]
 name = "arqen"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2024"
 rust-version = "1.97"
 license = "MPL-2.0"
