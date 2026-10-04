@@ -20,6 +20,8 @@ const MAX_LABEL_ID_LENGTH: usize = 256;
 const MAX_SNIPPET_CHARS: usize = 300;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[schemars(deny_unknown_fields)]
 pub struct ListEmailsRequest {
     /// Gmail search syntax; control characters are not allowed. Omitted, null, or blank values use `in:inbox`.
     #[schemars(
@@ -185,6 +187,7 @@ mod models;
 mod validation;
 #[cfg(test)]
 pub(crate) use client::ReadEmailTooLarge;
+pub(crate) use client::drafts::{DraftListCategory, DraftListError, DraftListStage};
 pub(crate) use client::{
     ApplyLabelFailure, LabelNotFoundError, SystemLabelError, is_draft_message_mutation,
     is_read_email_too_large,
