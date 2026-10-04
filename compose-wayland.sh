@@ -1,4 +1,17 @@
 #!/bin/sh
+# Optional Wayland launcher for the published-image Compose stack.
+# Run as your desktop user from a logged-in Wayland session, not with sudo.
+# Routine update (latest is the default; no version export is required):
+#   ./compose-wayland.sh pull    # Download images; do not restart containers.
+#   ./compose-wayland.sh up -d   # Apply images, retaining named volumes.
+#   ./compose-wayland.sh ps      # Check service status.
+# ARQEN_DOCKER_IMAGE_TAG in your shell or .env optionally pins a release.
+# The wrapper supplies desktop UID/GID/socket values and both Compose files.
+# Startup stops app writers before volume ownership is aligned. It does not
+# build images, remove volumes, or reset stored passwords/MCP bearer tokens.
+# WARNING: up -d and credentials print secrets; keep terminal output private.
+# Do not pass down -v unless you intentionally want to delete stack data.
+# Full operating guide: docs/operations/wayland-clipboard.md
 set -eu
 
 stack_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
