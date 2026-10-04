@@ -501,6 +501,333 @@ fn list_drafts_returns_draft_and_message_ids_separately() {
 }
 
 #[test]
+fn draft_listing_rejects_detail_for_a_different_draft() {
+    let (base_url, server) = mock_gmail_responses(vec![
+        (json!({"drafts":[{"id":"draft-1"}]}).to_string(), "200 OK".into()),
+        (json!({"id":"other-draft","message":{"id":"message-1","threadId":"thread-1","labelIds":["DRAFT"]}}).to_string(), "200 OK".into()),
+    ]);
+    let result = GmailApi::with_base_url(&base_url).unwrap().list_drafts(
+        "token",
+        "selected@example.com",
+        Default::default(),
+    );
+    assert_eq!(server.join().unwrap().len(), 2);
+    assert!(
+        result.is_err(),
+        "a mismatched draft must not become a listed item"
+    );
+}
+
+#[test]
+fn draft_listing_requires_the_draft_label_and_rejects_other_labels() {
+    for labels in [
+        None,
+        Some(json!([])),
+        Some(json!(["INBOX"])),
+        Some(json!(["DRAFT", "INBOX"])),
+    ] {
+        let mut detail = json!({"id":"draft-1","message":{"id":"message-1","threadId":"thread-1"}});
+        if let Some(labels) = labels {
+            detail["message"]["labelIds"] = labels;
+        }
+        let (base_url, server) = mock_gmail_responses(vec![
+            (
+                json!({"drafts":[{"id":"draft-1"}]}).to_string(),
+                "200 OK".into(),
+            ),
+            (detail.to_string(), "200 OK".into()),
+        ]);
+        let result = GmailApi::with_base_url(&base_url).unwrap().list_drafts(
+            "token",
+            "selected@example.com",
+            Default::default(),
+        );
+        assert_eq!(server.join().unwrap().len(), 2);
+        assert!(result.is_err(), "metadata must affirm only the DRAFT label");
+    }
+}
+
+#[test]
+fn draft_listing_bounds_unicode_snippets_using_the_email_limit() {
+    let snippet = "界".repeat(301);
+    let (base_url, server) = mock_gmail_responses(vec![
+        (json!({"drafts":[{"id":"draft-1"}]}).to_string(), "200 OK".into()),
+        (json!({"id":"draft-1","message":{"id":"message-1","threadId":"thread-1","labelIds":["DRAFT"],"snippet":snippet}}).to_string(), "200 OK".into()),
+    ]);
+    let result = GmailApi::with_base_url(&base_url)
+        .unwrap()
+        .list_drafts("token", "selected@example.com", Default::default())
+        .unwrap();
+    assert_eq!(server.join().unwrap().len(), 2);
+    assert_eq!(result.drafts[0].snippet, "界".repeat(300));
+}
+
+#[test]
+fn draft_listing_rejects_invalid_references_before_fetching_details() {
+    for id in ["", "bad/id", "bad id"] {
+        let (base_url, server) =
+            mock_gmail_response(json!({"drafts":[{"id":id}]}).to_string(), "200 OK");
+        let error = GmailApi::with_base_url(&base_url)
+            .unwrap()
+            .list_drafts("token", "selected@example.com", Default::default())
+            .unwrap_err();
+        assert!(server.join().unwrap().starts_with("GET /users/me/drafts?"));
+        let diagnostic = error.downcast_ref::<super::DraftListError>().unwrap();
+        assert_eq!(diagnostic.stage, super::DraftListStage::List);
+        assert_eq!(diagnostic.category, super::DraftListCategory::Validation);
+        assert!(error.to_string().contains("no partial page"));
+    }
+}
+
+#[test]
+fn draft_listing_rejects_oversized_list_response() {
+    let (base_url, server) = mock_gmail_response(
+        json!({"drafts":[],"unexpected":"x".repeat(2 * 1024 * 1024)}).to_string(),
+        "200 OK",
+    );
+    let result = GmailApi::with_base_url(&base_url).unwrap().list_drafts(
+        "token",
+        "selected@example.com",
+        Default::default(),
+    );
+    server.join().unwrap();
+    assert!(
+        result.is_err(),
+        "the list response must be bounded before parsing"
+    );
+}
+
+#[test]
+fn draft_listing_accepts_empty_pages_without_detail_requests() {
+    for body in ["{}", r#"{"drafts":[],"resultSizeEstimate":0}"#] {
+        let (base_url, server) = mock_gmail_response(body.into(), "200 OK");
+        let result = GmailApi::with_base_url(&base_url)
+            .unwrap()
+            .list_drafts("token", "selected@example.com", Default::default())
+            .unwrap();
+        assert!(server.join().unwrap().starts_with("GET /users/me/drafts?"));
+        assert_eq!(result.target_email, "selected@example.com");
+        assert!(result.drafts.is_empty());
+        assert_eq!(result.next_page_token, None);
+    }
+}
+
+#[test]
+fn draft_listing_preserves_pagination_and_documented_metadata_projection() {
+    let (base_url, server) = mock_gmail_responses(vec![
+        (json!({"drafts":[{"id":"draft-1"}],"nextPageToken":"next+/=","resultSizeEstimate":7}).to_string(), "200 OK".into()),
+        (json!({"id":"draft-1","message":{"id":"message-1","threadId":"thread-1","labelIds":["DRAFT"],"payload":{"headers":[{"name":"tO","value":"person@example.com"},{"name":"SUBJECT","value":"Hello"},{"name":"Date","value":"today"}]}}}).to_string(), "200 OK".into()),
+    ]);
+    let result = GmailApi::with_base_url(&base_url)
+        .unwrap()
+        .list_drafts(
+            "token",
+            "selected@example.com",
+            crate::gmail::ListDraftsRequest {
+                max_results: 1,
+                page_token: Some("page+/=".into()),
+            },
+        )
+        .unwrap();
+    let requests = server.join().unwrap();
+    assert_eq!(requests.len(), 2, "only one requested page is fetched");
+    let query = |request: &str| {
+        let path = request
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .nth(1)
+            .unwrap();
+        reqwest::Url::parse(&format!("http://localhost{path}"))
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        query(&requests[0]),
+        vec![
+            ("maxResults".into(), "1".into()),
+            (
+                "fields".into(),
+                "drafts(id),nextPageToken,resultSizeEstimate".into()
+            ),
+            ("pageToken".into(), "page+/=".into()),
+        ]
+    );
+    assert_eq!(
+        query(&requests[1]),
+        vec![
+            ("format".into(), "metadata".into()),
+            (
+                "fields".into(),
+                "id,message(id,threadId,labelIds,snippet,payload(headers(name,value)))".into()
+            ),
+        ]
+    );
+    assert_eq!(result.next_page_token.as_deref(), Some("next+/="));
+    assert_eq!(result.result_size_estimate, Some(7));
+    assert_eq!(result.drafts[0].to, vec!["person@example.com"]);
+    assert_eq!(result.drafts[0].subject.as_deref(), Some("Hello"));
+    assert_eq!(result.drafts[0].date.as_deref(), Some("today"));
+    assert_eq!(result.drafts[0].snippet, "");
+}
+
+#[test]
+fn draft_listing_rejects_malformed_list_responses() {
+    for body in ["not-json", "[]", r#"{"drafts":null}"#, r#"{"drafts":[{}]}"#] {
+        let (base_url, server) = mock_gmail_response(body.into(), "200 OK");
+        let result = GmailApi::with_base_url(&base_url).unwrap().list_drafts(
+            "token",
+            "selected@example.com",
+            Default::default(),
+        );
+        server.join().unwrap();
+        assert!(result.is_err());
+    }
+}
+
+#[test]
+fn draft_listing_rejects_missing_or_empty_detail_identity() {
+    for detail in [
+        json!({}),
+        json!({"id":"draft-1","message":{"id":"message-1","labelIds":["DRAFT"]}}),
+        json!({"id":"draft-1","message":{"id":"","threadId":"thread-1","labelIds":["DRAFT"]}}),
+        json!({"id":"draft-1","message":{"id":"message-1","threadId":"","labelIds":["DRAFT"]}}),
+    ] {
+        let (base_url, server) = mock_gmail_responses(vec![
+            (
+                json!({"drafts":[{"id":"draft-1"}]}).to_string(),
+                "200 OK".into(),
+            ),
+            (detail.to_string(), "200 OK".into()),
+        ]);
+        let result = GmailApi::with_base_url(&base_url).unwrap().list_drafts(
+            "token",
+            "selected@example.com",
+            Default::default(),
+        );
+        assert_eq!(server.join().unwrap().len(), 2);
+        assert!(result.is_err());
+    }
+}
+
+#[test]
+fn draft_listing_fails_the_page_if_a_draft_disappears_midpage() {
+    let (base_url, server) = mock_gmail_responses(vec![
+        (json!({"drafts":[{"id":"draft-1"},{"id":"draft-2"}],"nextPageToken":"next"}).to_string(), "200 OK".into()),
+        (json!({"id":"draft-1","message":{"id":"message-1","threadId":"thread-1","labelIds":["DRAFT"]}}).to_string(), "200 OK".into()),
+        (r#"{"error":{"message":"private provider detail"}}"#.into(), "404 Not Found".into()),
+    ]);
+    let error = GmailApi::with_base_url(&base_url)
+        .unwrap()
+        .list_drafts(
+            "secret-test-token",
+            "selected@example.com",
+            Default::default(),
+        )
+        .unwrap_err();
+    assert_eq!(server.join().unwrap().len(), 3);
+    assert_eq!(
+        error
+            .downcast_ref::<super::GmailApiError>()
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::NOT_FOUND
+    );
+    assert!(!error.to_string().contains("private provider detail"));
+    assert!(!error.to_string().contains("secret-test-token"));
+}
+
+#[test]
+fn draft_listing_preserves_failed_list_and_detail_statuses_without_provider_bodies() {
+    for (status, expected) in [
+        ("401 Unauthorized", reqwest::StatusCode::UNAUTHORIZED),
+        (
+            "429 Too Many Requests",
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+        ),
+        (
+            "503 Service Unavailable",
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    ] {
+        for detail_failure in [false, true] {
+            let mut responses = Vec::new();
+            if detail_failure {
+                responses.push((
+                    json!({"drafts":[{"id":"draft-1"}]}).to_string(),
+                    "200 OK".into(),
+                ));
+            }
+            responses.push((
+                r#"{"error":{"message":"private provider detail"}}"#.into(),
+                status.into(),
+            ));
+            let (base_url, server) = mock_gmail_responses(responses);
+            let error = GmailApi::with_base_url(&base_url)
+                .unwrap()
+                .list_drafts(
+                    "secret-test-token",
+                    "selected@example.com",
+                    Default::default(),
+                )
+                .unwrap_err();
+            assert_eq!(
+                server.join().unwrap().len(),
+                if detail_failure { 2 } else { 1 }
+            );
+            assert_eq!(
+                error
+                    .downcast_ref::<super::GmailApiError>()
+                    .unwrap()
+                    .status(),
+                expected
+            );
+            assert!(!error.to_string().contains("private provider detail"));
+            assert!(!error.to_string().contains("secret-test-token"));
+        }
+    }
+}
+
+#[test]
+fn draft_listing_rejects_oversized_detail_response() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let base_url = format!("http://{}/", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        for body in [
+            json!({"drafts":[{"id":"draft-1"}]}).to_string(),
+            json!({"id":"draft-1","message":{"id":"message-1","threadId":"thread-1","labelIds":["DRAFT"]},"unexpected":"x".repeat(2 * 1024 * 1024)}).to_string(),
+        ] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let read = stream.read(&mut buffer).unwrap();
+                assert!(read > 0);
+                request.extend_from_slice(&buffer[..read]);
+            }
+            // A bounded client can intentionally close before consuming this body.
+            if let Err(error) = write!(stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len()) {
+                assert!(matches!(error.kind(), std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset));
+            }
+        }
+    });
+    let result = GmailApi::with_base_url(&base_url).unwrap().list_drafts(
+        "token",
+        "selected@example.com",
+        Default::default(),
+    );
+    server.join().unwrap();
+    assert!(
+        result.is_err(),
+        "detail responses must also be bounded before parsing"
+    );
+}
+
+#[test]
 fn delete_draft_uses_drafts_resource_and_accepts_empty_success_response() {
     let (base_url, server) = mock_gmail_response(String::new(), "204 No Content");
     let api = GmailApi::with_base_url(&base_url).unwrap();
@@ -1108,14 +1435,354 @@ fn mock_gmail_responses(
                 }
             }
             requests.push(String::from_utf8(request).unwrap());
-            write!(
-                    stream,
-                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
-                    body.len()
-                )
-                .unwrap();
+            let sent = write!(
+                stream,
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            );
+            // Bounded clients may close before the oversized fixture is sent.
+            if let Err(error) = sent {
+                assert!(
+                    body.len() > 2 * 1024 * 1024
+                        && matches!(
+                            error.kind(),
+                            std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                        ),
+                    "fixture response write failed: {error}"
+                );
+            }
         }
         requests
     });
     (format!("http://{address}/"), server)
+}
+
+#[test]
+fn priority_a_label_delete_accepts_empty_success() {
+    for status in ["200 OK", "204 No Content"] {
+        let (base_url, server) = mock_gmail_responses(vec![
+            (r#"{"id":"Label_7","type":"user"}"#.into(), "200 OK".into()),
+            (String::new(), status.into()),
+        ]);
+        let result = GmailApi::with_base_url(&base_url).unwrap().delete_label(
+            "test-token",
+            crate::gmail::DeleteLabelRequest {
+                label_id: "Label_7".into(),
+            },
+        );
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(result.unwrap().deleted);
+    }
+}
+
+#[test]
+fn priority_a_label_create_verifies_missing_type_by_exact_id() {
+    let (base_url, server) = mock_gmail_responses(vec![
+        (r#"{"id":"Label_7","name":"Atlas"}"#.into(), "200 OK".into()),
+        (
+            r#"{"id":"Label_7","name":"Atlas","type":"user"}"#.into(),
+            "200 OK".into(),
+        ),
+    ]);
+    let result = GmailApi::with_base_url(&base_url).unwrap().create_label(
+        "test-token",
+        crate::gmail::CreateLabelRequest {
+            name: "Atlas".into(),
+        },
+    );
+    assert!(result.is_ok(), "{result:?}");
+    let requests = server.join().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].starts_with("POST /users/me/labels?"));
+    assert!(requests[1].starts_with("GET /users/me/labels/Label_7?"));
+    assert!(requests.iter().all(|r| {
+        r.to_ascii_lowercase()
+            .contains("authorization: bearer test-token")
+    }));
+    assert_eq!(result.unwrap().id, "Label_7");
+}
+
+#[test]
+fn priority_a_label_create_rejects_identity_mismatch_without_retry() {
+    for body in [
+        r#"{"id":"Label_7","name":"Wrong","type":"user"}"#,
+        r#"{"id":"","name":"Atlas","type":"user"}"#,
+        r#"{"id":"Label_7","name":"Atlas","type":"system"}"#,
+        r#"{"id":"Label_7","name":"Atlas","type":"unknown"}"#,
+        r#"{"id":"Label_7","name":"Atlas","type":null}"#,
+        "not-json",
+    ] {
+        let (base_url, server) = mock_gmail_response(body.into(), "200 OK");
+        let result = GmailApi::with_base_url(&base_url).unwrap().create_label(
+            "test-token",
+            crate::gmail::CreateLabelRequest {
+                name: "Atlas".into(),
+            },
+        );
+        server.join().unwrap();
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("may have succeeded"), "{error}");
+        assert!(!crate::gmail::is_unauthorized(&error));
+    }
+}
+
+#[test]
+fn priority_a_label_create_followup_failure_is_not_a_retryable_write() {
+    for (body, status) in [
+        (r#"{"id":"Other","name":"Atlas","type":"user"}"#, "200 OK"),
+        (r#"{"id":"Label_7","name":"Wrong","type":"user"}"#, "200 OK"),
+        (
+            r#"{"id":"Label_7","name":"Atlas","type":"system"}"#,
+            "200 OK",
+        ),
+        (r#"{"id":"Label_7","name":"Atlas"}"#, "200 OK"),
+        ("{}", "401 Unauthorized"),
+        ("{}", "404 Not Found"),
+    ] {
+        let (base_url, server) = mock_gmail_responses(vec![
+            (r#"{"id":"Label_7","name":"Atlas"}"#.into(), "200 OK".into()),
+            (body.into(), status.into()),
+        ]);
+        let result = GmailApi::with_base_url(&base_url).unwrap().create_label(
+            "test-token",
+            crate::gmail::CreateLabelRequest {
+                name: "Atlas".into(),
+            },
+        );
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("may have succeeded"), "{error}");
+        assert!(
+            !crate::gmail::is_unauthorized(&error),
+            "a GET 401 must never retry the POST"
+        );
+    }
+}
+
+#[test]
+fn priority_a_label_delete_invalid_success_is_uncertain() {
+    for body in [
+        "null",
+        "[]",
+        "true",
+        "not-json",
+        r#"{"unexpected":true}"#,
+        " ",
+    ] {
+        let (base_url, server) = mock_gmail_responses(vec![
+            (r#"{"id":"Label_7","type":"user"}"#.into(), "200 OK".into()),
+            (body.into(), "200 OK".into()),
+        ]);
+        let result = GmailApi::with_base_url(&base_url).unwrap().delete_label(
+            "test-token",
+            crate::gmail::DeleteLabelRequest {
+                label_id: "Label_7".into(),
+            },
+        );
+        assert_eq!(server.join().unwrap().len(), 2);
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("may have succeeded")
+        );
+    }
+}
+
+#[test]
+fn priority_a_label_generic_response_is_bounded() {
+    let body = format!(
+        r#"{{"labels":[],"padding":"{}"}}"#,
+        "x".repeat(2 * 1024 * 1024)
+    );
+    for chunked in [false, true] {
+        let (base_url, server) = priority_a_label_framed_response(body.clone(), chunked);
+        let error = GmailApi::with_base_url(&base_url)
+            .unwrap()
+            .list_labels("test-token")
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(error.to_string().contains("response exceeds"), "{error}");
+    }
+}
+
+fn priority_a_label_framed_response(
+    body: String,
+    chunked: bool,
+) -> (String, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0u8; 4096];
+        loop {
+            let read = stream.read(&mut buffer).unwrap();
+            if read == 0 {
+                break;
+            }
+            request.extend_from_slice(&buffer[..read]);
+            if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        if chunked {
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n{body}\r\n0\r\n\r\n",
+                body.len()
+            );
+        } else {
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    (format!("http://{address}/"), server)
+}
+
+#[test]
+fn priority_a_label_delete_response_is_bounded() {
+    let body = format!("{}{{}}", " ".repeat(2 * 1024 * 1024));
+    let (base_url, server) = mock_gmail_responses(vec![
+        (r#"{"id":"Label_7","type":"user"}"#.into(), "200 OK".into()),
+        (body, "200 OK".into()),
+    ]);
+    let result = GmailApi::with_base_url(&base_url).unwrap().delete_label(
+        "test-token",
+        crate::gmail::DeleteLabelRequest {
+            label_id: "Label_7".into(),
+        },
+    );
+    server.join().unwrap();
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("may have succeeded")
+    );
+}
+
+#[test]
+fn priority_a_label_non_success_statuses_are_preserved() {
+    for status in [
+        "400 Bad Request",
+        "401 Unauthorized",
+        "404 Not Found",
+        "409 Conflict",
+        "429 Too Many Requests",
+        "500 Internal Server Error",
+    ] {
+        let (base_url, server) = mock_gmail_response("not-json".into(), status);
+        let error = GmailApi::with_base_url(&base_url)
+            .unwrap()
+            .create_label(
+                "test-token",
+                crate::gmail::CreateLabelRequest {
+                    name: "Atlas".into(),
+                },
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        assert_eq!(
+            error
+                .downcast_ref::<crate::gmail::GmailApiError>()
+                .unwrap()
+                .status()
+                .as_u16()
+                .to_string(),
+            &status[..3]
+        );
+        let (base_url, server) = mock_gmail_responses(vec![
+            (r#"{"id":"Label_7","type":"user"}"#.into(), "200 OK".into()),
+            (String::new(), status.into()),
+        ]);
+        let error = GmailApi::with_base_url(&base_url)
+            .unwrap()
+            .delete_label(
+                "test-token",
+                crate::gmail::DeleteLabelRequest {
+                    label_id: "Label_7".into(),
+                },
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        assert_eq!(
+            error
+                .downcast_ref::<crate::gmail::GmailApiError>()
+                .unwrap()
+                .status()
+                .as_u16()
+                .to_string(),
+            &status[..3]
+        );
+    }
+}
+
+#[test]
+fn priority_a_label_generic_response_accepts_exact_cap() {
+    let template = r#"{"labels":[],"padding":""}"#;
+    let body = format!(
+        r#"{{"labels":[],"padding":"{}"}}"#,
+        "x".repeat(2 * 1024 * 1024 - template.len())
+    );
+    for chunked in [false, true] {
+        let (base_url, server) = priority_a_label_framed_response(body.clone(), chunked);
+        let result = GmailApi::with_base_url(&base_url)
+            .unwrap()
+            .list_labels("test-token");
+        server.join().unwrap();
+        assert!(result.unwrap().labels.is_empty());
+    }
+}
+
+#[test]
+fn priority_a_label_create_oversized_success_remains_uncertain() {
+    let body = format!(
+        r#"{{"id":"Label_7","name":"Atlas","type":"user","padding":"{}"}}"#,
+        "x".repeat(2 * 1024 * 1024)
+    );
+    for chunked in [false, true] {
+        let (base_url, server) = priority_a_label_framed_response(body.clone(), chunked);
+        let error = GmailApi::with_base_url(&base_url)
+            .unwrap()
+            .create_label(
+                "test-token",
+                crate::gmail::CreateLabelRequest {
+                    name: "Atlas".into(),
+                },
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        assert!(GmailApi::is_label_write_uncertain(&error));
+        assert!(!crate::gmail::is_unauthorized(&error));
+        assert!(!format!("{error:#}").contains("padding"));
+    }
+}
+
+#[test]
+fn label_write_internal_diagnostics_are_sanitized_and_stage_specific() {
+    let (base_url, server) = mock_gmail_response("private-provider-body".into(), "200 OK");
+    let error = GmailApi::with_base_url(&base_url)
+        .unwrap()
+        .create_label(
+            "synthetic-private-token",
+            crate::gmail::CreateLabelRequest {
+                name: "Atlas".into(),
+            },
+        )
+        .unwrap_err();
+    server.join().unwrap();
+    let diagnostic = format!("{error:#}");
+    assert!(diagnostic.contains("stage=create_response"), "{diagnostic}");
+    assert!(diagnostic.contains("status=200"), "{diagnostic}");
+    assert!(diagnostic.contains("category=response"), "{diagnostic}");
+    assert!(!diagnostic.contains("private-provider-body"));
+    assert!(!diagnostic.contains("synthetic-private-token"));
+    assert!(!diagnostic.contains(&base_url));
+    assert!(!crate::gmail::is_unauthorized(&error));
 }
