@@ -26,3 +26,52 @@ encoding; keep the explicit empty body in the provider client. The tests also
 cover draft protection and rejection of an unexpected response message ID.
 These tests use synthetic tokens and do not prove deployment, Google grants,
 or authenticated Gmail behavior.
+
+## MCP audit regressions
+
+Run focused checks in the pinned environment before the full locked suite:
+
+```bash
+nix develop .#arqen --command cargo test --locked --lib priority_a_label_
+nix develop .#arqen --command cargo test --locked --lib draft_listing_
+nix develop .#arqen --command cargo test --locked --lib broker
+nix develop .#arqen --command cargo test --locked --bin arqen server::tests
+```
+
+`tests/unit/gmail.rs` exercises empty label deletion responses, strict
+create-response identity/type verification, uncertain-write handling without
+POST retries, bounded declared/chunked JSON, draft metadata pagination,
+malformed references/details, disappearing drafts, and Unicode-safe snippets.
+HTTP fixtures must tolerate early disconnects only where bounded-response
+rejection intentionally closes an oversized response; never swallow unrelated
+fixture panics.
+
+`tests/unit/broker_drafts.rs` and broker action tests cover unchanged/edited
+draft revisions, target changes, consumed/expired markers, and concurrent
+opposite-action transitions. Provider preflight is not an atomic mutation.
+
+`tests/unit/server/` checks all 17 schemas emitted by HTTP `tools/list`, not just
+Rust declarations. Scripted Unix-socket fixtures assert the exact operation and
+arguments, and compare complete typed MCP results. Composition tests pass exact
+returned message/label IDs and markers into separate calls. Unicode boundary
+tests use scalar-value counts; transport caps remain bytes.
+`tests/unit/broker_frames.rs` runs maximum-size multibyte draft requests through
+the actual bounded broker reader and verifies oversized-frame rejection. Keep
+this transport regression when changing content limits; validators alone do
+not establish that accepted inputs can cross the broker boundary.
+
+These fixtures demonstrate local provider/broker/HTTP behavior only. They do
+not establish a native client's schema rejection or repaired deployed Gmail
+behavior. Live mutation tests require new fixture-specific permission. Never
+reuse existing mail or drafts as disposable fixtures, and read back every
+approved mutation, including writes that report failure, before retrying.
+
+## Callback fragmentation regression
+
+Run `nix develop .#arqen --command cargo test --locked callback::tests` for the
+loopback listener checks. Fragmented requests must not receive a response before
+the header terminator arrives, including a terminator split across TCP writes.
+The regression uses bounded socket reads, not arbitrary sleeps. EOF, read
+timeout, over-cap rejection, exact-cap acceptance, and denied-page readability
+are tested separately. Channel receives are bounded instead of polling with
+sleeps. Passing these tests does not establish live browser/OAuth behavior.
