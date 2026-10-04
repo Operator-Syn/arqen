@@ -72,7 +72,7 @@ docker compose up -d --force-recreate arqen-oauth-client-init arqen-broker arqen
 2. Sign in as `arqen`. Get the generated password with:
 
    ```bash
-   docker compose exec -T arqen-control cat /run/arqen-control/control-password
+   docker compose exec --user 0:0 -T arqen-control cat /run/arqen-control/control-password
    ```
 
 3. In the Arqen screen, press `a`, finish Google sign-in in your browser, then
@@ -94,7 +94,7 @@ Use these connection details in an MCP-compatible client:
 Get the generated token with:
 
 ```bash
-docker compose exec -T arqen-mcp cat /run/arqen-mcp/mcp-bearer-token
+docker compose exec --user 0:0 -T arqen-mcp cat /run/arqen-mcp/mcp-bearer-token
 ```
 
 Keep this token private. Arqen's tools list and read email, manage Gmail labels,
