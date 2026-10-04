@@ -188,8 +188,10 @@ reconcile_role() {
 
     configure_role "$reconcile_role_name" "$reconcile_policy_file"
 
-    role_id_temp="$(mktemp "$setup_dir/.$reconcile_role_name-role-id.XXXXXX")"
-    secret_id_temp="$(mktemp "$setup_dir/.$reconcile_role_name-secret-id.XXXXXX")"
+    # Keep each temporary file on the destination volume so mv can rename it
+    # atomically instead of copying metadata across volumes.
+    role_id_temp="$(mktemp "$(dirname "$reconcile_role_id_path")/.$reconcile_role_name-role-id.XXXXXX")"
+    secret_id_temp="$(mktemp "$(dirname "$reconcile_secret_id_path")/.$reconcile_role_name-secret-id.XXXXXX")"
     if ! bao delete "auth/approle/role/$reconcile_role_name" >/dev/null 2>&1; then
         echo "Could not reset the Arqen $reconcile_role_name AppRole; existing credentials were left in place." >&2
         return 1
