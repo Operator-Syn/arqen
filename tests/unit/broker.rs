@@ -297,6 +297,71 @@ fn action_marks_replace_opposites_share_message_identity_and_block_in_flight_tra
 }
 
 #[test]
+fn draft_revision_remarking_replaces_opposite_and_blocks_in_flight_edits() {
+    let state = super::BrokerState {
+        database_path: std::path::PathBuf::from("unused"),
+        credentials_path: std::path::PathBuf::from("unused"),
+        access_tokens: Default::default(),
+        pending_actions: Default::default(),
+    };
+    let sending = super::register_action_mark(
+        &state,
+        "subject",
+        "revision-1",
+        Some("draft-1"),
+        super::PendingActionKind::SendDraft,
+    )
+    .unwrap();
+    let deletion = super::register_action_mark(
+        &state,
+        "subject",
+        "revision-2",
+        Some("draft-1"),
+        super::PendingActionKind::DeleteDraft,
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            super::consume_action_mark(
+                &state,
+                &sending,
+                "subject",
+                super::PendingActionKind::SendDraft,
+            ),
+            Err(super::ActionMarkFailure::Required)
+        ),
+        "an edited draft must invalidate its previous opposite mark"
+    );
+    let executing = super::consume_action_mark(
+        &state,
+        &deletion,
+        "subject",
+        super::PendingActionKind::DeleteDraft,
+    )
+    .unwrap();
+    assert!(matches!(
+        super::register_action_mark(
+            &state,
+            "subject",
+            "revision-3",
+            Some("draft-1"),
+            super::PendingActionKind::SendDraft,
+        ),
+        Err(super::ActionMarkFailure::InProgress)
+    ));
+    super::finish_action_mark(&state, &executing);
+    assert!(matches!(
+        super::consume_action_mark(
+            &state,
+            &deletion,
+            "subject",
+            super::PendingActionKind::DeleteDraft,
+        ),
+        Err(super::ActionMarkFailure::Required)
+    ));
+}
+
+#[test]
 fn action_marks_expire_after_the_configured_lifetime() {
     let state = super::BrokerState {
         database_path: std::env::temp_dir().join("unused-arqen-expired-actions.sqlite3"),
