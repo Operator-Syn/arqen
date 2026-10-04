@@ -627,6 +627,76 @@ fn label_and_read_state_mutations_reject_draft_messages_before_modifying_them() 
 }
 
 #[test]
+fn message_trash_sends_explicit_zero_length_http11_body() {
+    let (base_url, server) = mock_gmail_responses(vec![
+        (
+            r#"{"id":"message-123","labelIds":["INBOX"]}"#.into(),
+            "200 OK".into(),
+        ),
+        (r#"{"id":"message-123"}"#.into(), "200 OK".into()),
+    ]);
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    let result = api
+        .trash_email(
+            "test-access-token",
+            ReadEmailRequest {
+                message_id: "message-123".into(),
+            },
+        )
+        .unwrap();
+    let requests = server.join().unwrap();
+
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0].lines().next().unwrap(),
+        "GET /users/me/messages/message-123?format=minimal&fields=id%2ClabelIds HTTP/1.1"
+    );
+    let (headers, body) = requests[1].split_once("\r\n\r\n").unwrap();
+    assert_eq!(
+        headers.lines().next().unwrap(),
+        "POST /users/me/messages/message-123/trash?fields=id HTTP/1.1"
+    );
+    let headers = headers.to_ascii_lowercase();
+    assert!(
+        headers.lines().any(|line| line == "content-length: 0"),
+        "empty Trash POST must explicitly send Content-Length: 0"
+    );
+    assert!(
+        !headers
+            .lines()
+            .any(|line| line.starts_with("transfer-encoding:"))
+    );
+    assert!(body.is_empty(), "Trash POST must not send a payload");
+    assert_eq!(result.message_id, "message-123");
+    assert!(result.trashed);
+}
+
+#[test]
+fn message_trash_rejects_unexpected_response_message_id() {
+    let (base_url, server) = mock_gmail_responses(vec![
+        (
+            r#"{"id":"message-123","labelIds":["INBOX"]}"#.into(),
+            "200 OK".into(),
+        ),
+        (r#"{"id":"different-message"}"#.into(), "200 OK".into()),
+    ]);
+    let api = GmailApi::with_base_url(&base_url).unwrap();
+    let error = api
+        .trash_email(
+            "test-access-token",
+            ReadEmailRequest {
+                message_id: "message-123".into(),
+            },
+        )
+        .unwrap_err();
+    assert_eq!(server.join().unwrap().len(), 2);
+    assert_eq!(
+        error.to_string(),
+        "Gmail trash response has an unexpected message ID"
+    );
+}
+
+#[test]
 fn message_trash_rejects_draft_messages_before_modifying_them() {
     let (base_url, server) = mock_gmail_response(
         r#"{"id":"draft-message","labelIds":["DRAFT"]}"#.into(),
