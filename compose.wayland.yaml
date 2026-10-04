@@ -1,0 +1,58 @@
+# Optional host clipboard integration for the published-image stack.
+# Start Compose through compose-wayland.sh so these values match the desktop.
+services:
+  arqen-oauth-client-init:
+    cap_add: [FOWNER]
+    command:
+      - >-
+        install -d -m 0700 -o ${ARQEN_WAYLAND_UID} -g ${ARQEN_WAYLAND_GID} /run/arqen-oauth;
+        install -m 0400 -o ${ARQEN_WAYLAND_UID} -g ${ARQEN_WAYLAND_GID}
+        /run/secrets/google-client-secret /run/arqen-oauth/google-client-secret.json
+
+  arqen-wayland-permissions:
+    image: ghcr.io/operator-syn/arqen-runtime:${ARQEN_DOCKER_IMAGE_TAG:-latest}
+    pull_policy: always
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        chown -R ${ARQEN_WAYLAND_UID}:${ARQEN_WAYLAND_GID} /var/lib/arqen /run/arqen
+    volumes:
+      - arqen-data:/var/lib/arqen
+      - arqen-runtime:/run/arqen
+    network_mode: none
+    restart: "no"
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+
+  arqen-broker:
+    user: "${ARQEN_WAYLAND_UID}:${ARQEN_WAYLAND_GID}"
+    group_add:
+      - "0"
+    depends_on:
+      arqen-wayland-permissions:
+        condition: service_completed_successfully
+
+  arqen-mcp:
+    user: "${ARQEN_WAYLAND_UID}:${ARQEN_WAYLAND_GID}"
+    group_add:
+      - "0"
+
+  arqen-control:
+    user: "${ARQEN_WAYLAND_UID}:${ARQEN_WAYLAND_GID}"
+    group_add:
+      - "0"
+    environment:
+      XDG_RUNTIME_DIR: /run/arqen-display
+      WAYLAND_DISPLAY: wayland-0
+      ARQEN_GMAIL_BROKER_SOCKET: /run/arqen/gmail-broker.sock
+    volumes:
+      - arqen-runtime:/run/arqen:ro
+      - type: bind
+        source: "${ARQEN_WAYLAND_SOCKET}"
+        target: /run/arqen-display/wayland-0
+    depends_on:
+      arqen-wayland-permissions:
+        condition: service_completed_successfully
