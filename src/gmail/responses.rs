@@ -1,6 +1,34 @@
 // SPDX-License-Identifier: MPL-2.0
 use super::*;
 
+// Metadata/list/draft resources share this transport cap; readable messages
+// retain their dedicated bound and error category below.
+const MAX_GMAIL_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+
+fn bounded_response_body(response: reqwest::blocking::Response) -> Result<Vec<u8>> {
+    anyhow::ensure!(
+        !response
+            .content_length()
+            .is_some_and(|length| length > MAX_GMAIL_RESPONSE_BYTES as u64),
+        "Gmail API response exceeds the configured limit"
+    );
+    let mut body = Vec::with_capacity(
+        response
+            .content_length()
+            .unwrap_or_default()
+            .min(MAX_GMAIL_RESPONSE_BYTES as u64) as usize,
+    );
+    response
+        .take(MAX_GMAIL_RESPONSE_BYTES as u64 + 1)
+        .read_to_end(&mut body)
+        .context("read bounded Gmail API response")?;
+    anyhow::ensure!(
+        body.len() <= MAX_GMAIL_RESPONSE_BYTES,
+        "Gmail API response exceeds the configured limit"
+    );
+    Ok(body)
+}
+
 pub(super) fn parse_json_response<T: for<'de> Deserialize<'de>>(
     response: reqwest::blocking::Response,
 ) -> Result<T> {
@@ -8,7 +36,7 @@ pub(super) fn parse_json_response<T: for<'de> Deserialize<'de>>(
     if !status.is_success() {
         return Err(anyhow::Error::new(GmailApiError { status }));
     }
-    response.json().context("parse Gmail API response")
+    serde_json::from_slice(&bounded_response_body(response)?).context("parse Gmail API response")
 }
 
 pub(super) fn parse_empty_json_response(response: reqwest::blocking::Response) -> Result<()> {
@@ -16,9 +44,14 @@ pub(super) fn parse_empty_json_response(response: reqwest::blocking::Response) -
     if !status.is_success() {
         return Err(anyhow::Error::new(GmailApiError { status }));
     }
-    let body: serde_json::Value = response.json().context("parse Gmail API response")?;
+    let bytes = bounded_response_body(response)?;
+    if bytes.is_empty() {
+        return Ok(());
+    }
+    let body: serde_json::Value =
+        serde_json::from_slice(&bytes).context("parse Gmail API response")?;
     anyhow::ensure!(
-        body.is_object(),
+        body.as_object().is_some_and(|object| object.is_empty()),
         "Gmail returned an invalid delete response"
     );
     Ok(())
