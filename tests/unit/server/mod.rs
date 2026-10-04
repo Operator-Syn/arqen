@@ -454,8 +454,12 @@ fn schema_supports_type(schema: &serde_json::Value, expected: &str) -> bool {
             .is_some_and(|types| types.iter().any(|kind| kind == expected))
 }
 
+mod composition;
+mod contracts;
 mod draft_tools;
 mod email_tools;
+mod fixtures;
 mod label_tools;
 mod message_tools;
 mod readiness;
+mod schemas;
