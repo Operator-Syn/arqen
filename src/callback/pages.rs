@@ -105,10 +105,26 @@ fn handle_request(
         .set_read_timeout(Some(Duration::from_secs(2)))
         .context("configure OAuth callback request")?;
     let mut buffer = [0u8; 8192];
-    let read = stream
-        .read(&mut buffer)
-        .context("read OAuth callback request")?;
-    let request = std::str::from_utf8(&buffer[..read]).context("decode OAuth callback request")?;
+    let mut used = 0;
+    let header_end = loop {
+        anyhow::ensure!(
+            used < buffer.len(),
+            "OAuth callback request headers are too large"
+        );
+        let read = stream
+            .read(&mut buffer[used..])
+            .context("read OAuth callback request")?;
+        anyhow::ensure!(read != 0, "OAuth callback request headers are incomplete");
+        used += read;
+        if let Some(end) = buffer[..used]
+            .windows(4)
+            .position(|bytes| bytes == b"\r\n\r\n")
+        {
+            break end + 4;
+        }
+    };
+    let request =
+        std::str::from_utf8(&buffer[..header_end]).context("decode OAuth callback request")?;
     let target = request
         .lines()
         .next()
