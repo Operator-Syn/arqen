@@ -171,25 +171,176 @@ fn callback_server_serves_launcher_redirect_and_callback_in_one_flow() {
 }
 
 #[test]
-fn denied_callback_keeps_the_error_page_readable() {
+fn callback_server_waits_for_a_fragmented_request_before_responding() {
+    let _lock = lock_callback_tests();
+    let server = CallbackServer::start().expect("callback server");
+    let (authority, _) = route_parts(server.launcher_uri());
+    let mut stream = TcpStream::connect(authority).expect("connect callback server");
+    stream
+        .set_read_timeout(Some(Duration::from_millis(250)))
+        .expect("bound the incomplete-request response probe");
+    stream.write_all(b"GET ").expect("write request fragment");
+
+    // Wait on socket behavior, not a sleep: an incomplete request must not
+    // receive a response. Keep this probe below the server's two-second limit.
+    let mut byte = [0u8; 1];
+    let result = stream.read(&mut byte);
+    assert!(
+        matches!(&result, Err(error) if matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        )),
+        "server responded before the request was complete: {result:?}, byte={byte:?}"
+    );
+
+    let target = "/oauth2/callback?error=access_denied&state=test";
+    stream
+        .write_all(
+            format!("{target} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r").as_bytes(),
+        )
+        .expect("write headers with a fragmented terminator");
+    let result = stream.read(&mut byte);
+    assert!(
+        matches!(&result, Err(error) if matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        )),
+        "server responded before the header terminator: {result:?}, byte={byte:?}"
+    );
+    stream
+        .write_all(b"\n")
+        .expect("complete fragmented request");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("bound callback response read");
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .expect("read callback response");
+    assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+    assert!(response.contains("Arqen could not complete login"));
+    assert!(!response.contains("history.replaceState"));
+    assert_eq!(
+        server
+            .receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap(),
+        target
+    );
+}
+
+fn raw_request(authority: &str, bytes: &[u8], close_write: bool) -> String {
+    let mut stream = TcpStream::connect(authority).expect("connect callback server");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(4)))
+        .expect("bound callback response read");
+    stream.write_all(bytes).expect("write callback request");
+    if close_write {
+        stream
+            .shutdown(std::net::Shutdown::Write)
+            .expect("finish incomplete request");
+    }
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .expect("read callback response");
+    response
+}
+
+#[test]
+fn incomplete_callback_headers_at_eof_do_not_consume_the_listener() {
     let _lock = lock_callback_tests();
     let mut server = CallbackServer::start().expect("callback server");
+    let (authority, launch_path) = route_parts(server.launcher_uri());
+    let response = raw_request(
+        authority,
+        b"GET /oauth2/callback?code=test HTTP/1.1\r\nHost: localhost\r\n",
+        true,
+    );
+    assert!(
+        response.starts_with("HTTP/1.1 400 Bad Request"),
+        "{response}"
+    );
+    assert!(response.contains("Arqen could not read this browser request."));
+    assert!(request(authority, launch_path).starts_with("HTTP/1.1 200 OK"));
+    assert_eq!(server.try_receive().unwrap(), None);
+}
+
+#[test]
+fn incomplete_callback_headers_time_out_without_consuming_the_listener() {
+    let _lock = lock_callback_tests();
+    let mut server = CallbackServer::start().expect("callback server");
+    let (authority, launch_path) = route_parts(server.launcher_uri());
+    let response = raw_request(
+        authority,
+        b"GET /oauth2/callback?code=test HTTP/1.1\r\nHost: localhost\r\n",
+        false,
+    );
+    assert!(
+        response.starts_with("HTTP/1.1 400 Bad Request"),
+        "{response}"
+    );
+    assert!(response.contains("Arqen could not read this browser request."));
+    assert!(request(authority, launch_path).starts_with("HTTP/1.1 200 OK"));
+    assert_eq!(server.try_receive().unwrap(), None);
+}
+
+#[test]
+fn callback_headers_exceeding_the_cap_do_not_consume_the_listener() {
+    let _lock = lock_callback_tests();
+    let mut server = CallbackServer::start().expect("callback server");
+    let (authority, launch_path) = route_parts(server.launcher_uri());
+    let mut bytes = b"GET /oauth2/callback?code=test HTTP/1.1\r\nX-Padding: ".to_vec();
+    // Fill the entire cap without a terminator: no further read is permitted.
+    bytes.resize(8192, b'x');
+    let response = raw_request(authority, &bytes, false);
+    assert!(
+        response.starts_with("HTTP/1.1 400 Bad Request"),
+        "{response}"
+    );
+    assert!(response.contains("Arqen could not read this browser request."));
+    assert!(request(authority, launch_path).starts_with("HTTP/1.1 200 OK"));
+    assert_eq!(server.try_receive().unwrap(), None);
+}
+
+#[test]
+fn callback_headers_ending_exactly_at_the_cap_are_accepted() {
+    let _lock = lock_callback_tests();
+    let server = CallbackServer::start().expect("callback server");
+    let (authority, _) = route_parts(server.launcher_uri());
+    let target = "/oauth2/callback?error=access_denied&state=test";
+    let mut bytes = format!("GET {target} HTTP/1.1\r\nX-Padding: ").into_bytes();
+    bytes.resize(8192 - 4, b'x');
+    bytes.extend_from_slice(b"\r\n\r\n");
+    let response = raw_request(authority, &bytes, false);
+    assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+    assert!(response.contains("Arqen could not complete login"));
+    assert_eq!(
+        server
+            .receiver
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap(),
+        target
+    );
+}
+
+#[test]
+fn denied_callback_keeps_the_error_page_readable() {
+    let _lock = lock_callback_tests();
+    let server = CallbackServer::start().expect("callback server");
     let (authority, _) = route_parts(server.launcher_uri());
     let response = request(authority, "/oauth2/callback?error=access_denied&state=test");
     assert!(response.starts_with("HTTP/1.1 200 OK"));
     assert!(response.contains("Arqen could not complete login"));
     assert!(!response.contains("history.replaceState"));
-    let target = (0..100).find_map(|_| match server.try_receive().expect("callback result") {
-        Some(target) => Some(target),
-        None => {
-            thread::sleep(Duration::from_millis(5));
-            None
-        }
-    });
-    assert_eq!(
-        target.as_deref(),
-        Some("/oauth2/callback?error=access_denied&state=test")
-    );
+    let target = server
+        .receiver
+        .recv_timeout(Duration::from_secs(2))
+        .expect("receive denied callback")
+        .expect("valid callback request");
+    assert_eq!(target, "/oauth2/callback?error=access_denied&state=test");
 }
 
 #[test]
