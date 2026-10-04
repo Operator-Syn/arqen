@@ -37,7 +37,8 @@ consequence is unclear, ask the user before invoking the operation. Follow the
 
 ## Tool: `list_emails`
 
-The tool accepts a JSON object; every argument is optional. Omit `query` (or
+The tool accepts a JSON object; every argument is optional. Unknown properties,
+including misspelled options and account selectors, are rejected. Omit `query` (or
 send it as `null`) to use `in:inbox`. The page size defaults to 20. A
 `next_page_token` from one response can be supplied as `page_token` to fetch the
 next page.
@@ -70,9 +71,11 @@ constraint in the message. For example, `max_results` outside 1–50 reports
 
 ## Tool: `list_labels`
 
-This tool takes no inputs. It lists labels for the currently selected Arqen
-account and returns a `labels` array. Each record contains the Gmail `id`
-unchanged, its human-readable `name`, and `type` (`system` or `user`). The
+This tool accepts only an empty argument object; unknown properties are rejected
+by both its advertised schema and runtime deserialization. It lists labels for
+the currently selected Arqen account and returns a `labels` array. Each record
+contains the Gmail `id` unchanged, its human-readable `name`, and `type`
+(`system` or `user`). The
 result includes system and custom/user-created labels. Callers cannot choose
 an account.
 
@@ -111,6 +114,14 @@ selected Arqen account; no account identifier or email address is accepted.
 The result contains only the Gmail `id`, `name`, and `type: "user"`. Gmail label
 IDs are opaque and are preserved exactly.
 
+If Gmail omits `type` in an otherwise valid create response, Arqen verifies the
+exact returned ID with a provider GET before returning success. It never guesses
+the type or retries a POST after an uncertain outcome. Explicit null, unknown,
+or system types and mismatched identities fail closed. An ambiguous transport
+failure or an invalid successful-write response returns `gmail_unavailable`
+with a warning that creation may have succeeded. Check `list_labels` before
+considering another create attempt.
+
 ## Tool: `delete_label`
 
 Accepts only a required nonempty `label_id` string without control characters
@@ -126,6 +137,11 @@ specific label and consequence, following the
 [destructive-operations policy](../security/destructive-operations.md). The
 result is only `{"label_id":"...","deleted":true}` after Gmail confirms
 success.
+
+Successful deletion accepts an empty HTTP body or an empty JSON object. Other
+nonempty bodies fail closed. A response that cannot confirm the outcome returns
+`gmail_unavailable` with a may-have-succeeded warning; check `list_labels` before
+retrying. HTTP failure statuses retain their existing error categories.
 
 `create_label`, `apply_label`, and `delete_label` require the selected account's
 recorded `https://www.googleapis.com/auth/gmail.modify` grant and return
@@ -216,10 +232,19 @@ authorize the later destructive call.
 `page_token`. It returns bounded metadata with separate `draft_id` and
 underlying `message_id` fields. Pass `draft_id`, not `message_id`, to draft
 action tools. `create_draft` requires one plain recipient address, a nonblank
-subject, and a text body no larger than 24 KiB. `create_reply_draft` requires a source
+subject, and a text body no larger than 24,576 Unicode scalar values.
+`create_reply_draft` requires a source
 `message_id` from `list_emails` and a body; Arqen derives the reply recipient,
 subject, and thread from that source. Both create an unsent draft and return
 the distinct Gmail draft, message, and thread IDs.
+
+Listing is all-or-nothing for each page. If a listed draft disappears during
+metadata retrieval, or any detail response fails decoding or identity/label
+validation, no partial page is returned as complete. Refresh the list rather
+than inferring that omitted drafts do not exist. Metadata requires the exact
+listed draft ID, nonempty underlying message/thread IDs, and only `DRAFT`
+labels. Snippets are Unicode-safe and capped at 300 characters; the existing
+draft output has no separate snippet-truncation flag.
 
 `mark_draft_for_deletion` and `mark_draft_for_sending` each accept one
 `draft_id` and return an opaque account-bound marker that expires after 600
@@ -229,6 +254,15 @@ The user must explicitly authorize deletion or sending of the exact draft.
 Gmail permanently deletes drafts; it does not provide a recoverable Trash path
 for this operation. A send failure with an unknown outcome consumes its marker;
 inspect `list_drafts` before considering another send attempt.
+
+Draft markers bind to the underlying message revision, not only the stable
+draft ID. Execution consumes the marker and re-fetches that message identity
+before sending or deleting. An edited draft fails with `action_mark_required`
+and requires a fresh mark. Preflight failure also consumes the marker. A new
+mark replaces an opposite pending action even across revisions of the same
+draft; an executing action blocks replacement. Gmail's mutation still uses the
+stable draft ID, so an external edit between the check and mutation can race it.
+The preflight is not an atomic provider compare-and-swap.
 
 Action marks are Arqen-only state, not Gmail labels. For one underlying Gmail
 message, only one pending destructive action can exist across draft send,
@@ -241,6 +275,23 @@ read-state, or moving a draft message to Trash is rejected; use draft-specific
 operations.
 
 ## Failure codes
+
+All advertised inputs are closed objects. String lengths count Unicode scalar
+values, consistent with JSON Schema `minLength`/`maxLength`; they do not count
+UTF-8 bytes or grapheme clusters. This deliberately changes the former
+byte-based draft content limits: body input is now at most 24,576 characters,
+subject at most 998, and recipient at most 320. ASCII resource IDs retain their
+1–256 constraints. HTTP, broker-frame, decoded readable-body, and provider
+response caps remain byte-based. Broker request frames are bounded at 128 KiB
+to accommodate the larger Unicode inputs; metadata, label, and draft provider
+JSON is capped at 2 MiB before parsing.
+
+Malformed draft IDs return the existing `invalid_request` category at both
+MCP and broker boundaries, replacing the former MCP-only `invalid_draft_id`.
+A missing reply source receives `message_not_found` with `list_emails`
+message-ID guidance, not draft-ID guidance. Schema-aware clients may reject
+inputs before invocation; runtime validation tests prove server rejection only,
+not a particular client's validation behavior.
 
 The broker uses these stable codes: `invalid_request`, `invalid_message_id`,
 `message_not_found`, `message_too_large`, `target_not_configured`,
