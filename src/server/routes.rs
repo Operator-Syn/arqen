@@ -47,7 +47,10 @@ impl EmailMcpServer {
         name = "list_labels",
         description = "List Gmail labels for the single account currently selected in Arqen. This tool takes no inputs and accepts no account identifier or email address. Returns labels with each Gmail label's id (preserved exactly), human-readable name, and type (system or user), including user-created labels. To filter messages, choose a label by name and explicitly pass its id unchanged as list_emails.label_ids in a separate tool call; list_emails remains independently usable and accepts IDs, not names."
     )]
-    async fn list_labels(&self) -> Result<Json<LabelListResponse>, String> {
+    async fn list_labels(
+        &self,
+        Parameters(_request): Parameters<ListLabelsRequest>,
+    ) -> Result<Json<LabelListResponse>, String> {
         self.broker
             .list_labels()
             .await
@@ -268,7 +271,7 @@ impl EmailMcpServer {
     ) -> Result<Json<DraftActionMark>, String> {
         let request = request
             .validate()
-            .map_err(|_| "invalid_draft_id: use a draft ID returned by list_drafts".to_owned())?;
+            .map_err(|_| "invalid_request: use a draft ID returned by list_drafts".to_owned())?;
         self.broker
             .mark_draft_for_deletion(request)
             .await
@@ -304,7 +307,7 @@ impl EmailMcpServer {
     ) -> Result<Json<DraftActionMark>, String> {
         let request = request
             .validate()
-            .map_err(|_| "invalid_draft_id: use a draft ID returned by list_drafts".to_owned())?;
+            .map_err(|_| "invalid_request: use a draft ID returned by list_drafts".to_owned())?;
         self.broker
             .mark_draft_for_sending(request)
             .await
