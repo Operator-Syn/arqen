@@ -157,3 +157,7 @@ pub(super) fn read_bounded_line<R: BufRead>(reader: &mut R, limit: usize) -> Res
     anyhow::ensure!(!line.is_empty(), "credential broker request was empty");
     Ok(line)
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/broker_frames.rs"]
+mod tests;
