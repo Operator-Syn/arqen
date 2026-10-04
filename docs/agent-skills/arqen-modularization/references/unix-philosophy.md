@@ -27,6 +27,16 @@ splitting it would hide the contract.
 Use these references when a split changes a public facade, an error type, a
 `Result` pipeline, or the point at which invalid input is rejected.
 
+## General design principles
+
+- [The Pragmatic Programmer (20th Anniversary Edition)](https://pragprog.com/titles/tpp20/the-pragmatic-programmer-20th-anniversary-edition/) — Andy Hunt and Dave Thomas explain DRY as avoiding duplication of knowledge, not merely repeated text. Apply it to policy and facts that must stay consistent; similar-looking code is not necessarily the same knowledge.
+- [The Twelve-Factor App: Contributory Factors](https://12factor.net/contributing) — advocates small, focused codebases and avoiding unnecessary abstraction, a useful practical complement to KISS.
+- [Keep It Simple, Stupid (KISS)](https://en.wikipedia.org/wiki/KISS_principle) — historical overview of the simplicity principle. Treat this as context, not a prescriptive engineering standard.
+
+Use DRY to remove meaningful duplication without hiding rules behind generic
+frameworks. Use KISS to reject speculative complexity while retaining the
+validation, error handling, and separation of effects that correctness requires.
+
 ## Arqen application
 
 Map the reading to the repository as follows:
@@ -37,3 +47,5 @@ Map the reading to the repository as follows:
 | Output becomes input | typed service/protocol functions, `Result<T>` stages, broker framing, and MCP request/response boundaries |
 | Rule of Silence | TUI/HTTP-owned user messages, no incidental prints, and tests that prevent credential leakage |
 | Repair noisily and early | configuration/request validation, contextual `anyhow` errors, fail-closed auth, and boundary tests |
+| DRY | shared domain policy, schemas, constants, or transformations that must remain consistent; avoid deduplicating independent behavior |
+| KISS | narrow interfaces and the smallest sufficient abstraction; avoid speculative layers while preserving required safety checks |
