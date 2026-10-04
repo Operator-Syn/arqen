@@ -33,13 +33,21 @@ and pass its ID as `list_emails.label_ids` in a separate call.
 
 `create_label` calls Gmail's
 [`users.labels.create`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels/create)
-with `userId=me` and only a custom label `name`; the returned ID, name, and
-`type=user` form the MCP result. `delete_label` accepts the exact ID from a
+with `userId=me` and only a custom label `name`; the returned ID, exact name, and
+verified `type=user` form the MCP result. A missing create-response `type` is
+verified with `users.labels.get` for that exact returned ID, never synthesized.
+Explicit null/unknown types or mismatched IDs/names fail closed. An unconfirmed
+write returns a may-have-succeeded warning, not an automatic POST retry.
+`delete_label` accepts the exact ID from a
 separate `list_labels` call. It first calls `users.labels.get` requesting only
 `id,type` to reject system labels, then calls
 [`users.labels.delete`](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels/delete)
-with `userId=me` and that same ID. Gmail confirms delete with an empty JSON
-object; only then does Arqen return `{label_id, deleted:true}`. Gmail's delete
+with `userId=me` and that same ID. Google's method reference describes an empty
+JSON object on success; callers must not assume every successful HTTP deletion
+has a JSON body. Arqen accepts zero bytes or `{}` after a successful status,
+rejects other bodies, and preserves non-success status checks. Only a confirmed
+successful response permits Arqen to return
+`{label_id, deleted:true}`. Gmail's delete
 operation removes the label from every message and thread using it but does not
 delete the messages.
 
@@ -85,8 +93,14 @@ require a fresh mark before retrying.
 
 Draft operations use Gmail's `users.drafts` resource. `list_drafts` lists draft
 IDs, then fetches bounded metadata for each result; it keeps Gmail's draft ID
-distinct from the message ID contained by that draft. `create_draft` builds a
-plain-text MIME message with one recipient, subject, and body (at most 24 KiB), then posts it to
+distinct from the message ID contained by that draft. The page fails as a whole
+if a draft disappears mid-page or any metadata response fails: it never silently
+skips a detail and reports a complete page. Metadata must correlate with the
+listed draft ID, contain nonempty message/thread IDs and only `DRAFT` labels.
+Snippets use the existing Unicode-safe 300-character cap. All label/list/draft
+JSON responses are capped at 2 MiB, including chunked responses.
+`create_draft` builds a plain-text MIME message with one recipient, subject,
+and body (at most 24,576 Unicode scalar values), then posts it to
 `users.drafts.create`. `create_reply_draft` reads the source message headers,
 derives its reply address and subject, supplies the source thread ID and reply
 headers, and creates a separate draft. Draft messages are provider-managed and
@@ -97,7 +111,11 @@ execution tool. The broker resolves a draft ID to its contained message ID and
 uses that message identity to enforce one pending destructive action across
 draft send, draft deletion, and message-to-Trash. A new mark replaces a pending
 opposite mark; an executing action blocks a new mark. The broker consumes a
-marker before making the provider call. Draft deletion uses
+marker before making the provider call and rechecks the underlying message ID
+against the marked revision. Edited drafts fail closed and require fresh marks;
+opposite marks remain exclusive even when the draft's message ID changes.
+An external edit after preflight can still race Gmail's draft-ID-based mutation;
+there is no atomic provider compare-and-swap. Draft deletion uses
 `users.drafts.delete`, which is permanent; sending uses `users.drafts.send`.
 If send outcome cannot be confirmed, the caller must check whether the draft
 remains before retrying. Mark state is process-local and expires after 10
