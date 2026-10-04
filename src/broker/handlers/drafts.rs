@@ -30,23 +30,30 @@ pub(in crate::broker) fn handle_create_draft(
     request: crate::gmail::CreateDraftRequest,
     state: &BrokerState,
 ) -> BrokerResponse {
-    create_draft_operation(request.validate(), state, |api, token, request| {
-        api.create_draft(token, request)
-    })
+    create_draft_operation(
+        request.validate(),
+        state,
+        "create draft",
+        |api, token, request| api.create_draft(token, request),
+    )
 }
 
 pub(in crate::broker) fn handle_create_reply_draft(
     request: crate::gmail::CreateReplyDraftRequest,
     state: &BrokerState,
 ) -> BrokerResponse {
-    create_draft_operation(request.validate(), state, |api, token, request| {
-        api.create_reply_draft(token, request)
-    })
+    create_draft_operation(
+        request.validate(),
+        state,
+        "create reply draft",
+        |api, token, request| api.create_reply_draft(token, request),
+    )
 }
 
 fn create_draft_operation<T, F>(
     request: anyhow::Result<T>,
     state: &BrokerState,
+    operation_name: &str,
     operation: F,
 ) -> BrokerResponse
 where
@@ -81,7 +88,7 @@ where
     }) {
         Ok(result) => BrokerResponse::DraftCreated { result },
         Err(DraftOperationFailure::Credential(error)) => map_credential_error(&error),
-        Err(DraftOperationFailure::Gmail(error)) => map_draft_error(&error, "create draft"),
+        Err(DraftOperationFailure::Gmail(error)) => map_draft_error(&error, operation_name),
     }
 }
 
@@ -236,11 +243,7 @@ fn execute_marked_draft(
         );
     };
     let result = draft_operation_with_refresh(&account, state, |api, token| {
-        if kind == PendingActionKind::DeleteDraft {
-            api.delete_draft(token, &draft_id).map(|_| None)
-        } else {
-            api.send_draft(token, &draft_id).map(Some)
-        }
+        execute_draft_action(api, token, &draft_id, &mark, kind)
     });
     finish_action_mark(state, &mark);
     match result {
@@ -265,6 +268,43 @@ fn execute_marked_draft(
     }
 }
 
+#[derive(Debug)]
+struct DraftRevisionChanged;
+
+impl std::fmt::Display for DraftRevisionChanged {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("draft changed since it was marked")
+    }
+}
+
+impl std::error::Error for DraftRevisionChanged {}
+
+// Keep the provider boundary separate so revision checks can be exercised
+// against a local HTTP fixture without credentials or a live account.
+fn execute_draft_action(
+    api: &GmailApi,
+    token: &str,
+    draft_id: &str,
+    mark: &PendingActionMark,
+    kind: PendingActionKind,
+) -> anyhow::Result<Option<crate::gmail::DraftCreateResult>> {
+    // Run inside the refresh closure so every attempt rechecks the revision.
+    // Gmail executes by stable draft ID, so an edit after this GET can still
+    // race the mutation; this is a preflight guard, not an atomic provider CAS.
+    if api.draft_message_id(token, draft_id)? != mark.message_id {
+        return Err(DraftRevisionChanged.into());
+    }
+    if kind == PendingActionKind::DeleteDraft {
+        api.delete_draft(token, draft_id).map(|_| None)
+    } else {
+        api.send_draft(token, draft_id).map(Some)
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../tests/unit/broker_drafts.rs"]
+mod tests;
+
 fn action_mark_required(kind: PendingActionKind) -> BrokerResponse {
     let operation = if kind == PendingActionKind::SendDraft {
         "mark this exact draft for sending"
@@ -278,6 +318,12 @@ fn action_mark_required(kind: PendingActionKind) -> BrokerResponse {
 }
 
 fn map_draft_error(error: &anyhow::Error, operation: &str) -> BrokerResponse {
+    if error.is::<DraftRevisionChanged>() {
+        return BrokerResponse::error(
+            BrokerErrorCode::ActionMarkRequired,
+            "draft changed since it was marked; mark this exact draft for deletion again",
+        );
+    }
     if let Some(api_error) = error.downcast_ref::<GmailApiError>() {
         match api_error.status().as_u16() {
             400 => {
@@ -293,7 +339,14 @@ fn map_draft_error(error: &anyhow::Error, operation: &str) -> BrokerResponse {
                 );
             }
             404 => {
-                let message = if operation == "create reply draft" {
+                let message = if error
+                    .downcast_ref::<crate::gmail::DraftListError>()
+                    .is_some_and(|diagnostic| {
+                        diagnostic.stage == crate::gmail::DraftListStage::Detail
+                            && diagnostic.status == Some(reqwest::StatusCode::NOT_FOUND)
+                    }) {
+                    "a draft disappeared while reading this page. No partial page was returned; retry list_drafts"
+                } else if operation == "create reply draft" {
                     "source message not found in the currently selected account; use a message_id from list_emails"
                 } else {
                     "draft not found in the currently selected account; use a draft_id from list_drafts"
@@ -309,6 +362,24 @@ fn map_draft_error(error: &anyhow::Error, operation: &str) -> BrokerResponse {
             _ => (),
         }
     }
+    if let Some(diagnostic) = error.downcast_ref::<crate::gmail::DraftListError>() {
+        use crate::gmail::DraftListCategory;
+        let reason = match diagnostic.category {
+            DraftListCategory::Transport => "Gmail could not finish reading the draft page",
+            DraftListCategory::ProviderStatus => "Gmail rejected reading the draft page",
+            DraftListCategory::Decoding | DraftListCategory::Validation => {
+                "Gmail returned an invalid draft page"
+            }
+            DraftListCategory::ResponseTooLarge => {
+                "the draft page exceeded the response limit; try a smaller max_results"
+            }
+            DraftListCategory::Configuration => "the draft page could not be requested",
+        };
+        return BrokerResponse::error(
+            BrokerErrorCode::GmailUnavailable,
+            format!("{reason}. No partial page was returned; retry list_drafts"),
+        );
+    }
     BrokerResponse::error(
         BrokerErrorCode::GmailUnavailable,
         format!("Gmail could not {operation}"),
@@ -316,6 +387,12 @@ fn map_draft_error(error: &anyhow::Error, operation: &str) -> BrokerResponse {
 }
 
 fn map_send_draft_error(error: &anyhow::Error) -> BrokerResponse {
+    if error.is::<DraftRevisionChanged>() {
+        return BrokerResponse::error(
+            BrokerErrorCode::ActionMarkRequired,
+            "draft changed since it was marked; mark this exact draft for sending again",
+        );
+    }
     if let Some(api_error) = error.downcast_ref::<GmailApiError>() {
         match api_error.status().as_u16() {
             400 => {
