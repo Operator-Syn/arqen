@@ -2,7 +2,7 @@
 use super::*;
 
 #[path = "client/drafts.rs"]
-mod drafts;
+pub(super) mod drafts;
 
 #[path = "responses.rs"]
 mod responses;
@@ -33,6 +33,41 @@ impl fmt::Display for GmailApiError {
 }
 
 impl std::error::Error for GmailApiError {}
+
+// Do not retain a provider error as a source: a follow-up GET 401 must not
+// trigger the broker's write retry, and transport errors can contain URLs.
+#[derive(Debug)]
+struct LabelWriteUncertain {
+    stage: &'static str,
+    category: &'static str,
+    status: Option<u16>,
+}
+
+impl fmt::Display for LabelWriteUncertain {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "the label write may have succeeded; verify with list_labels before retrying (stage={}, category={}, status={})",
+            self.stage,
+            self.category,
+            self.status
+                .map_or_else(|| "unknown".to_owned(), |status| status.to_string()),
+        )
+    }
+}
+impl std::error::Error for LabelWriteUncertain {}
+
+fn uncertain_label_write(
+    stage: &'static str,
+    category: &'static str,
+    status: Option<u16>,
+) -> anyhow::Error {
+    anyhow::Error::new(LabelWriteUncertain {
+        stage,
+        category,
+        status,
+    })
+}
 
 #[derive(Debug)]
 pub(crate) struct ReadEmailTooLarge;
@@ -199,6 +234,10 @@ pub struct GmailApi {
 }
 
 impl GmailApi {
+    pub(crate) fn is_label_write_uncertain(error: &anyhow::Error) -> bool {
+        error.downcast_ref::<LabelWriteUncertain>().is_some()
+    }
+
     pub fn new() -> Result<Self> {
         Self::with_base_url(GMAIL_API_BASE_URL)
     }
@@ -307,19 +346,88 @@ impl GmailApi {
     ) -> Result<crate::gmail::EmailLabel> {
         let request = request.validate()?;
         let labels_url = self.base_url.join("users/me/labels")?;
-        let label: crate::gmail::EmailLabel = self
+        #[derive(Deserialize)]
+        struct CreatedLabel {
+            id: String,
+            name: String,
+            #[serde(rename = "type", default, deserialize_with = "present_label_type")]
+            label_type: Option<crate::gmail::EmailLabelType>,
+        }
+        // Only an absent field allows a lookup; explicit null/unknown types fail closed.
+        fn present_label_type<'de, D: serde::Deserializer<'de>>(
+            deserializer: D,
+        ) -> std::result::Result<Option<crate::gmail::EmailLabelType>, D::Error> {
+            crate::gmail::EmailLabelType::deserialize(deserializer).map(Some)
+        }
+        let response = self
             .client
             .post(labels_url)
             .bearer_auth(access_token)
             .query(&[("fields", "id,name,type")])
             .json(&serde_json::json!({"name": request.name}))
             .send()
-            .context("create Gmail label")
-            .and_then(parse_json_response)?;
-        anyhow::ensure!(
-            !label.id.is_empty() && label.label_type == crate::gmail::EmailLabelType::User,
-            "Gmail returned an invalid created-label response"
-        );
+            .map_err(|_| uncertain_label_write("create_request", "transport", None))?;
+        let status = response.status().as_u16();
+        let successful_write = response.status().is_success();
+        let label: CreatedLabel = parse_json_response(response).map_err(|error| {
+            if successful_write {
+                uncertain_label_write("create_response", "response", Some(status))
+            } else {
+                error
+            }
+        })?;
+        if label.id.is_empty()
+            || label.id.chars().any(char::is_control)
+            || label.name != request.name
+        {
+            return Err(uncertain_label_write(
+                "create_identity",
+                "validation",
+                Some(status),
+            ));
+        }
+        let expected_id = label.id.clone();
+        let label = match label.label_type {
+            Some(label_type) => crate::gmail::EmailLabel {
+                id: label.id,
+                name: label.name,
+                label_type,
+            },
+            None => {
+                let mut url = self
+                    .base_url
+                    .join("users/me/labels")
+                    .map_err(|_| uncertain_label_write("verify_request", "configuration", None))?;
+                url.path_segments_mut()
+                    .map_err(|_| uncertain_label_write("verify_request", "configuration", None))?
+                    .push(&label.id);
+                let response = self
+                    .client
+                    .get(url)
+                    .bearer_auth(access_token)
+                    .query(&[("fields", "id,name,type")])
+                    .send()
+                    .map_err(|_| uncertain_label_write("verify_request", "transport", None))?;
+                let verification_status = response.status();
+                parse_json_response(response).map_err(|_| {
+                    uncertain_label_write(
+                        "verify_response",
+                        if verification_status.is_success() {
+                            "response"
+                        } else {
+                            "provider"
+                        },
+                        Some(verification_status.as_u16()),
+                    )
+                })?
+            }
+        };
+        if label.id != expected_id
+            || label.name != request.name
+            || label.label_type != crate::gmail::EmailLabelType::User
+        {
+            return Err(uncertain_label_write("verify_identity", "validation", None));
+        }
         Ok(label)
     }
 
@@ -357,12 +465,21 @@ impl GmailApi {
             "Gmail returned an unknown label type"
         );
 
-        self.client
+        let response = self
+            .client
             .delete(label_url)
             .bearer_auth(access_token)
             .send()
-            .context("delete Gmail label")
-            .and_then(parse_empty_json_response)?;
+            .map_err(|_| uncertain_label_write("delete_request", "transport", None))?;
+        let status = response.status().as_u16();
+        let successful_write = response.status().is_success();
+        parse_empty_json_response(response).map_err(|error| {
+            if successful_write {
+                uncertain_label_write("delete_response", "response", Some(status))
+            } else {
+                error
+            }
+        })?;
         Ok(crate::gmail::LabelDeleteResult {
             label_id: request.label_id,
             deleted: true,
