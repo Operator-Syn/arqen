@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 use super::*;
+mod transport;
+use transport::{GatedClient, GatedResponse};
+pub(crate) mod bulk;
+#[cfg(test)]
+#[path = "../../tests/unit/gmail_bulk_listing.rs"]
+mod bulk_listing_tests;
 
 #[path = "client/drafts.rs"]
 pub(super) mod drafts;
@@ -228,8 +234,9 @@ struct MessageHeader {
     value: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct GmailApi {
-    client: Client,
+    client: GatedClient,
     base_url: Url,
 }
 
@@ -252,13 +259,19 @@ impl GmailApi {
             .timeout(Duration::from_secs(30))
             .build()
             .context("create Gmail API client")?;
-        Ok(Self { client, base_url })
+        Ok(Self {
+            client: client.into(),
+            base_url,
+        })
     }
 
     #[cfg(test)]
     pub fn with_client(base_url: &str, client: Client) -> Result<Self> {
         let base_url = Url::parse(base_url).context("parse Gmail API base URL")?;
-        Ok(Self { client, base_url })
+        Ok(Self {
+            client: client.into(),
+            base_url,
+        })
     }
 
     pub fn list_emails(
@@ -293,32 +306,42 @@ impl GmailApi {
             .context("request Gmail message list")
             .and_then(parse_json_response)?;
 
-        let mut messages = Vec::with_capacity(listed.messages.len());
-        for reference in listed.messages {
-            let mut message_url = self.base_url.join("users/me/messages")?;
-            message_url
-                .path_segments_mut()
-                .map_err(|_| anyhow::anyhow!("Gmail API base URL cannot accept path segments"))?
-                .push(&reference.id);
-            let detail: MessageResource = self
-                .client
-                .get(message_url)
-                .bearer_auth(access_token)
-                .query(&[
-                    ("format", "metadata"),
-                    ("metadataHeaders", "From"),
-                    ("metadataHeaders", "Subject"),
-                    ("metadataHeaders", "Date"),
-                    (
-                        "fields",
-                        "id,threadId,labelIds,snippet,payload(headers(name,value))",
-                    ),
-                ])
-                .send()
-                .with_context(|| format!("request Gmail message metadata for {}", reference.id))
-                .and_then(parse_json_response)?;
-            messages.push(email_summary(detail, &reference));
-        }
+        let messages =
+            crate::gmail::concurrency::bounded_map(&listed.messages, |reference| -> Result<_> {
+                ReadEmailRequest {
+                    message_id: reference.id.clone(),
+                }
+                .validate()?;
+                let mut message_url = self.base_url.join("users/me/messages")?;
+                message_url
+                    .path_segments_mut()
+                    .map_err(|_| anyhow::anyhow!("Gmail API base URL cannot accept path segments"))?
+                    .push(&reference.id);
+                let detail: MessageResource = self
+                    .client
+                    .get(message_url)
+                    .bearer_auth(access_token)
+                    .query(&[
+                        ("format", "metadata"),
+                        ("metadataHeaders", "From"),
+                        ("metadataHeaders", "Subject"),
+                        ("metadataHeaders", "Date"),
+                        (
+                            "fields",
+                            "id,threadId,labelIds,snippet,payload(headers(name,value))",
+                        ),
+                    ])
+                    .send()
+                    .with_context(|| format!("request Gmail message metadata for {}", reference.id))
+                    .and_then(parse_json_response)?;
+                anyhow::ensure!(
+                    detail.id == reference.id && detail.thread_id == reference.thread_id,
+                    "Gmail returned unexpected message metadata identity"
+                );
+                Ok(email_summary(detail, reference))
+            })
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(EmailListResponse {
             target_email: target_email.to_owned(),
