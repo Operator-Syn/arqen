@@ -420,6 +420,71 @@ fn create_draft_encodes_required_headers_and_returns_distinct_ids() {
 }
 
 #[test]
+fn create_draft_empty_identities_preserve_incomplete_draft_error() {
+    for (draft_id, message_id, thread_id) in [
+        ("", "message-1", "thread-1"),
+        ("draft-1", "", "thread-1"),
+        ("draft-1", "message-1", ""),
+    ] {
+        let (base_url, server) = mock_gmail_responses(vec![(
+            json!({"id": draft_id, "message": {"id": message_id, "threadId": thread_id}})
+                .to_string(),
+            "200 OK".into(),
+        )]);
+        let error = GmailApi::with_base_url(&base_url)
+            .unwrap()
+            .create_draft(
+                "token",
+                crate::gmail::CreateDraftRequest {
+                    to: "person@example.com".into(),
+                    subject: "Hello".into(),
+                    body: "Body text".into(),
+                },
+            )
+            .unwrap_err();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].starts_with("POST /users/me/drafts HTTP/1.1"));
+        assert_eq!(error.to_string(), "Gmail returned an incomplete draft");
+        assert_eq!(error.chain().count(), 1);
+    }
+}
+
+#[test]
+fn create_reply_draft_empty_identities_preserve_incomplete_draft_error() {
+    for (draft_id, message_id, thread_id) in [
+        ("", "message-1", "thread-1"),
+        ("draft-1", "", "thread-1"),
+        ("draft-1", "message-1", ""),
+    ] {
+        let (base_url, server) = mock_gmail_responses(vec![
+            (r#"{"id":"source-1","threadId":"thread-1","payload":{"headers":[{"name":"From","value":"sender@example.com"},{"name":"Message-ID","value":"<original@example.com>"}]}}"#.into(), "200 OK".into()),
+            (
+                json!({"id": draft_id, "message": {"id": message_id, "threadId": thread_id}})
+                    .to_string(),
+                "200 OK".into(),
+            ),
+        ]);
+        let error = GmailApi::with_base_url(&base_url)
+            .unwrap()
+            .create_reply_draft(
+                "token",
+                crate::gmail::CreateReplyDraftRequest {
+                    message_id: "source-1".into(),
+                    body: "A reply".into(),
+                },
+            )
+            .unwrap_err();
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].starts_with("GET /users/me/messages/source-1?"));
+        assert!(requests[1].starts_with("POST /users/me/drafts HTTP/1.1"));
+        assert_eq!(error.to_string(), "Gmail returned an incomplete draft");
+        assert_eq!(error.chain().count(), 1);
+    }
+}
+
+#[test]
 fn create_reply_draft_uses_source_reply_headers_and_thread() {
     let (base_url, server) = mock_gmail_responses(vec![
         (r#"{"id":"source-1","threadId":"thread-1","payload":{"headers":[{"name":"From","value":"sender@example.com"},{"name":"Subject","value":"Question"},{"name":"Message-ID","value":"<original@example.com>"}]}}"#.into(), "200 OK".into()),
@@ -610,6 +675,26 @@ fn draft_listing_accepts_empty_pages_without_detail_requests() {
         assert!(result.drafts.is_empty());
         assert_eq!(result.next_page_token, None);
     }
+}
+
+#[test]
+fn draft_listing_accepts_minimal_metadata_without_optional_headers() {
+    let (base_url, server) = mock_gmail_responses(vec![
+        (r#"{"drafts":[{"id":"draft-1"}]}"#.into(), "200 OK".into()),
+        (r#"{"id":"draft-1","message":{"id":"message-1","threadId":"thread-1","labelIds":["DRAFT"]}}"#.into(), "200 OK".into()),
+    ]);
+    let result = GmailApi::with_base_url(&base_url)
+        .unwrap()
+        .list_drafts("token", "selected@example.com", Default::default())
+        .unwrap();
+    assert_eq!(server.join().unwrap().len(), 2);
+    assert_eq!(result.drafts[0].draft_id, "draft-1");
+    assert_eq!(result.drafts[0].message_id, "message-1");
+    assert_eq!(result.drafts[0].thread_id, "thread-1");
+    assert!(result.drafts[0].to.is_empty());
+    assert_eq!(result.drafts[0].subject, None);
+    assert_eq!(result.drafts[0].date, None);
+    assert!(result.drafts[0].snippet.is_empty());
 }
 
 #[test]
@@ -1371,12 +1456,38 @@ fn message_with_payload(payload: Value) -> MessageResource {
     .unwrap()
 }
 
+fn accept_bounded_fixture(listener: &TcpListener) -> std::net::TcpStream {
+    use std::time::{Duration, Instant};
+    listener.set_nonblocking(true).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let stream = loop {
+        match listener.accept() {
+            Ok((stream, _)) => break stream,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(
+                    Instant::now() < deadline,
+                    "fixture accept deadline exceeded"
+                );
+                thread::sleep(Duration::from_millis(2));
+            }
+            Err(error) => panic!("fixture accept: {error}"),
+        }
+    };
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    stream
+}
+
 fn mock_gmail_response(body: String, status: &str) -> (String, thread::JoinHandle<String>) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let address = listener.local_addr().unwrap();
     let status = status.to_owned();
     let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
+        let mut stream = accept_bounded_fixture(&listener);
         let mut request = Vec::new();
         let mut buffer = [0u8; 4096];
         loop {
@@ -1407,7 +1518,7 @@ fn mock_gmail_responses(
     let server = thread::spawn(move || {
         let mut requests = Vec::with_capacity(responses.len());
         for (body, status) in responses {
-            let (mut stream, _) = listener.accept().unwrap();
+            let mut stream = accept_bounded_fixture(&listener);
             let mut request = Vec::new();
             let mut buffer = [0u8; 4096];
             loop {
