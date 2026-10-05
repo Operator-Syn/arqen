@@ -45,15 +45,15 @@ pub(super) fn draft_operation_with_refresh<T, F>(
 where
     F: Fn(&GmailApi, &str) -> Result<T>,
 {
-    let api = GmailApi::new().map_err(DraftOperationFailure::Gmail)?;
+    let api = &state.api;
     let token =
         cached_or_refresh_token(account, state).map_err(DraftOperationFailure::Credential)?;
-    match operation(&api, &token) {
+    match operation(api, &token) {
         Ok(result) => Ok(result),
         Err(error) if is_unauthorized(&error) => {
-            invalidate_token(&account.subject, state);
-            let token = refresh_token(account, state).map_err(DraftOperationFailure::Credential)?;
-            operation(&api, &token).map_err(DraftOperationFailure::Gmail)
+            let token = refresh_rejected_token(account, state, &token)
+                .map_err(DraftOperationFailure::Credential)?;
+            operation(api, &token).map_err(DraftOperationFailure::Gmail)
         }
         Err(error) => Err(DraftOperationFailure::Gmail(error)),
     }
@@ -76,13 +76,13 @@ pub(super) fn list_with_refresh(
     request: crate::gmail::ListEmailsRequest,
     state: &BrokerState,
 ) -> std::result::Result<EmailListResponse, ListEmailsFailure> {
-    let api = GmailApi::new().map_err(ListEmailsFailure::Gmail)?;
+    let api = &state.api;
     let token = cached_or_refresh_token(account, state).map_err(ListEmailsFailure::Credential)?;
     match api.list_emails(&token, &account.email, request.clone()) {
         Ok(result) => Ok(result),
         Err(error) if is_unauthorized(&error) => {
-            invalidate_token(&account.subject, state);
-            let token = refresh_token(account, state).map_err(ListEmailsFailure::Credential)?;
+            let token = refresh_rejected_token(account, state, &token)
+                .map_err(ListEmailsFailure::Credential)?;
             api.list_emails(&token, &account.email, request)
                 .map_err(ListEmailsFailure::Gmail)
         }
@@ -95,13 +95,13 @@ pub(super) fn read_with_refresh(
     request: crate::gmail::ReadEmailRequest,
     state: &BrokerState,
 ) -> std::result::Result<crate::gmail::EmailReadResponse, ReadEmailFailure> {
-    let api = GmailApi::new().map_err(ReadEmailFailure::Gmail)?;
+    let api = &state.api;
     let token = cached_or_refresh_token(account, state).map_err(ReadEmailFailure::Credential)?;
     match api.read_email(&token, request.clone()) {
         Ok(result) => Ok(result),
         Err(error) if is_unauthorized(&error) => {
-            invalidate_token(&account.subject, state);
-            let token = refresh_token(account, state).map_err(ReadEmailFailure::Credential)?;
+            let token = refresh_rejected_token(account, state, &token)
+                .map_err(ReadEmailFailure::Credential)?;
             api.read_email(&token, request)
                 .map_err(ReadEmailFailure::Gmail)
         }
@@ -113,13 +113,13 @@ pub(super) fn list_labels_with_refresh(
     account: &Account,
     state: &BrokerState,
 ) -> std::result::Result<crate::gmail::LabelListResponse, ListLabelsFailure> {
-    let api = GmailApi::new().map_err(ListLabelsFailure::Gmail)?;
+    let api = &state.api;
     let token = cached_or_refresh_token(account, state).map_err(ListLabelsFailure::Credential)?;
     match api.list_labels(&token) {
         Ok(result) => Ok(result),
         Err(error) if is_unauthorized(&error) => {
-            invalidate_token(&account.subject, state);
-            let token = refresh_token(account, state).map_err(ListLabelsFailure::Credential)?;
+            let token = refresh_rejected_token(account, state, &token)
+                .map_err(ListLabelsFailure::Credential)?;
             api.list_labels(&token).map_err(ListLabelsFailure::Gmail)
         }
         Err(error) => Err(ListLabelsFailure::Gmail(error)),
@@ -131,14 +131,14 @@ pub(super) fn create_label_with_refresh(
     request: crate::gmail::CreateLabelRequest,
     state: &BrokerState,
 ) -> std::result::Result<crate::gmail::EmailLabel, LabelOperationFailure> {
-    let api = GmailApi::new().map_err(LabelOperationFailure::Gmail)?;
+    let api = &state.api;
     let token =
         cached_or_refresh_token(account, state).map_err(LabelOperationFailure::Credential)?;
     match api.create_label(&token, request.clone()) {
         Ok(result) => Ok(result),
         Err(error) if is_unauthorized(&error) => {
-            invalidate_token(&account.subject, state);
-            let token = refresh_token(account, state).map_err(LabelOperationFailure::Credential)?;
+            let token = refresh_rejected_token(account, state, &token)
+                .map_err(LabelOperationFailure::Credential)?;
             api.create_label(&token, request)
                 .map_err(LabelOperationFailure::Gmail)
         }
@@ -151,14 +151,14 @@ pub(super) fn delete_label_with_refresh(
     request: crate::gmail::DeleteLabelRequest,
     state: &BrokerState,
 ) -> std::result::Result<crate::gmail::LabelDeleteResult, LabelOperationFailure> {
-    let api = GmailApi::new().map_err(LabelOperationFailure::Gmail)?;
+    let api = &state.api;
     let token =
         cached_or_refresh_token(account, state).map_err(LabelOperationFailure::Credential)?;
     match api.delete_label(&token, request.clone()) {
         Ok(result) => Ok(result),
         Err(error) if is_unauthorized(&error) => {
-            invalidate_token(&account.subject, state);
-            let token = refresh_token(account, state).map_err(LabelOperationFailure::Credential)?;
+            let token = refresh_rejected_token(account, state, &token)
+                .map_err(LabelOperationFailure::Credential)?;
             api.delete_label(&token, request)
                 .map_err(LabelOperationFailure::Gmail)
         }
@@ -171,17 +171,14 @@ pub(super) fn apply_label_with_refresh(
     request: crate::gmail::ApplyLabelRequest,
     state: &BrokerState,
 ) -> std::result::Result<crate::gmail::LabelApplyResult, ApplyLabelOperationFailure> {
-    let api = GmailApi::new().map_err(|error| {
-        ApplyLabelOperationFailure::Gmail(crate::gmail::ApplyLabelFailure::MessageModify(error))
-    })?;
+    let api = &state.api;
     let token =
         cached_or_refresh_token(account, state).map_err(ApplyLabelOperationFailure::Credential)?;
     match api.apply_label(&token, request.clone()) {
         Ok(result) => Ok(result),
         Err(error) if error.is_unauthorized() => {
-            invalidate_token(&account.subject, state);
-            let token =
-                refresh_token(account, state).map_err(ApplyLabelOperationFailure::Credential)?;
+            let token = refresh_rejected_token(account, state, &token)
+                .map_err(ApplyLabelOperationFailure::Credential)?;
             api.apply_label(&token, request)
                 .map_err(ApplyLabelOperationFailure::Gmail)
         }
@@ -195,7 +192,7 @@ pub(super) fn mark_email_with_refresh(
     is_read: bool,
     state: &BrokerState,
 ) -> std::result::Result<crate::gmail::EmailReadState, MarkEmailFailure> {
-    let api = GmailApi::new().map_err(MarkEmailFailure::Gmail)?;
+    let api = &state.api;
     let token = cached_or_refresh_token(account, state).map_err(MarkEmailFailure::Credential)?;
     let result = if is_read {
         api.mark_email_read(&token, request.clone())
@@ -205,8 +202,8 @@ pub(super) fn mark_email_with_refresh(
     match result {
         Ok(result) => Ok(result),
         Err(error) if is_unauthorized(&error) => {
-            invalidate_token(&account.subject, state);
-            let token = refresh_token(account, state).map_err(MarkEmailFailure::Credential)?;
+            let token = refresh_rejected_token(account, state, &token)
+                .map_err(MarkEmailFailure::Credential)?;
             let result = if is_read {
                 api.mark_email_read(&token, request)
             } else {
@@ -223,13 +220,13 @@ pub(super) fn trash_email_with_refresh(
     request: crate::gmail::ReadEmailRequest,
     state: &BrokerState,
 ) -> std::result::Result<crate::gmail::EmailTrashResult, TrashEmailFailure> {
-    let api = GmailApi::new().map_err(TrashEmailFailure::Gmail)?;
+    let api = &state.api;
     let token = cached_or_refresh_token(account, state).map_err(TrashEmailFailure::Credential)?;
     match api.trash_email(&token, request.clone()) {
         Ok(result) => Ok(result),
         Err(error) if is_unauthorized(&error) => {
-            invalidate_token(&account.subject, state);
-            let token = refresh_token(account, state).map_err(TrashEmailFailure::Credential)?;
+            let token = refresh_rejected_token(account, state, &token)
+                .map_err(TrashEmailFailure::Credential)?;
             api.trash_email(&token, request)
                 .map_err(TrashEmailFailure::Gmail)
         }
@@ -237,7 +234,7 @@ pub(super) fn trash_email_with_refresh(
     }
 }
 
-fn cached_or_refresh_token(account: &Account, state: &BrokerState) -> Result<String> {
+pub(super) fn cached_or_refresh_token(account: &Account, state: &BrokerState) -> Result<String> {
     if let Some(token) = state
         .access_tokens
         .lock()
@@ -252,11 +249,53 @@ fn cached_or_refresh_token(account: &Account, state: &BrokerState) -> Result<Str
 }
 
 fn refresh_token(account: &Account, state: &BrokerState) -> Result<String> {
-    let refreshed = refresh_google_access_token(
-        &state.credentials_path,
-        account.token_key.as_deref(),
-        &account.subject,
-    )?;
+    refresh_token_using(account, state, None, || {
+        refresh_google_access_token(
+            &state.credentials_path,
+            account.token_key.as_deref(),
+            &account.subject,
+        )
+    })
+}
+fn refresh_token_using(
+    account: &Account,
+    state: &BrokerState,
+    rejected: Option<&str>,
+    refresh: impl FnOnce() -> Result<crate::auth::RefreshedAccessToken>,
+) -> Result<String> {
+    let lock = state
+        .refresh_locks
+        .lock()
+        .map_err(|_| anyhow::anyhow!("refresh coordination is unavailable"))?
+        .entry(account.subject.clone())
+        .or_default()
+        .clone();
+    let _guard = lock
+        .lock()
+        .map_err(|_| anyhow::anyhow!("refresh coordination is unavailable"))?;
+    if let Some(rejected) = rejected {
+        let mut cache = state
+            .access_tokens
+            .lock()
+            .map_err(|_| anyhow::anyhow!("token cache is unavailable"))?;
+        if cache
+            .get(&account.subject)
+            .is_some_and(|token| token.value == rejected)
+        {
+            cache.remove(&account.subject);
+        }
+    }
+    if let Some(token) = state
+        .access_tokens
+        .lock()
+        .map_err(|_| anyhow::anyhow!("token cache is unavailable"))?
+        .get(&account.subject)
+        .filter(|t| t.expires_at > Instant::now())
+        .map(|t| t.value.clone())
+    {
+        return Ok(token);
+    }
+    let refreshed = refresh()?;
     let lifetime = refreshed
         .expires_in
         .unwrap_or(DEFAULT_ACCESS_TOKEN_SECONDS)
@@ -277,8 +316,19 @@ fn refresh_token(account: &Account, state: &BrokerState) -> Result<String> {
     Ok(value)
 }
 
-fn invalidate_token(subject: &str, state: &BrokerState) {
-    if let Ok(mut cache) = state.access_tokens.lock() {
-        cache.remove(subject);
-    }
+fn refresh_rejected_token(
+    account: &Account,
+    state: &BrokerState,
+    rejected: &str,
+) -> Result<String> {
+    refresh_token_using(account, state, Some(rejected), || {
+        refresh_google_access_token(
+            &state.credentials_path,
+            account.token_key.as_deref(),
+            &account.subject,
+        )
+    })
 }
+#[cfg(test)]
+#[path = "../../../tests/unit/broker_bulk_refresh.rs"]
+mod bulk_refresh_tests;
