@@ -6,6 +6,8 @@ use std::sync::mpsc;
 
 fn state() -> BrokerState {
     BrokerState {
+        api: Arc::new(GmailApi::new().unwrap()),
+        refresh_locks: Default::default(),
         database_path: PathBuf::from("unused"),
         credentials_path: PathBuf::from("unused"),
         access_tokens: Default::default(),
