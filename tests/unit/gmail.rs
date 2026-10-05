@@ -584,12 +584,86 @@ fn draft_listing_rejects_detail_for_a_different_draft() {
 }
 
 #[test]
-fn draft_listing_requires_the_draft_label_and_rejects_other_labels() {
+fn draft_listing_accepts_draft_with_important_label() {
+    // Synthetic identities with the label shape established by the live diagnostic.
+    let (base_url, server) = mock_gmail_responses(vec![
+        (json!({"drafts":[{"id":"draft-1"}]}).to_string(), "200 OK".into()),
+        (json!({"id":"draft-1","message":{"id":"message-1","threadId":"thread-1","labelIds":["DRAFT","IMPORTANT"]}}).to_string(), "200 OK".into()),
+    ]);
+    let result = GmailApi::with_base_url(&base_url).unwrap().list_drafts(
+        "token",
+        "selected@example.com",
+        Default::default(),
+    );
+    assert_eq!(server.join().unwrap().len(), 2);
+    let result = result.expect("DRAFT presence must allow additional provider labels");
+    assert_eq!(result.drafts.len(), 1);
+    assert_eq!(result.drafts[0].draft_id, "draft-1");
+    assert_eq!(result.drafts[0].message_id, "message-1");
+    assert_eq!(result.drafts[0].thread_id, "thread-1");
+}
+
+#[test]
+fn draft_listing_accepts_additional_provider_labels_without_exposing_them() {
+    for labels in [
+        json!(["IMPORTANT", "DRAFT"]),
+        json!(["DRAFT", "UNREAD", "INBOX", "Label_custom", "unknown-label"]),
+        json!(["DRAFT", "DRAFT", "private\nforged-log"]),
+    ] {
+        let (base_url, server) = mock_gmail_responses(vec![
+            (json!({"drafts":[{"id":"draft-1"}]}).to_string(), "200 OK".into()),
+            (json!({"id":"draft-1","message":{"id":"message-1","threadId":"thread-1","labelIds":labels}}).to_string(), "200 OK".into()),
+        ]);
+        let result = GmailApi::with_base_url(&base_url).unwrap().list_drafts(
+            "token",
+            "selected@example.com",
+            Default::default(),
+        );
+        assert_eq!(server.join().unwrap().len(), 2);
+        let result = result.unwrap();
+        assert_eq!(result.drafts.len(), 1);
+        let public = serde_json::to_value(&result).unwrap();
+        assert_eq!(
+            public["drafts"][0],
+            json!({
+                "draft_id":"draft-1", "message_id":"message-1", "thread_id":"thread-1",
+                "to":[], "subject":null, "date":null, "snippet":""
+            })
+        );
+    }
+}
+
+#[test]
+fn draft_listing_missing_draft_label_aborts_page_after_valid_detail() {
+    let (base_url, server) = mock_gmail_responses(vec![
+        (json!({"drafts":[{"id":"draft-1"},{"id":"draft-2"}]}).to_string(), "200 OK".into()),
+        (json!({"id":"draft-1","message":{"id":"message-1","threadId":"thread-1","labelIds":["DRAFT","IMPORTANT"]}}).to_string(), "200 OK".into()),
+        (json!({"id":"draft-2","message":{"id":"message-2","threadId":"thread-2","labelIds":["IMPORTANT"]}}).to_string(), "200 OK".into()),
+    ]);
+    let result = GmailApi::with_base_url(&base_url).unwrap().list_drafts(
+        "token",
+        "selected@example.com",
+        Default::default(),
+    );
+    assert_eq!(server.join().unwrap().len(), 3);
+    let error = result.expect_err("a later invalid detail must not return a partial page");
+    assert_eq!(
+        error
+            .downcast_ref::<super::DraftListError>()
+            .unwrap()
+            .diagnostic_line(),
+        "arqen draft_list_failure stage=Detail status=200 category=Validation reason=MissingDraftLabel"
+    );
+}
+
+#[test]
+fn draft_listing_requires_the_draft_label() {
     for labels in [
         None,
         Some(json!([])),
         Some(json!(["INBOX"])),
-        Some(json!(["DRAFT", "INBOX"])),
+        Some(json!(["IMPORTANT"])),
+        Some(json!(["draft", "Label_custom"])),
     ] {
         let mut detail = json!({"id":"draft-1","message":{"id":"message-1","threadId":"thread-1"}});
         if let Some(labels) = labels {
@@ -608,7 +682,13 @@ fn draft_listing_requires_the_draft_label_and_rejects_other_labels() {
             Default::default(),
         );
         assert_eq!(server.join().unwrap().len(), 2);
-        assert!(result.is_err(), "metadata must affirm only the DRAFT label");
+        let error = result.expect_err("metadata must include the exact DRAFT label");
+        let diagnostic = error.downcast_ref::<super::DraftListError>().unwrap();
+        assert!(
+            diagnostic
+                .diagnostic_line()
+                .ends_with("reason=MissingDraftLabel")
+        );
     }
 }
 
