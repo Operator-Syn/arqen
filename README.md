@@ -24,10 +24,15 @@ create and add yours.
 | Reconnect or remove an account | List, create, and remove Gmail labels |
 | Keep Google sign-in data protected on this computer | Mark a message read or unread |
 
+The MCP API also exposes bounded bulk counterparts for explicit messages,
+labels, and drafts. Limits, per-item outcomes, and separate mark/execute flows
+are documented in the [MCP API reference](docs/api/mcp.md).
+
 Your assistant cannot choose another account or receive your Google password
 or refresh token. Arqen asks Google for Gmail read and modify permissions. The
-modify permission is broader than the current tools: it can allow composing
-and sending email, which Arqen does not offer. Read the [data and permissions
+modify permission is broader than the tools' needs: it can allow composing and
+sending email. Draft sending is available only through a separate explicit
+mark-and-send flow. Read the [data and permissions
 guide](docs/security/auth-and-data.md) before authorizing access.
 
 The Docker Quickstart keeps the control page and MCP endpoint on your computer.
