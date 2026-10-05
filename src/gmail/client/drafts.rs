@@ -59,9 +59,68 @@ pub(crate) struct DraftListError {
     pub(crate) category: DraftListCategory,
     pub(crate) status: Option<StatusCode>,
     pub(crate) reason: DraftListReason,
+    // TEMPORARY: remove with the draft-label investigation (see broker docs).
+    temporary_labels: Option<TemporaryDraftLabels>,
+}
+
+// Fixed vocabulary only; never retain provider strings in diagnostic facts.
+#[derive(Debug)]
+struct TemporaryDraftLabels {
+    draft_present: bool,
+    total: usize,
+    system: Vec<&'static str>,
+    custom: usize,
+    unknown: usize,
+}
+
+impl TemporaryDraftLabels {
+    fn from_labels(labels: &[String]) -> Self {
+        // Sorted fixed allowlist, not a provider-derived vocabulary. Unknown
+        // future system values remain anonymous. Recognition is not validation.
+        const SYSTEM: &[&str] = &[
+            "CATEGORY_FORUMS",
+            "CATEGORY_PERSONAL",
+            "CATEGORY_PROMOTIONS",
+            "CATEGORY_SOCIAL",
+            "CATEGORY_UPDATES",
+            "CHAT",
+            "DRAFT",
+            "IMPORTANT",
+            "INBOX",
+            "SENT",
+            "SPAM",
+            "STARRED",
+            "TRASH",
+            "UNREAD",
+        ];
+        Self {
+            draft_present: labels.iter().any(|label| label == "DRAFT"),
+            total: labels.len(),
+            system: SYSTEM
+                .iter()
+                .copied()
+                .filter(|known| labels.iter().any(|label| label == known))
+                .collect(),
+            custom: labels
+                .iter()
+                .filter(|label| label.starts_with("Label_"))
+                .count(),
+            unknown: labels
+                .iter()
+                .filter(|label| !SYSTEM.contains(&label.as_str()) && !label.starts_with("Label_"))
+                .count(),
+        }
+    }
 }
 
 impl DraftListError {
+    pub(crate) fn temporary_label_line(&self) -> Option<String> {
+        self.temporary_labels.as_ref().map(|labels| format!(
+            "arqen TEMPORARY_draft_label_failure draft_present={} total={} system=[{}] custom={} unknown={}",
+            labels.draft_present, labels.total, labels.system.join(","), labels.custom, labels.unknown
+        ))
+    }
+
     // Explicit internal log contract: every text field is a finite enum, not
     // a provider value or retained error. Never use this in a public response.
     pub(crate) fn diagnostic_line(&self) -> String {
@@ -102,16 +161,22 @@ fn listing_error(
         category,
         status,
         reason,
+        temporary_labels: None,
     }
     .into()
 }
 
-fn listing_invariant(reason: DraftListReason, status: StatusCode) -> anyhow::Error {
+fn listing_invariant(
+    reason: DraftListReason,
+    status: StatusCode,
+    temporary_labels: Option<TemporaryDraftLabels>,
+) -> anyhow::Error {
     DraftListError {
         stage: DraftListStage::Detail,
         category: DraftListCategory::Validation,
         status: Some(status),
         reason,
+        temporary_labels,
     }
     .into()
 }
@@ -156,6 +221,7 @@ fn listing_response<T: for<'de> Deserialize<'de>>(
             category,
             status: Some(status),
             reason,
+            temporary_labels: None,
         };
         if category == DraftListCategory::ProviderStatus {
             // Retain only the sanitized status error for existing refresh and
@@ -287,11 +353,18 @@ impl GmailApi {
                 return Err(listing_invariant(
                     DraftListReason::ReferenceDetailMismatch,
                     detail_status,
+                    None,
                 ));
             }
-            drafts.push(
-                draft_summary(draft).map_err(|reason| listing_invariant(reason, detail_status))?,
-            );
+            let temporary_labels = TemporaryDraftLabels::from_labels(&draft.message.label_ids);
+            drafts.push(draft_summary(draft).map_err(|reason| {
+                let labels = matches!(
+                    reason,
+                    DraftListReason::MissingDraftLabel | DraftListReason::UnsupportedDraftLabels
+                )
+                .then_some(temporary_labels);
+                listing_invariant(reason, detail_status, labels)
+            })?);
         }
         Ok(DraftListResponse {
             target_email: target_email.to_owned(),
