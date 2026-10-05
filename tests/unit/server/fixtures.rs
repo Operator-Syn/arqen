@@ -17,9 +17,22 @@ pub(super) async fn scripted_server(
     let socket_path =
         std::env::temp_dir().join(format!("a-{}.sock", uuid::Uuid::new_v4().simple()));
     let listener = UnixListener::bind(&socket_path).unwrap();
+    listener.set_nonblocking(true).unwrap();
     let broker = std::thread::spawn(move || {
         for (expected, response) in script {
-            let (stream, _) = listener.accept().unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let (stream, _) = loop {
+                match listener.accept() {
+                    Ok(pair) => break pair,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && std::time::Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(1))
+                    }
+                    Err(error) => panic!("bounded broker fixture accept: {error}"),
+                }
+            };
             stream
                 .set_read_timeout(Some(std::time::Duration::from_secs(5)))
                 .unwrap();
