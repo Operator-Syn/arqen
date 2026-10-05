@@ -37,6 +37,8 @@ fn run_unix(options: BrokerOptions) -> Result<()> {
     flag::register(SIGINT, Arc::clone(&shutdown)).context("register broker SIGINT handler")?;
     flag::register(SIGTERM, Arc::clone(&shutdown)).context("register broker SIGTERM handler")?;
     let state = BrokerState {
+        api: Arc::new(GmailApi::new()?),
+        refresh_locks: Default::default(),
         database_path: options.database_path,
         credentials_path: options.credentials_path,
         access_tokens: Arc::new(Mutex::new(HashMap::new())),
