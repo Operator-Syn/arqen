@@ -69,6 +69,8 @@ fn write_operations_require_modify_on_selected_account_before_credentials() {
 
     let state = super::BrokerState {
         database_path,
+        api: std::sync::Arc::new(crate::gmail::GmailApi::new().unwrap()),
+        refresh_locks: Default::default(),
         credentials_path: directory.join("missing-credentials"),
         access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         pending_actions: std::sync::Arc::new(std::sync::Mutex::new(
@@ -140,6 +142,8 @@ fn read_email_resolves_only_the_persisted_mcp_target_account() {
 #[test]
 fn read_email_account_store_failures_use_the_stable_internal_code() {
     let state = super::BrokerState {
+        api: std::sync::Arc::new(crate::gmail::GmailApi::new().unwrap()),
+        refresh_locks: Default::default(),
         database_path: std::env::temp_dir()
             .join(format!("arqen-missing-parent-{}", uuid::Uuid::new_v4()))
             .join("accounts.sqlite3"),
@@ -167,6 +171,8 @@ fn read_email_account_store_failures_use_the_stable_internal_code() {
 #[test]
 fn action_marks_replace_opposites_share_message_identity_and_block_in_flight_transitions() {
     let state = super::BrokerState {
+        api: std::sync::Arc::new(crate::gmail::GmailApi::new().unwrap()),
+        refresh_locks: Default::default(),
         database_path: std::env::temp_dir().join("unused-arqen-actions.sqlite3"),
         credentials_path: std::path::PathBuf::from("unused"),
         access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -299,6 +305,8 @@ fn action_marks_replace_opposites_share_message_identity_and_block_in_flight_tra
 #[test]
 fn draft_revision_remarking_replaces_opposite_and_blocks_in_flight_edits() {
     let state = super::BrokerState {
+        api: std::sync::Arc::new(crate::gmail::GmailApi::new().unwrap()),
+        refresh_locks: Default::default(),
         database_path: std::path::PathBuf::from("unused"),
         credentials_path: std::path::PathBuf::from("unused"),
         access_tokens: Default::default(),
@@ -364,6 +372,8 @@ fn draft_revision_remarking_replaces_opposite_and_blocks_in_flight_edits() {
 #[test]
 fn action_marks_expire_after_the_configured_lifetime() {
     let state = super::BrokerState {
+        api: std::sync::Arc::new(crate::gmail::GmailApi::new().unwrap()),
+        refresh_locks: Default::default(),
         database_path: std::env::temp_dir().join("unused-arqen-expired-actions.sqlite3"),
         credentials_path: std::path::PathBuf::from("unused"),
         access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
@@ -401,6 +411,8 @@ fn action_marks_expire_after_the_configured_lifetime() {
 #[test]
 fn list_labels_account_store_failures_use_the_stable_internal_code() {
     let state = super::BrokerState {
+        api: std::sync::Arc::new(crate::gmail::GmailApi::new().unwrap()),
+        refresh_locks: Default::default(),
         database_path: std::env::temp_dir()
             .join(format!("arqen-missing-parent-{}", uuid::Uuid::new_v4()))
             .join("accounts.sqlite3"),
@@ -423,6 +435,8 @@ fn list_labels_account_store_failures_use_the_stable_internal_code() {
 #[test]
 fn mark_email_account_store_failures_use_the_stable_internal_code() {
     let state = super::BrokerState {
+        api: std::sync::Arc::new(crate::gmail::GmailApi::new().unwrap()),
+        refresh_locks: Default::default(),
         database_path: std::env::temp_dir()
             .join(format!("arqen-missing-parent-{}", uuid::Uuid::new_v4()))
             .join("accounts.sqlite3"),
@@ -637,6 +651,8 @@ fn label_account_store_failures_use_the_stable_internal_code() {
     let state = super::BrokerState {
         database_path: std::env::temp_dir()
             .join(format!("missing-{}/accounts.sqlite3", uuid::Uuid::new_v4())),
+        api: std::sync::Arc::new(crate::gmail::GmailApi::new().unwrap()),
+        refresh_locks: Default::default(),
         credentials_path: std::env::temp_dir().join("unused-credentials"),
         access_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         pending_actions: std::sync::Arc::new(std::sync::Mutex::new(
