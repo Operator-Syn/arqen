@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 use super::*;
+mod bulk;
+pub(super) use bulk::*;
 
 pub(super) const DELETION_MARK_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_PENDING_ACTION_MARKS: usize = 256;
