@@ -13,6 +13,7 @@ use axum::http::Request;
 use reqwest::StatusCode;
 use std::{net::SocketAddr, path::PathBuf};
 use tokio_util::sync::CancellationToken;
+mod bulk_tools;
 
 fn test_options(address: SocketAddr) -> ServerOptions {
     ServerOptions {
