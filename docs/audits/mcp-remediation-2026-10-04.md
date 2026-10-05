@@ -1,5 +1,14 @@
 # Arqen MCP audit remediation — 2026-10-04
 
+**2026-10-05 follow-up:** The historical DRAFT-only validation claim below was
+incorrect. Approved live diagnostics on revision
+`f8ca4d53571910bd00f14367f9321c3fe3cbf228` (0.1.12) captured HTTP 200 draft
+details with `[DRAFT, IMPORTANT]` in separate native `max_results=1` and
+`max_results=50` windows. The current source requires DRAFT presence rather
+than exclusivity; temporary label diagnostics have been removed. See the
+[current Gmail contract](../api/gmail.md) and [regressions](../development/testing.md).
+This follow-up does not claim deployed or live-verified repair.
+
 ## Outcome and verification boundary
 
 Tested source changes are implemented on `main`, based on
