@@ -5,7 +5,7 @@ use super::*;
 // retain their dedicated bound and error category below.
 const MAX_GMAIL_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 
-fn bounded_response_body(response: reqwest::blocking::Response) -> Result<Vec<u8>> {
+fn bounded_response_body(response: GatedResponse) -> Result<Vec<u8>> {
     anyhow::ensure!(
         !response
             .content_length()
@@ -30,7 +30,7 @@ fn bounded_response_body(response: reqwest::blocking::Response) -> Result<Vec<u8
 }
 
 pub(super) fn parse_json_response<T: for<'de> Deserialize<'de>>(
-    response: reqwest::blocking::Response,
+    response: GatedResponse,
 ) -> Result<T> {
     let status = response.status();
     if !status.is_success() {
@@ -39,7 +39,7 @@ pub(super) fn parse_json_response<T: for<'de> Deserialize<'de>>(
     serde_json::from_slice(&bounded_response_body(response)?).context("parse Gmail API response")
 }
 
-pub(super) fn parse_empty_json_response(response: reqwest::blocking::Response) -> Result<()> {
+pub(super) fn parse_empty_json_response(response: GatedResponse) -> Result<()> {
     let status = response.status();
     if !status.is_success() {
         return Err(anyhow::Error::new(GmailApiError { status }));
@@ -57,9 +57,7 @@ pub(super) fn parse_empty_json_response(response: reqwest::blocking::Response) -
     Ok(())
 }
 
-pub(super) fn parse_read_email_response(
-    response: reqwest::blocking::Response,
-) -> Result<MessageResource> {
+pub(super) fn parse_read_email_response(response: GatedResponse) -> Result<MessageResource> {
     let status = response.status();
     if !status.is_success() {
         return Err(anyhow::Error::new(GmailApiError { status }));
