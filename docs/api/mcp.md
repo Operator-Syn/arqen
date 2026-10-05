@@ -242,8 +242,9 @@ Listing is all-or-nothing for each page. If a listed draft disappears during
 metadata retrieval, or any detail response fails decoding or identity/label
 validation, no partial page is returned as complete. Refresh the list rather
 than inferring that omitted drafts do not exist. Metadata requires the exact
-listed draft ID, nonempty underlying message/thread IDs, and only `DRAFT`
-labels. Snippets are Unicode-safe and capped at 300 characters; the existing
+listed draft ID, nonempty underlying message/thread IDs, and presence of the
+`DRAFT` label. Additional provider-returned labels do not invalidate a draft.
+Snippets are Unicode-safe and capped at 300 characters; the existing
 draft output has no separate snippet-truncation flag.
 
 `mark_draft_for_deletion` and `mark_draft_for_sending` each accept one
