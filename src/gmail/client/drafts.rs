@@ -25,6 +25,32 @@ pub(crate) enum DraftListCategory {
     Configuration,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DraftListReason {
+    Transport,
+    ProviderStatus,
+    MissingRequiredField,
+    InvalidJsonShape,
+    InvalidJsonSyntax,
+    ResponseTooLarge,
+    Configuration,
+    InvalidReferenceId,
+    ReferenceDetailMismatch,
+    EmptyDraftId,
+    EmptyMessageId,
+    EmptyThreadId,
+    MissingDraftLabel,
+    UnsupportedDraftLabels,
+}
+
+impl fmt::Display for DraftListReason {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Gmail returned invalid draft metadata")
+    }
+}
+
+impl std::error::Error for DraftListReason {}
+
 // Only bounded, non-sensitive facts survive this boundary. In particular,
 // never keep reqwest/serde errors, URLs, IDs, tokens or response bodies.
 #[derive(Debug)]
@@ -32,6 +58,22 @@ pub(crate) struct DraftListError {
     pub(crate) stage: DraftListStage,
     pub(crate) category: DraftListCategory,
     pub(crate) status: Option<StatusCode>,
+    pub(crate) reason: DraftListReason,
+}
+
+impl DraftListError {
+    // Explicit internal log contract: every text field is a finite enum, not
+    // a provider value or retained error. Never use this in a public response.
+    pub(crate) fn diagnostic_line(&self) -> String {
+        let status = self
+            .status
+            .map(|s| s.as_u16().to_string())
+            .unwrap_or_else(|| "unobserved".into());
+        format!(
+            "arqen draft_list_failure stage={:?} status={status} category={:?} reason={:?}",
+            self.stage, self.category, self.reason
+        )
+    }
 }
 
 impl fmt::Display for DraftListError {
@@ -47,10 +89,29 @@ fn listing_error(
     category: DraftListCategory,
     status: Option<StatusCode>,
 ) -> anyhow::Error {
+    let reason = match category {
+        DraftListCategory::Transport => DraftListReason::Transport,
+        DraftListCategory::ProviderStatus => DraftListReason::ProviderStatus,
+        DraftListCategory::Decoding => DraftListReason::InvalidJsonShape,
+        DraftListCategory::Validation => DraftListReason::InvalidReferenceId,
+        DraftListCategory::ResponseTooLarge => DraftListReason::ResponseTooLarge,
+        DraftListCategory::Configuration => DraftListReason::Configuration,
+    };
     DraftListError {
         stage,
         category,
         status,
+        reason,
+    }
+    .into()
+}
+
+fn listing_invariant(reason: DraftListReason, status: StatusCode) -> anyhow::Error {
+    DraftListError {
+        stage: DraftListStage::Detail,
+        category: DraftListCategory::Validation,
+        status: Some(status),
+        reason,
     }
     .into()
 }
@@ -71,10 +132,30 @@ fn listing_response<T: for<'de> Deserialize<'de>>(
             // The bounded parser's only remaining error is its response cap.
             DraftListCategory::ResponseTooLarge
         };
+        let reason = if let Some(decoding) = error.downcast_ref::<serde_json::Error>() {
+            if decoding.is_data() {
+                // Inspect only a fixed serde prefix, then discard the error.
+                // Never retain/log its text, which can contain provider values.
+                if decoding.to_string().starts_with("missing field `") {
+                    DraftListReason::MissingRequiredField
+                } else {
+                    DraftListReason::InvalidJsonShape
+                }
+            } else {
+                DraftListReason::InvalidJsonSyntax
+            }
+        } else {
+            match category {
+                DraftListCategory::ProviderStatus => DraftListReason::ProviderStatus,
+                DraftListCategory::Transport => DraftListReason::Transport,
+                _ => DraftListReason::ResponseTooLarge,
+            }
+        };
         let diagnostic = DraftListError {
             stage,
             category,
             status: Some(status),
+            reason,
         };
         if category == DraftListCategory::ProviderStatus {
             // Retain only the sanitized status error for existing refresh and
@@ -203,19 +284,14 @@ impl GmailApi {
             let detail_status = response.status();
             let draft: DraftResource = listing_response(response, DraftListStage::Detail)?;
             if draft.id != reference.id {
-                return Err(listing_error(
-                    DraftListStage::Detail,
-                    DraftListCategory::Validation,
-                    Some(detail_status),
+                return Err(listing_invariant(
+                    DraftListReason::ReferenceDetailMismatch,
+                    detail_status,
                 ));
             }
-            drafts.push(draft_summary(draft).map_err(|_| {
-                listing_error(
-                    DraftListStage::Detail,
-                    DraftListCategory::Validation,
-                    Some(detail_status),
-                )
-            })?);
+            drafts.push(
+                draft_summary(draft).map_err(|reason| listing_invariant(reason, detail_status))?,
+            );
         }
         Ok(DraftListResponse {
             target_email: target_email.to_owned(),
@@ -328,7 +404,8 @@ impl GmailApi {
             .send()
             .context("create Gmail draft")
             .and_then(parse_json_response)?;
-        validate_draft_resource(&draft)?;
+        validate_draft_resource(&draft)
+            .map_err(|_| anyhow::anyhow!("Gmail returned an incomplete draft"))?;
         Ok(DraftCreateResult {
             draft_id: draft.id,
             message_id: draft.message.id,
@@ -395,7 +472,7 @@ impl GmailApi {
     }
 }
 
-fn draft_summary(draft: DraftResource) -> Result<DraftSummary> {
+fn draft_summary(draft: DraftResource) -> std::result::Result<DraftSummary, DraftListReason> {
     validate_draft_resource(&draft)?;
     let headers = draft.message.payload.as_ref().map(|p| &p.headers);
     let header = |name: &str| {
@@ -403,11 +480,12 @@ fn draft_summary(draft: DraftResource) -> Result<DraftSummary> {
             .and_then(|hs| hs.iter().find(|h| h.name.eq_ignore_ascii_case(name)))
             .map(|h| h.value.clone())
     };
-    anyhow::ensure!(
-        !draft.message.label_ids.is_empty()
-            && draft.message.label_ids.iter().all(|label| label == "DRAFT"),
-        "Gmail returned labels unsupported for a draft"
-    );
+    if draft.message.label_ids.is_empty() {
+        return Err(DraftListReason::MissingDraftLabel);
+    }
+    if draft.message.label_ids.iter().any(|label| label != "DRAFT") {
+        return Err(DraftListReason::UnsupportedDraftLabels);
+    }
     Ok(DraftSummary {
         draft_id: draft.id,
         message_id: draft.message.id,
@@ -419,11 +497,16 @@ fn draft_summary(draft: DraftResource) -> Result<DraftSummary> {
     })
 }
 
-fn validate_draft_resource(draft: &DraftResource) -> Result<()> {
-    anyhow::ensure!(
-        !draft.id.is_empty() && !draft.message.id.is_empty() && !draft.message.thread_id.is_empty(),
-        "Gmail returned an incomplete draft"
-    );
+fn validate_draft_resource(draft: &DraftResource) -> std::result::Result<(), DraftListReason> {
+    if draft.id.is_empty() {
+        return Err(DraftListReason::EmptyDraftId);
+    }
+    if draft.message.id.is_empty() {
+        return Err(DraftListReason::EmptyMessageId);
+    }
+    if draft.message.thread_id.is_empty() {
+        return Err(DraftListReason::EmptyThreadId);
+    }
     Ok(())
 }
 
