@@ -127,6 +127,91 @@ fn draft_listing_error(responses: Vec<(&str, String)>) -> anyhow::Error {
 }
 
 #[test]
+fn draft_listing_diagnostics_identify_invariants_without_private_values() {
+    // Synthetic shapes, not captured mailbox data. These are diagnostic
+    // regressions, not a reproduction of the unresolved live defect.
+    for (detail, category, reason) in [
+        (r#"{"id":"draft-1"}"#, "Decoding", "MissingRequiredField"),
+        (
+            r#"{"id":"draft-1","message":{"id":"private-message"}}"#,
+            "Decoding",
+            "MissingRequiredField",
+        ),
+        (
+            r#"{"id":"draft-1","message":{"id":17,"threadId":"private-thread"}}"#,
+            "Decoding",
+            "InvalidJsonShape",
+        ),
+        ("not-json-private", "Decoding", "InvalidJsonSyntax"),
+        (
+            r#"{"id":"private-other","message":{"id":"private-message","threadId":"private-thread","labelIds":["DRAFT"]}}"#,
+            "Validation",
+            "ReferenceDetailMismatch",
+        ),
+        (
+            r#"{"id":"draft-1","message":{"id":"","threadId":"private-thread","labelIds":["DRAFT"]}}"#,
+            "Validation",
+            "EmptyMessageId",
+        ),
+        (
+            r#"{"id":"draft-1","message":{"id":"private-message","threadId":"","labelIds":["DRAFT"]}}"#,
+            "Validation",
+            "EmptyThreadId",
+        ),
+        (
+            r#"{"id":"draft-1","message":{"id":"private-message","threadId":"private-thread"}}"#,
+            "Validation",
+            "MissingDraftLabel",
+        ),
+        (
+            r#"{"id":"draft-1","message":{"id":"private-message","threadId":"private-thread","labelIds":["DRAFT","private-label"]}}"#,
+            "Validation",
+            "UnsupportedDraftLabels",
+        ),
+    ] {
+        let error = draft_listing_error(vec![
+            ("200 OK", r#"{"drafts":[{"id":"draft-1"}]}"#.into()),
+            ("201 Created", detail.into()),
+        ]);
+        let diagnostic = error
+            .downcast_ref::<crate::gmail::DraftListError>()
+            .unwrap();
+        let rendered = format!("{diagnostic:?}");
+        assert!(
+            rendered.contains(&format!("reason: {reason}")),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains(&format!("category: {category}")),
+            "{rendered}"
+        );
+        assert_eq!(diagnostic.stage, crate::gmail::DraftListStage::Detail);
+        assert_eq!(diagnostic.status, Some(reqwest::StatusCode::CREATED));
+        assert!(!rendered.contains("private"));
+        assert_eq!(
+            diagnostic.diagnostic_line(),
+            format!(
+                "arqen draft_list_failure stage=Detail status=201 category={category} reason={reason}"
+            )
+        );
+        let response = map_draft_error(&error, "list drafts");
+        assert!(matches!(
+            &response,
+            BrokerResponse::Error { code: BrokerErrorCode::GmailUnavailable, message }
+                if message == "Gmail returned an invalid draft page. No partial page was returned; retry list_drafts"
+        ));
+        let public = serde_json::to_string(&response).unwrap();
+        assert!(!public.contains(reason));
+        assert!(!public.contains("private"));
+        assert!(
+            error
+                .chain()
+                .all(|source| source.downcast_ref::<serde_json::Error>().is_none())
+        );
+    }
+}
+
+#[test]
 fn disappearing_draft_detail_returns_all_or_nothing_retry_guidance() {
     let error = draft_listing_error(vec![
         ("200 OK", r#"{"drafts":[{"id":"draft-1"},{"id":"draft-2"}]}"#.into()),
@@ -178,6 +263,7 @@ fn assert_listing_diagnostic(
         format!("{error}"),
         format!("{error:#}"),
         format!("{error:?}"),
+        diagnostic.diagnostic_line(),
         serde_json::to_string(&map_draft_error(error, "list drafts")).unwrap(),
     ] {
         for private in [
