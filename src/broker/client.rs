@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use super::*;
+mod bulk;
 
 #[cfg(unix)]
 #[derive(Clone)]
@@ -77,7 +78,19 @@ impl BrokerClient {
             | BrokerResponse::DraftDeletionMarked { .. }
             | BrokerResponse::DraftSendingMarked { .. }
             | BrokerResponse::DraftDeleted { .. }
-            | BrokerResponse::DraftSent { .. } => Err(BrokerFailure {
+            | BrokerResponse::DraftSent { .. }
+            | BrokerResponse::EmailsRead { .. }
+            | BrokerResponse::LabelsApplied { .. }
+            | BrokerResponse::MessagesReadState { .. }
+            | BrokerResponse::EmailsDeletionMarked { .. }
+            | BrokerResponse::EmailsTrashed { .. }
+            | BrokerResponse::LabelsCreated { .. }
+            | BrokerResponse::LabelsDeleted { .. }
+            | BrokerResponse::DraftsCreated { .. }
+            | BrokerResponse::DraftsDeletionMarked { .. }
+            | BrokerResponse::DraftsSendingMarked { .. }
+            | BrokerResponse::DraftsDeleted { .. }
+            | BrokerResponse::DraftsSent { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid mail-list response".into(),
             }),
@@ -148,7 +161,19 @@ impl BrokerClient {
             | BrokerResponse::DraftDeletionMarked { .. }
             | BrokerResponse::DraftSendingMarked { .. }
             | BrokerResponse::DraftDeleted { .. }
-            | BrokerResponse::DraftSent { .. } => Err(BrokerFailure {
+            | BrokerResponse::DraftSent { .. }
+            | BrokerResponse::EmailsRead { .. }
+            | BrokerResponse::LabelsApplied { .. }
+            | BrokerResponse::MessagesReadState { .. }
+            | BrokerResponse::EmailsDeletionMarked { .. }
+            | BrokerResponse::EmailsTrashed { .. }
+            | BrokerResponse::LabelsCreated { .. }
+            | BrokerResponse::LabelsDeleted { .. }
+            | BrokerResponse::DraftsCreated { .. }
+            | BrokerResponse::DraftsDeletionMarked { .. }
+            | BrokerResponse::DraftsSendingMarked { .. }
+            | BrokerResponse::DraftsDeleted { .. }
+            | BrokerResponse::DraftsSent { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid label-list response".into(),
             }),
@@ -506,7 +531,19 @@ impl BrokerClient {
             | BrokerResponse::DraftDeletionMarked { .. }
             | BrokerResponse::DraftSendingMarked { .. }
             | BrokerResponse::DraftDeleted { .. }
-            | BrokerResponse::DraftSent { .. } => Err(BrokerFailure {
+            | BrokerResponse::DraftSent { .. }
+            | BrokerResponse::EmailsRead { .. }
+            | BrokerResponse::LabelsApplied { .. }
+            | BrokerResponse::MessagesReadState { .. }
+            | BrokerResponse::EmailsDeletionMarked { .. }
+            | BrokerResponse::EmailsTrashed { .. }
+            | BrokerResponse::LabelsCreated { .. }
+            | BrokerResponse::LabelsDeleted { .. }
+            | BrokerResponse::DraftsCreated { .. }
+            | BrokerResponse::DraftsDeletionMarked { .. }
+            | BrokerResponse::DraftsSendingMarked { .. }
+            | BrokerResponse::DraftsDeleted { .. }
+            | BrokerResponse::DraftsSent { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid message-read response".into(),
             }),
@@ -597,7 +634,19 @@ impl BrokerClient {
             | BrokerResponse::DraftDeletionMarked { .. }
             | BrokerResponse::DraftSendingMarked { .. }
             | BrokerResponse::DraftDeleted { .. }
-            | BrokerResponse::DraftSent { .. } => Err(BrokerFailure {
+            | BrokerResponse::DraftSent { .. }
+            | BrokerResponse::EmailsRead { .. }
+            | BrokerResponse::LabelsApplied { .. }
+            | BrokerResponse::MessagesReadState { .. }
+            | BrokerResponse::EmailsDeletionMarked { .. }
+            | BrokerResponse::EmailsTrashed { .. }
+            | BrokerResponse::LabelsCreated { .. }
+            | BrokerResponse::LabelsDeleted { .. }
+            | BrokerResponse::DraftsCreated { .. }
+            | BrokerResponse::DraftsDeletionMarked { .. }
+            | BrokerResponse::DraftsSendingMarked { .. }
+            | BrokerResponse::DraftsDeleted { .. }
+            | BrokerResponse::DraftsSent { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid message-state response".into(),
             }),
@@ -671,7 +720,19 @@ impl BrokerClient {
             | BrokerResponse::DraftDeletionMarked { .. }
             | BrokerResponse::DraftSendingMarked { .. }
             | BrokerResponse::DraftDeleted { .. }
-            | BrokerResponse::DraftSent { .. } => Err(BrokerFailure {
+            | BrokerResponse::DraftSent { .. }
+            | BrokerResponse::EmailsRead { .. }
+            | BrokerResponse::LabelsApplied { .. }
+            | BrokerResponse::MessagesReadState { .. }
+            | BrokerResponse::EmailsDeletionMarked { .. }
+            | BrokerResponse::EmailsTrashed { .. }
+            | BrokerResponse::LabelsCreated { .. }
+            | BrokerResponse::LabelsDeleted { .. }
+            | BrokerResponse::DraftsCreated { .. }
+            | BrokerResponse::DraftsDeletionMarked { .. }
+            | BrokerResponse::DraftsSendingMarked { .. }
+            | BrokerResponse::DraftsDeleted { .. }
+            | BrokerResponse::DraftsSent { .. } => Err(BrokerFailure {
                 code: BrokerErrorCode::Internal,
                 message: "the broker returned an invalid readiness response".into(),
             }),
