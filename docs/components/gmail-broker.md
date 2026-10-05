@@ -114,7 +114,8 @@ never disclose provider payloads.
 
 Internal `DraftListError` distinguishes list/detail stage, transport, provider
 status, decoding, validation, size-limit, and configuration failures. It retains
-only stage/category/status and a finite reason code, with a sanitized status
+only stage/category/status, a finite reason code, and the temporary sanitized
+label-summary facts described below, with a sanitized status
 source for existing 401 refresh and public error mapping. It discards raw
 decoding/transport errors, URLs, tokens, response bodies, and resource IDs.
 At the broker's list-operation error boundary, one `arqen draft_list_failure`
@@ -128,6 +129,41 @@ HTTP/payload logging to investigate a failure. A missing-field classification
 does not by itself establish the exact absent field or the live response shape.
 Public guidance reports that no partial page was returned; a detail 404 advises
 retrying `list_drafts` instead of treating the incomplete page as an empty list.
+
+### Temporary draft-label investigation (remove after cause is established)
+
+For `MissingDraftLabel` and `UnsupportedDraftLabels` only, the same broker
+boundary emits a separate `arqen TEMPORARY_draft_label_failure` stderr line
+after refresh handling. The existing `arqen draft_list_failure` line is unchanged.
+The temporary line contains `draft_present`, total label entry count, a sorted,
+deduplicated fixed system-label vocabulary, and custom/unknown entry counts.
+Recognized system values are `CATEGORY_FORUMS`, `CATEGORY_PERSONAL`,
+`CATEGORY_PROMOTIONS`, `CATEGORY_SOCIAL`, `CATEGORY_UPDATES`, `CHAT`, `DRAFT`,
+`IMPORTANT`, `INBOX`, `SENT`, `SPAM`, `STARRED`, `TRASH`, and `UNREAD`.
+Exact matches alone are named; `Label_`-prefixed values count as custom and all
+other values count as unknown. Counts include duplicates, but system names do
+not. This is structural evidence, not label validation or a provider lookup.
+No provider strings, arbitrary label IDs/names, message metadata, credentials,
+URLs, or raw errors survive in these facts. Output is bounded independently of
+label repetition. There is no public/configuration switch, success-path logging,
+or Gmail-layer logging; non-label failures emit no temporary line.
+
+Removal checklist once an approved live capture establishes the cause:
+
+1. Remove `TemporaryDraftLabels`, `DraftListError.temporary_labels`, and
+   `temporary_label_line` from `src/gmail/client/drafts.rs`; remove the optional
+   facts from constructors and `listing_invariant`, and restore the direct
+   `draft_summary(...).map_err(...)` mapping in `list_drafts`.
+2. Remove only the temporary emission block from
+   `src/broker/handlers/drafts.rs`; keep the stable failure line unchanged.
+3. Remove `draft_listing_temporary_labels_*` tests and temporary-line assertions
+   in `tests/unit/broker_drafts.rs`; retain privacy, public-error, creation,
+   validator, and all-or-nothing regression tests. Add a causal regression
+   before any separately reviewed repair; do not relax validation speculatively.
+4. Remove this subsection and its temporary testing note, restore the retained
+   facts description above, and rerun focused/full Nix checks.
+
+Local fixtures do not establish the live cause or deploy this instrumentation.
 
 Draft deletion uses Gmail's permanent `users.drafts.delete`; draft sending uses
 `users.drafts.send` and reports uncertain provider outcomes without claiming
