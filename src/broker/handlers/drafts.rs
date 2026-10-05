@@ -288,7 +288,7 @@ impl std::error::Error for DraftRevisionChanged {}
 
 // Keep the provider boundary separate so revision checks can be exercised
 // against a local HTTP fixture without credentials or a live account.
-fn execute_draft_action(
+pub(super) fn execute_draft_action(
     api: &GmailApi,
     token: &str,
     draft_id: &str,
@@ -324,7 +324,7 @@ fn action_mark_required(kind: PendingActionKind) -> BrokerResponse {
     )
 }
 
-fn map_draft_error(error: &anyhow::Error, operation: &str) -> BrokerResponse {
+pub(super) fn map_draft_error(error: &anyhow::Error, operation: &str) -> BrokerResponse {
     if error.is::<DraftRevisionChanged>() {
         return BrokerResponse::error(
             BrokerErrorCode::ActionMarkRequired,
