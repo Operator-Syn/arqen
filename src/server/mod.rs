@@ -3,12 +3,15 @@ use anyhow::Context;
 use arqen::{
     broker::BrokerClient,
     gmail::{
-        ActionMarkerRequest, ApplyLabelRequest, CreateDraftRequest, CreateLabelRequest,
-        CreateReplyDraftRequest, DeleteLabelRequest, DeleteMarkedEmailRequest, DraftActionMark,
-        DraftCreateResult, DraftDeleteResult, DraftIdRequest, DraftListResponse, DraftSendResult,
-        EmailDeletionMark, EmailLabel, EmailListResponse, EmailReadResponse, EmailReadState,
-        EmailTrashResult, LabelApplyResult, LabelDeleteResult, LabelListResponse,
-        ListDraftsRequest, ListEmailsRequest, ListLabelsRequest, ReadEmailRequest,
+        ActionMarkerRequest, ApplyLabelRequest, ApplyLabelToEmailsRequest, BulkDraftIdsRequest,
+        BulkDraftMarkersRequest, BulkEmailMarkersRequest, BulkMessageIdsRequest, BulkResponse,
+        CreateDraftRequest, CreateDraftsRequest, CreateLabelRequest, CreateLabelsRequest,
+        CreateReplyDraftRequest, CreateReplyDraftsRequest, DeleteLabelRequest, DeleteLabelsRequest,
+        DeleteMarkedEmailRequest, DraftActionMark, DraftCreateResult, DraftDeleteResult,
+        DraftIdRequest, DraftListResponse, DraftSendResult, EmailDeletionMark, EmailLabel,
+        EmailListResponse, EmailReadResponse, EmailReadState, EmailTrashResult, LabelApplyResult,
+        LabelDeleteResult, LabelListResponse, ListDraftsRequest, ListEmailsRequest,
+        ListLabelsRequest, ReadEmailRequest, ReadEmailsRequest,
     },
     mcp::BrokerFailure,
 };
@@ -55,7 +58,11 @@ pub use routes::EmailMcpServer;
 use routes::*;
 pub use runtime::run;
 #[cfg(test)]
-use runtime::{build_router, request_is_authorized};
+pub(crate) fn build_router(options: ServerOptions, cancellation: CancellationToken) -> Router {
+    runtime::build_router(options, cancellation)
+}
+#[cfg(test)]
+use runtime::request_is_authorized;
 #[cfg(test)]
 #[path = "../../tests/unit/server/mod.rs"]
 mod tests;
