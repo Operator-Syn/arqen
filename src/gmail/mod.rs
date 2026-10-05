@@ -182,11 +182,19 @@ impl Default for ListEmailsRequest {
     }
 }
 
+mod bulk;
+pub use bulk::*;
 mod client;
+pub(crate) mod concurrency;
 mod models;
 mod validation;
 #[cfg(test)]
 pub(crate) use client::ReadEmailTooLarge;
+pub(crate) use client::bulk::write_outcome_as as bulk_write_outcome_as;
+pub(crate) use client::bulk::write_outcome_mapped as bulk_write_outcome_mapped;
+pub(crate) use client::bulk::{
+    read_failure as bulk_read_failure, write_outcome as bulk_write_outcome,
+};
 pub(crate) use client::drafts::{DraftListCategory, DraftListError, DraftListStage};
 pub(crate) use client::{
     ApplyLabelFailure, LabelNotFoundError, SystemLabelError, is_draft_message_mutation,
@@ -201,3 +209,7 @@ pub use models::*;
 #[cfg(test)]
 #[path = "../../tests/unit/gmail.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/gmail_bulk.rs"]
+mod bulk_tests;
