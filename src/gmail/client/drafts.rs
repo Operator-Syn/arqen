@@ -116,7 +116,7 @@ fn listing_invariant(reason: DraftListReason, status: StatusCode) -> anyhow::Err
 }
 
 fn listing_response<T: for<'de> Deserialize<'de>>(
-    response: reqwest::blocking::Response,
+    response: GatedResponse,
     stage: DraftListStage,
 ) -> Result<T> {
     let status = response.status();
@@ -236,62 +236,62 @@ impl GmailApi {
             .map_err(|_| listing_error(DraftListStage::List, DraftListCategory::Transport, None))?;
         let list_status = response.status();
         let listed: DraftListResource = listing_response(response, DraftListStage::List)?;
-        let mut drafts = Vec::with_capacity(listed.drafts.len());
-        for reference in listed.drafts {
-            crate::gmail::DraftIdRequest {
-                draft_id: reference.id.clone(),
-            }
-            .validate()
-            .map_err(|_| {
-                listing_error(
-                    DraftListStage::List,
-                    DraftListCategory::Validation,
-                    Some(list_status),
-                )
-            })?;
-            let mut url = self.base_url.join("users/me/drafts").map_err(|_| {
-                listing_error(
-                    DraftListStage::Detail,
-                    DraftListCategory::Configuration,
-                    None,
-                )
-            })?;
-            url.path_segments_mut()
+        let drafts =
+            crate::gmail::concurrency::bounded_map(&listed.drafts, |reference| -> Result<_> {
+                crate::gmail::DraftIdRequest {
+                    draft_id: reference.id.clone(),
+                }
+                .validate()
                 .map_err(|_| {
+                    listing_error(
+                        DraftListStage::List,
+                        DraftListCategory::Validation,
+                        Some(list_status),
+                    )
+                })?;
+                let mut url = self.base_url.join("users/me/drafts").map_err(|_| {
                     listing_error(
                         DraftListStage::Detail,
                         DraftListCategory::Configuration,
                         None,
                     )
-                })?
-                .push(&reference.id);
-            let response = self
-                .client
-                .get(url)
-                .bearer_auth(access_token)
-                .query(&[
-                    ("format", "metadata"),
-                    (
-                        "fields",
-                        "id,message(id,threadId,labelIds,snippet,payload(headers(name,value)))",
-                    ),
-                ])
-                .send()
-                .map_err(|_| {
-                    listing_error(DraftListStage::Detail, DraftListCategory::Transport, None)
                 })?;
-            let detail_status = response.status();
-            let draft: DraftResource = listing_response(response, DraftListStage::Detail)?;
-            if draft.id != reference.id {
-                return Err(listing_invariant(
-                    DraftListReason::ReferenceDetailMismatch,
-                    detail_status,
-                ));
-            }
-            drafts.push(
-                draft_summary(draft).map_err(|reason| listing_invariant(reason, detail_status))?,
-            );
-        }
+                url.path_segments_mut()
+                    .map_err(|_| {
+                        listing_error(
+                            DraftListStage::Detail,
+                            DraftListCategory::Configuration,
+                            None,
+                        )
+                    })?
+                    .push(&reference.id);
+                let response = self
+                    .client
+                    .get(url)
+                    .bearer_auth(access_token)
+                    .query(&[
+                        ("format", "metadata"),
+                        (
+                            "fields",
+                            "id,message(id,threadId,labelIds,snippet,payload(headers(name,value)))",
+                        ),
+                    ])
+                    .send()
+                    .map_err(|_| {
+                        listing_error(DraftListStage::Detail, DraftListCategory::Transport, None)
+                    })?;
+                let detail_status = response.status();
+                let draft: DraftResource = listing_response(response, DraftListStage::Detail)?;
+                if draft.id != reference.id {
+                    return Err(listing_invariant(
+                        DraftListReason::ReferenceDetailMismatch,
+                        detail_status,
+                    ));
+                }
+                draft_summary(draft).map_err(|reason| listing_invariant(reason, detail_status))
+            })
+            .into_iter()
+            .collect::<Result<Vec<_>>>()?;
         Ok(DraftListResponse {
             target_email: target_email.to_owned(),
             drafts,
