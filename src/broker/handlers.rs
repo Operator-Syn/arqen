@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 use super::*;
 
+mod bulk;
 mod deletion;
 mod drafts;
 mod emails;
@@ -8,6 +9,7 @@ mod errors;
 mod labels;
 mod target;
 mod tokens;
+pub(super) use bulk::handle_bulk_request;
 
 pub(super) use deletion::{handle_delete_marked_email, handle_mark_email_for_deletion};
 pub(super) use drafts::{
