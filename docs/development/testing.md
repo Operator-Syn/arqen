@@ -91,3 +91,12 @@ The regression uses bounded socket reads, not arbitrary sleeps. EOF, read
 timeout, over-cap rejection, exact-cap acceptance, and denied-page readability
 are tested separately. Channel receives are bounded instead of polling with
 sleeps. Passing these tests does not establish live browser/OAuth behavior.
+
+## Bulk MCP local verification
+
+Run `nix develop .#arqen -c cargo test --locked --lib bulk_` for bulk contracts,
+marker safety, provider uncertainty, read budgets, and the synthetic 500-item
+HTTP-to-Unix-broker-to-local-provider fixture. Run
+`nix develop .#arqen -c cargo test --locked --bin arqen bulk_tools` to exercise
+the public tool schemas and forwarding. These use local fixtures only; they do
+not contact Google or prove live mailbox behavior or production throughput.
