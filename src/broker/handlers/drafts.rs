@@ -22,7 +22,14 @@ pub(in crate::broker) fn handle_list_drafts(
     }) {
         Ok(result) => BrokerResponse::Drafts { result },
         Err(DraftOperationFailure::Credential(error)) => map_credential_error(&error),
-        Err(DraftOperationFailure::Gmail(error)) => map_draft_error(&error, "list drafts"),
+        Err(DraftOperationFailure::Gmail(error)) => {
+            if let Some(diagnostic) = error.downcast_ref::<crate::gmail::DraftListError>() {
+                // Broker stderr is the internal service diagnostic boundary;
+                // the public MCP error deliberately omits these details.
+                eprintln!("{}", diagnostic.diagnostic_line());
+            }
+            map_draft_error(&error, "list drafts")
+        }
     }
 }
 
