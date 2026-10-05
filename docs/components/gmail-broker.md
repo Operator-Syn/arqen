@@ -136,3 +136,20 @@ Draft deletion uses Gmail's permanent `users.drafts.delete`; draft sending uses
 success. Custom labels remain organizational metadata, and system labels are
 provider-managed. Label application and read-state changes reject DRAFT-labeled
 messages so draft changes stay on the drafts resource boundary.
+
+## Bulk request execution
+
+Bulk tool requests share one captured MCP target and use the existing broker
+protocol and token-refresh path. Independent provider work uses a four-worker
+ordered executor behind a process-wide eight-request gate; list metadata and
+draft metadata retain their original order. Label/read-state changes use
+Gmail's `messages.batchModify` after draft preflight, then verify exact message
+state. Other writes remain individual provider operations so uncertainty is
+reported per item rather than hidden behind a batch success.
+
+Bulk read assembly bounds the serialized response to 1 MiB, including escaped
+JSON and its broker envelope. Draft/message mutation markers are registered
+and consumed as complete sets under one lock; individual marks remain
+interoperable with singular execution tools. These controls bound work and
+preserve outcomes, but do not make Gmail writes transactional or provide a
+throughput guarantee.
