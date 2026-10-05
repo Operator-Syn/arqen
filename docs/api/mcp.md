@@ -332,3 +332,34 @@ missing, expired, replayed, or account-mismatched markers return
 `deletion_mark_required`. A Gmail 404 returns `message_not_found`; rate limits,
 reauthentication, and provider failures map to `gmail_rate_limited`,
 `reauthentication_required`, and `gmail_unavailable` respectively.
+
+## Bounded bulk tools
+
+The operation-specific bulk tools accept explicit IDs or explicit draft
+payloads; none accepts account, query, thread, or generic action selectors.
+Inputs preserve order and reject duplicates where IDs represent the same
+resource. Each structured result contains one indexed item per input with
+`succeeded`, `failed`, `unknown`, or `not_attempted` status. A dispatched write
+whose result cannot be established is `unknown` and must not be blindly
+replayed.
+
+| Tool | Input collection | Maximum |
+|---|---|---:|
+| `read_emails` | `message_ids` | 20 |
+| `apply_label_to_emails`, `mark_emails_read`, `mark_emails_unread`, `mark_emails_for_deletion` | `message_ids` | 100 |
+| `delete_marked_emails` | `marker_ids` | 100 |
+| `create_labels` | `names`; exact duplicate names rejected | 20 |
+| `delete_labels` | `label_ids` | 20 |
+| `create_drafts` | `drafts` | 10 |
+| `create_reply_drafts` | `replies` | 10 |
+| `mark_drafts_for_deletion`, `mark_drafts_for_sending` | `draft_ids` | 20 |
+| `delete_marked_drafts`, `send_marked_drafts` | `marker_ids` | 20 |
+
+Bulk reads are bounded to a 1 MiB encoded response. Items too large to include
+are reported as `response_budget_exceeded`; remaining undispatched items are
+`not_attempted`. Bulk marking returns the existing one-use action markers;
+execution remains a separate call. Trash is recoverable; marked draft deletion
+is permanent; sending requires explicit authorization for the marked draft.
+All limits apply per call, not as a throughput guarantee. See
+[`destructive-operations.md`](../security/destructive-operations.md) for
+authorization details.
