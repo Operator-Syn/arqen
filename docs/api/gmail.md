@@ -96,21 +96,25 @@ IDs, then fetches bounded metadata for each result; it keeps Gmail's draft ID
 distinct from the message ID contained by that draft. The page fails as a whole
 if a draft disappears mid-page or any metadata response fails: it never silently
 skips a detail and reports a complete page. Metadata must correlate with the
-listed draft ID, contain nonempty message/thread IDs and only `DRAFT` labels.
+listed draft ID, contain nonempty message/thread IDs, and include the `DRAFT`
+label. Additional provider-returned labels, such as `IMPORTANT`, do not
+invalidate a draft; missing `DRAFT` still fails the page.
 Snippets use the existing Unicode-safe 300-character cap. All label/list/draft
 JSON responses are capped at 2 MiB, including chunked responses.
 An internal broker diagnostic distinguishes stage, observed HTTP status,
 category, and finite invariant reason without exposing provider values; see
-[broker diagnostics](../components/gmail-broker.md). The normal-mailbox listing
-failure is unresolved until its actual failing boundary and response shape are
-established. Diagnostics alone are not a repair, and validation must not be
-relaxed speculatively.
+[broker diagnostics](../components/gmail-broker.md). The approved live diagnostic
+captured a detail response with HTTP 200 and
+`[DRAFT, IMPORTANT]`; the former DRAFT-only validator rejected it. A synthetic
+regression covers that label shape. Source verification does not establish
+deployment or successful live listing with the repaired runtime.
 `create_draft` builds a plain-text MIME message with one recipient, subject,
 and body (at most 24,576 Unicode scalar values), then posts it to
 `users.drafts.create`. `create_reply_draft` reads the source message headers,
 derives its reply address and subject, supplies the source thread ID and reply
 headers, and creates a separate draft. Draft messages are provider-managed and
-cannot receive labels other than Gmail's `DRAFT` system label.
+cannot be relabelled through Arqen. Gmail's restriction on applying labels to
+drafts is not an assertion that returned metadata contains only `DRAFT`.
 
 Draft deletion and sending each use a dedicated mark tool and marker-only
 execution tool. The broker resolves a draft ID to its contained message ID and
