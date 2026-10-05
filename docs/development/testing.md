@@ -52,19 +52,15 @@ accept/read waits and use synthetic resources, not copied mailbox metadata.
 `draft_listing_diagnostics_identify_invariants_without_private_values` checks
 finite internal reasons, the actual 201 detail status, unchanged public wording,
 and absence of private values/raw serde sources. Minimal metadata is accepted
-without optional headers, payload, or snippet. These diagnostic tests do not
-reproduce or repair the unresolved normal-mailbox failure: capture its actual
-boundary after an approved diagnostic deployment, then add a causal regression.
+without optional headers, payload, or snippet.
 
-`draft_listing_temporary_labels_*` covers fixed system-label recognition,
-missing DRAFT, anonymous custom/unknown counts, malicious strings, deterministic
-deduplication, and 10,000 repeated labels with bounded output. Existing diagnostic
-tests assert that non-label failures have no temporary line and public results
-remain unchanged. These are synthetic fixtures only. Remove the temporary
-instrumentation and assertions using the checklist in
-[`gmail-broker.md`](../components/gmail-broker.md#temporary-draft-label-investigation-remove-after-cause-is-established)
-after the cause is established; deployment/live verification requires separate
-authorization.
+`draft_listing_accepts_draft_with_important_label` uses synthetic identities
+with the `[DRAFT, IMPORTANT]` shape established by an approved live diagnostic.
+The test failed against the former DRAFT-only validator and passes with the
+presence check. Missing `DRAFT` still fails closed, even when other labels are
+present. The temporary label-summary instrumentation has been removed; the
+stable failure diagnostic and its privacy regressions remain. These local
+tests do not establish deployment or repaired live Gmail behavior.
 
 `tests/unit/broker_drafts.rs` and broker action tests cover unchanged/edited
 draft revisions, target changes, consumed/expired markers, and concurrent
