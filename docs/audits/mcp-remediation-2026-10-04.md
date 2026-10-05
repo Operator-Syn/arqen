@@ -197,3 +197,79 @@ Direct source and executed checks remain authoritative.
 
 Priority B's actual live repair and changed-runtime verification remain open.
 Local passing mocks are not substituted for those missing results.
+
+## Focused list-drafts investigation — 2026-10-05
+
+The clean checkout and exact running broker/MCP image IDs were checked at
+revision `15242b5480aed196bca17d0de1fefe46bc55502b`, version 0.1.10. The native
+registered `list_drafts(max_results=1)` again returned the invalid-draft-page
+error. No mailbox mutations, account/scopes/credential/configuration changes,
+commit, push, or deployment were performed.
+
+The uncommitted diagnostic patch adds finite invariant reasons and one sanitized
+broker stderr line at the list-operation failure boundary. Public responses,
+metadata projection, DRAFT validation, identity correlation, response/snippet
+bounds, and all-or-nothing behavior remain unchanged. The synthetic diagnostic
+regression failed before implementation because the error had no reason; it
+passed afterward, with 19 focused listing tests passing. This is RED→GREEN for
+diagnostic capability, **not a causal regression or a live-listing repair**.
+
+Current Google drafts.get and draft-guide documentation were fetched directly
+after the extraction backend returned 403. They support the draft resource API
+and describe only DRAFT labels on draft messages. Neither establishes the live
+failing response shape, so no assumption was relaxed.
+
+Capturing the live boundary through the registered tool requires separately
+approved deployment of the diagnostic broker build. Until then, the exact cause,
+causal fixture, production repair, and changed-runtime normal/paginated/max-50
+verification remain blocked/unresolved. Existing drafts must remain untouched.
+
+Local diagnostic-build checks:
+
+| Command | Result |
+| --- | --- |
+| `nix develop .#arqen --command cargo fmt --check` | Passed |
+| `nix develop .#arqen --command cargo test --locked` | Passed: 135 library, 95 binary, 0 doc tests |
+| `nix develop .#arqen --command cargo clippy --locked --all-targets --all-features -- -D warnings` | Passed |
+| `nix develop .#arqen --command cargo build --locked` | Passed |
+| `git diff --check` | Passed |
+
+The first diagnostic RED invocation timed out while downloading the Nix
+environment, not while executing the regression. Its retry selected one test
+and failed on the missing reason field as expected; the post-change invocation
+selected that same test and passed. Full local checks do not verify live Gmail.
+
+### Separate client-schema check
+
+A fresh temporary connection using installed Hermes native discovery retrieved
+17 live tool schemas and was disconnected without business-tool calls. All 17
+input objects were closed. `list_drafts` matched current source: page size 1–50,
+default 20; nullable page token 1–4096 characters with the control-character
+pattern; no account selector or extra properties. The current agent-facing
+`tool_describe` also matched, with nullable strings normalized to `nullable:true`.
+No current list-drafts metadata staleness was observed. This does not diagnose
+the mailbox failure or prove a previous session's cached schema was refreshed.
+
+The supported [Hermes MCP reload procedure](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp)
+is `/reload-mcp` or a new session. Installed CLI source confirms that explicit
+reload asks for approval, disconnects all MCP connections (not only Arqen),
+rereads configuration, reconnects/discovers, and refreshes the agent tool
+snapshot. `hermes mcp test arqen` is an isolated connectivity/discovery probe,
+not a refresh of an existing session. No reload or configuration edit was made.
+
+### Publication preparation and review correction
+
+Following explicit commit/push authorization, the checkout fast-forwarded over
+the automated `7bb127bfa273d43a20b3015fef925d9b114c019b` version bump to 0.1.11.
+The first independent review found that finite validator errors unintentionally
+changed the public Rust draft-creation error. The shared creation boundary now
+restores the original message-only `Gmail returned an incomplete draft` error.
+Two synthetic regressions covering empty draft/message/thread IDs in new and
+reply creation failed before that correction and passed afterward. Listing
+fixtures now assert the exact unchanged public code and wording.
+
+Final parent checks after correction on 0.1.11 passed: prescribed Nix formatting,
+locked tests (137 library, 95 binary, 0 doc tests), locked all-target/all-feature
+Clippy with warnings denied, and locked build. No changed runtime has been
+activated or tested. The intended publication remains diagnostic-only, not a
+confirmed repair of normal-mailbox listing.
