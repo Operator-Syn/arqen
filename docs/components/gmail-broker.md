@@ -114,9 +114,18 @@ never disclose provider payloads.
 
 Internal `DraftListError` distinguishes list/detail stage, transport, provider
 status, decoding, validation, size-limit, and configuration failures. It retains
-only stage/category/status, with a sanitized status source for existing 401
-refresh and public error mapping. It discards raw decoding/transport errors,
-URLs, tokens, response bodies, and resource IDs. No incidental logging is added.
+only stage/category/status and a finite reason code, with a sanitized status
+source for existing 401 refresh and public error mapping. It discards raw
+decoding/transport errors, URLs, tokens, response bodies, and resource IDs.
+At the broker's list-operation error boundary, one `arqen draft_list_failure`
+line is written to service stderr after refresh handling finishes. It contains
+only finite stage/category/reason values and the observed numeric HTTP status
+(or `unobserved` before a response exists). Reasons distinguish missing required
+fields, invalid JSON syntax/shape, invalid references, reference/detail mismatch,
+empty identity fields, missing draft labels, and unsupported draft labels.
+This diagnostic is internal, never part of the MCP result; do not enable raw
+HTTP/payload logging to investigate a failure. A missing-field classification
+does not by itself establish the exact absent field or the live response shape.
 Public guidance reports that no partial page was returned; a detail 404 advises
 retrying `list_drafts` instead of treating the incomplete page as an empty list.
 
