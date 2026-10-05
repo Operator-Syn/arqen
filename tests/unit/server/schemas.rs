@@ -3,7 +3,7 @@ use super::fixtures::{mcp_request, test_server};
 use super::*;
 
 #[tokio::test]
-async fn all_seventeen_emitted_schemas_have_exact_inputs_and_closed_objects() {
+async fn all_emitted_schemas_have_exact_inputs_and_closed_objects() {
     let (address, cancellation) = test_server().await;
     let listed = mcp_request(address, "tools/list", serde_json::json!({})).await;
     let tools = listed["result"]["tools"].as_array().unwrap();
@@ -48,7 +48,29 @@ async fn all_seventeen_emitted_schemas_have_exact_inputs_and_closed_objects() {
         ("mark_draft_for_sending", &["draft_id"], &["draft_id"]),
         ("send_marked_draft", &["marker_id"], &["marker_id"]),
     ];
-    assert_eq!(tools.len(), contracts.len());
+    assert_eq!(tools.len(), contracts.len() + 14);
+    let bulk_names = [
+        "read_emails",
+        "apply_label_to_emails",
+        "mark_emails_read",
+        "mark_emails_unread",
+        "mark_emails_for_deletion",
+        "delete_marked_emails",
+        "create_labels",
+        "delete_labels",
+        "create_drafts",
+        "create_reply_drafts",
+        "mark_drafts_for_deletion",
+        "mark_drafts_for_sending",
+        "delete_marked_drafts",
+        "send_marked_drafts",
+    ];
+    for name in bulk_names {
+        let tool = tools.iter().find(|tool| tool["name"] == name).unwrap();
+        assert_eq!(tool["inputSchema"]["type"], "object", "{name}");
+        assert_eq!(tool["inputSchema"]["additionalProperties"], false, "{name}");
+        assert_eq!(tool["outputSchema"]["type"], "object", "{name}");
+    }
     for (name, inputs, required) in contracts {
         let tool = tools.iter().find(|tool| tool["name"] == name).unwrap();
         let schema = &tool["inputSchema"];
