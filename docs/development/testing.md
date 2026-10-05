@@ -56,6 +56,16 @@ without optional headers, payload, or snippet. These diagnostic tests do not
 reproduce or repair the unresolved normal-mailbox failure: capture its actual
 boundary after an approved diagnostic deployment, then add a causal regression.
 
+`draft_listing_temporary_labels_*` covers fixed system-label recognition,
+missing DRAFT, anonymous custom/unknown counts, malicious strings, deterministic
+deduplication, and 10,000 repeated labels with bounded output. Existing diagnostic
+tests assert that non-label failures have no temporary line and public results
+remain unchanged. These are synthetic fixtures only. Remove the temporary
+instrumentation and assertions using the checklist in
+[`gmail-broker.md`](../components/gmail-broker.md#temporary-draft-label-investigation-remove-after-cause-is-established)
+after the cause is established; deployment/live verification requires separate
+authorization.
+
 `tests/unit/broker_drafts.rs` and broker action tests cover unchanged/edited
 draft revisions, target changes, consumed/expired markers, and concurrent
 opposite-action transitions. Provider preflight is not an atomic mutation.
