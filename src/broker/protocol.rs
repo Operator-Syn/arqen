@@ -56,6 +56,7 @@ pub(super) fn handle_connection(stream: std::os::unix::net::UnixStream, state: &
                 handle_send_marked_draft(request, state)
             }
             Ok(crate::mcp::BrokerRequest::Readiness { .. }) => handle_readiness(state),
+            Ok(request) => handle_bulk_request(request, state),
             Err(failure) => BrokerResponse::error(failure.code, failure.message),
         },
         Err(_) => BrokerResponse::error(
@@ -63,9 +64,20 @@ pub(super) fn handle_connection(stream: std::os::unix::net::UnixStream, state: &
             "the broker request could not be read",
         ),
     };
+    let response = if matches!(&response, BrokerResponse::EmailsRead { .. })
+        && serde_json::to_vec(&response).map_or(true, |bytes| {
+            bytes.len() + 1 > crate::gmail::MAX_BULK_RESULT_BYTES
+        }) {
+        BrokerResponse::error(
+            BrokerErrorCode::Internal,
+            "bulk read result exceeded its encoded budget",
+        )
+    } else {
+        response
+    };
     let mut stream = reader.into_inner();
     if let Ok(encoded) = serde_json::to_vec(&response)
-        && encoded.len() <= MAX_RESPONSE_BYTES
+        && encoded.len() < MAX_RESPONSE_BYTES
     {
         let _ = stream.write_all(&encoded);
         let _ = stream.write_all(b"\n");
