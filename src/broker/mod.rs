@@ -30,8 +30,9 @@ const DEFAULT_ACCESS_TOKEN_SECONDS: u64 = 3_600;
 const ACCESS_TOKEN_SKEW_SECONDS: u64 = 60;
 mod actions;
 use actions::{
-    ActionMarkFailure, DELETION_MARK_TTL, PendingActionKind, PendingActionMark,
-    consume_action_mark, finish_action_mark, register_action_mark,
+    ActionFinishGuard, ActionMarkFailure, ActionResource, DELETION_MARK_TTL, PendingActionKind,
+    PendingActionMark, consume_action_mark, consume_action_marks, finish_action_mark,
+    register_action_mark, register_action_marks,
 };
 
 #[derive(Debug, Clone)]
@@ -61,6 +62,8 @@ struct CachedAccessToken {
 
 #[derive(Debug, Clone)]
 struct BrokerState {
+    api: Arc<GmailApi>,
+    refresh_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
     database_path: PathBuf,
     credentials_path: PathBuf,
     access_tokens: Arc<Mutex<HashMap<String, CachedAccessToken>>>,
@@ -77,6 +80,12 @@ use protocol::*;
 #[cfg(test)]
 use runtime::prepare_socket_path;
 pub use runtime::run;
+#[cfg(test)]
+#[path = "../../tests/unit/broker_bulk_pipeline.rs"]
+mod bulk_pipeline_tests;
+#[cfg(test)]
+#[path = "../../tests/unit/broker_bulk_transport.rs"]
+mod bulk_transport_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/broker.rs"]
 mod tests;
