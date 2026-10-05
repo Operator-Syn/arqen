@@ -46,6 +46,16 @@ HTTP fixtures must tolerate early disconnects only where bounded-response
 rejection intentionally closes an oversized response; never swallow unrelated
 fixture panics.
 
+The shared single/multi-response Gmail mocks have five-second accept deadlines
+and two-second read/write timeouts. Draft-list diagnostic fixtures also bound
+accept/read waits and use synthetic resources, not copied mailbox metadata.
+`draft_listing_diagnostics_identify_invariants_without_private_values` checks
+finite internal reasons, the actual 201 detail status, unchanged public wording,
+and absence of private values/raw serde sources. Minimal metadata is accepted
+without optional headers, payload, or snippet. These diagnostic tests do not
+reproduce or repair the unresolved normal-mailbox failure: capture its actual
+boundary after an approved diagnostic deployment, then add a causal regression.
+
 `tests/unit/broker_drafts.rs` and broker action tests cover unchanged/edited
 draft revisions, target changes, consumed/expired markers, and concurrent
 opposite-action transitions. Provider preflight is not an atomic mutation.
