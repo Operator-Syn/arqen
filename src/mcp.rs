@@ -7,11 +7,72 @@ use crate::gmail::{
     EmailTrashResult, LabelApplyResult, LabelDeleteResult, LabelListResponse, ListDraftsRequest,
     ListEmailsRequest, ReadEmailRequest,
 };
+use crate::gmail::{
+    ApplyLabelToEmailsRequest, BulkDraftIdsRequest, BulkDraftMarkersRequest,
+    BulkEmailMarkersRequest, BulkMessageIdsRequest, BulkResponse, CreateDraftsRequest,
+    CreateLabelsRequest, CreateReplyDraftsRequest, DeleteLabelsRequest, ReadEmailsRequest,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum BrokerRequest {
+    ReadEmails {
+        #[serde(flatten)]
+        request: ReadEmailsRequest,
+    },
+    ApplyLabelToEmails {
+        #[serde(flatten)]
+        request: ApplyLabelToEmailsRequest,
+    },
+    MarkEmailsRead {
+        #[serde(flatten)]
+        request: BulkMessageIdsRequest,
+    },
+    MarkEmailsUnread {
+        #[serde(flatten)]
+        request: BulkMessageIdsRequest,
+    },
+    MarkEmailsForDeletion {
+        #[serde(flatten)]
+        request: BulkMessageIdsRequest,
+    },
+    DeleteMarkedEmails {
+        #[serde(flatten)]
+        request: BulkEmailMarkersRequest,
+    },
+    CreateLabels {
+        #[serde(flatten)]
+        request: CreateLabelsRequest,
+    },
+    DeleteLabels {
+        #[serde(flatten)]
+        request: DeleteLabelsRequest,
+    },
+    CreateDrafts {
+        #[serde(flatten)]
+        request: CreateDraftsRequest,
+    },
+    CreateReplyDrafts {
+        #[serde(flatten)]
+        request: CreateReplyDraftsRequest,
+    },
+    MarkDraftsForDeletion {
+        #[serde(flatten)]
+        request: BulkDraftIdsRequest,
+    },
+    MarkDraftsForSending {
+        #[serde(flatten)]
+        request: BulkDraftIdsRequest,
+    },
+    DeleteMarkedDrafts {
+        #[serde(flatten)]
+        request: BulkDraftMarkersRequest,
+    },
+    SendMarkedDrafts {
+        #[serde(flatten)]
+        request: BulkDraftMarkersRequest,
+    },
     ListEmails {
         #[serde(flatten)]
         request: ListEmailsRequest,
@@ -154,6 +215,20 @@ impl BrokerRequest {
 
     pub fn validate(self) -> std::result::Result<Self, BrokerValidationFailure> {
         match self {
+            Self::ReadEmails { request } => bulk_validate(request.validate(), |request| Self::ReadEmails { request }),
+            Self::ApplyLabelToEmails { request } => bulk_validate(request.validate(), |request| Self::ApplyLabelToEmails { request }),
+            Self::MarkEmailsRead { request } => bulk_validate(request.validate(), |request| Self::MarkEmailsRead { request }),
+            Self::MarkEmailsUnread { request } => bulk_validate(request.validate(), |request| Self::MarkEmailsUnread { request }),
+            Self::MarkEmailsForDeletion { request } => bulk_validate(request.validate(), |request| Self::MarkEmailsForDeletion { request }),
+            Self::DeleteMarkedEmails { request } => bulk_validate(request.validate(), |request| Self::DeleteMarkedEmails { request }),
+            Self::CreateLabels { request } => bulk_validate(request.validate(), |request| Self::CreateLabels { request }),
+            Self::DeleteLabels { request } => bulk_validate(request.validate(), |request| Self::DeleteLabels { request }),
+            Self::CreateDrafts { request } => bulk_validate(request.validate(), |request| Self::CreateDrafts { request }),
+            Self::CreateReplyDrafts { request } => bulk_validate(request.validate(), |request| Self::CreateReplyDrafts { request }),
+            Self::MarkDraftsForDeletion { request } => bulk_validate(request.validate(), |request| Self::MarkDraftsForDeletion { request }),
+            Self::MarkDraftsForSending { request } => bulk_validate(request.validate(), |request| Self::MarkDraftsForSending { request }),
+            Self::DeleteMarkedDrafts { request } => bulk_validate(request.validate(), |request| Self::DeleteMarkedDrafts { request }),
+            Self::SendMarkedDrafts { request } => bulk_validate(request.validate(), |request| Self::SendMarkedDrafts { request }),
             Self::ListEmails { request } => request
                 .validate()
                 .map(|request| Self::ListEmails { request })
@@ -325,6 +400,42 @@ impl std::error::Error for BrokerFailure {}
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum BrokerResponse {
+    EmailsRead {
+        result: BulkResponse<EmailReadResponse>,
+    },
+    LabelsApplied {
+        result: BulkResponse<LabelApplyResult>,
+    },
+    MessagesReadState {
+        result: BulkResponse<EmailReadState>,
+    },
+    EmailsDeletionMarked {
+        result: BulkResponse<EmailDeletionMark>,
+    },
+    EmailsTrashed {
+        result: BulkResponse<EmailTrashResult>,
+    },
+    LabelsCreated {
+        result: BulkResponse<EmailLabel>,
+    },
+    LabelsDeleted {
+        result: BulkResponse<LabelDeleteResult>,
+    },
+    DraftsCreated {
+        result: BulkResponse<DraftCreateResult>,
+    },
+    DraftsDeletionMarked {
+        result: BulkResponse<DraftActionMark>,
+    },
+    DraftsSendingMarked {
+        result: BulkResponse<DraftActionMark>,
+    },
+    DraftsDeleted {
+        result: BulkResponse<DraftDeleteResult>,
+    },
+    DraftsSent {
+        result: BulkResponse<DraftSendResult>,
+    },
     Ok {
         result: EmailListResponse,
     },
@@ -387,5 +498,17 @@ impl BrokerResponse {
 }
 
 #[cfg(test)]
+#[path = "../tests/unit/mcp_bulk.rs"]
+mod bulk_tests;
+#[cfg(test)]
 #[path = "../tests/unit/mcp.rs"]
 mod tests;
+fn bulk_validate<T>(
+    request: anyhow::Result<T>,
+    wrap: impl FnOnce(T) -> BrokerRequest,
+) -> Result<BrokerRequest, BrokerValidationFailure> {
+    request.map(wrap).map_err(|_| BrokerValidationFailure {
+        code: BrokerErrorCode::InvalidRequest,
+        message: "the bounded bulk request is invalid",
+    })
+}
