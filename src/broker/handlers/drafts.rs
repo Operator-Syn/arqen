@@ -27,6 +27,10 @@ pub(in crate::broker) fn handle_list_drafts(
                 // Broker stderr is the internal service diagnostic boundary;
                 // the public MCP error deliberately omits these details.
                 eprintln!("{}", diagnostic.diagnostic_line());
+                // TEMPORARY label investigation; remove with the broker-doc checklist.
+                if let Some(line) = diagnostic.temporary_label_line() {
+                    eprintln!("{line}");
+                }
             }
             map_draft_error(&error, "list drafts")
         }
