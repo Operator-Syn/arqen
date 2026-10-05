@@ -203,12 +203,43 @@ fn draft_listing_diagnostics_identify_invariants_without_private_values() {
         let public = serde_json::to_string(&response).unwrap();
         assert!(!public.contains(reason));
         assert!(!public.contains("private"));
+        assert!(!public.contains("TEMPORARY") && !public.contains("draft_present"));
+        assert_eq!(
+            diagnostic.temporary_label_line().is_some(),
+            matches!(reason, "MissingDraftLabel" | "UnsupportedDraftLabels")
+        );
         assert!(
             error
                 .chain()
                 .all(|source| source.downcast_ref::<serde_json::Error>().is_none())
         );
     }
+}
+
+#[test]
+fn draft_listing_temporary_labels_identify_draft_and_unread_without_private_values() {
+    let error = draft_listing_error(vec![
+        ("200 OK", r#"{"drafts":[{"id":"draft-1"}]}"#.into()),
+        ("200 OK", r#"{"id":"draft-1","message":{"id":"private-message","threadId":"private-thread","labelIds":["DRAFT","UNREAD"]}}"#.into()),
+    ]);
+    let diagnostic = error
+        .downcast_ref::<crate::gmail::DraftListError>()
+        .unwrap();
+    let rendered = format!("{diagnostic:?}");
+    assert!(
+        rendered.contains("draft_present: true"),
+        "missing temporary label evidence: {rendered}"
+    );
+    assert!(rendered.contains("UNREAD"));
+    assert!(!rendered.contains("private"));
+    assert_eq!(
+        diagnostic.temporary_label_line().unwrap(),
+        "arqen TEMPORARY_draft_label_failure draft_present=true total=2 system=[DRAFT,UNREAD] custom=0 unknown=0"
+    );
+    assert_eq!(
+        diagnostic.diagnostic_line(),
+        "arqen draft_list_failure stage=Detail status=200 category=Validation reason=UnsupportedDraftLabels"
+    );
 }
 
 #[test]
@@ -228,6 +259,110 @@ fn disappearing_draft_detail_returns_all_or_nothing_retry_guidance() {
             .unwrap()
             .contains("private-provider-body")
     );
+}
+
+#[test]
+fn draft_listing_temporary_labels_use_fixed_system_vocabulary_and_bounded_counts() {
+    let systems = [
+        "CATEGORY_FORUMS",
+        "CATEGORY_PERSONAL",
+        "CATEGORY_PROMOTIONS",
+        "CATEGORY_SOCIAL",
+        "CATEGORY_UPDATES",
+        "CHAT",
+        "DRAFT",
+        "IMPORTANT",
+        "INBOX",
+        "SENT",
+        "SPAM",
+        "STARRED",
+        "TRASH",
+        "UNREAD",
+    ];
+    let mut labels: Vec<String> = systems.iter().map(|label| (*label).into()).collect();
+    labels.extend(
+        [
+            "Label_private\nforged-log",
+            "private-custom-name",
+            "UNREAD\r\nprivate",
+            "draft",
+            "",
+            "https://private.invalid",
+        ]
+        .map(String::from),
+    );
+    labels.extend(std::iter::repeat_n("UNREAD".into(), 10_000));
+    let check = |labels: Vec<String>| {
+        let total = labels.len();
+        let detail = serde_json::json!({"id":"draft-1","message":{"id":"private-message","threadId":"private-thread","labelIds":labels,"snippet":"private-snippet","payload":{"headers":[{"name":"Subject","value":"private-subject"},{"name":"To","value":"private-recipient"}]}}}).to_string();
+        let error = draft_listing_error(vec![
+            ("200 OK", r#"{"drafts":[{"id":"draft-1"}]}"#.into()),
+            ("200 OK", detail),
+        ]);
+        let diagnostic = error
+            .downcast_ref::<crate::gmail::DraftListError>()
+            .unwrap();
+        let line = diagnostic.temporary_label_line().unwrap();
+        assert_eq!(
+            line,
+            format!(
+                "arqen TEMPORARY_draft_label_failure draft_present=true total={total} system=[{}] custom=1 unknown=5",
+                systems.join(",")
+            )
+        );
+        assert!(line.len() < 400);
+        assert!(!line.contains('\n') && !line.contains('\r'));
+        for rendered in [
+            format!("{error:?}"),
+            format!("{error:#}"),
+            line.clone(),
+            serde_json::to_string(&map_draft_error(&error, "list drafts")).unwrap(),
+        ] {
+            assert!(!rendered.contains("private") && !rendered.contains("forged"));
+        }
+        line
+    };
+    let first = check(labels.clone());
+    labels.reverse();
+    assert_eq!(first, check(labels));
+}
+
+#[test]
+fn draft_listing_temporary_labels_cover_missing_draft_without_relaxing_validation() {
+    for (labels, expected, reason) in [
+        (
+            serde_json::json!([]),
+            "draft_present=false total=0 system=[] custom=0 unknown=0",
+            "MissingDraftLabel",
+        ),
+        (
+            serde_json::json!(["UNREAD", "INBOX"]),
+            "draft_present=false total=2 system=[INBOX,UNREAD] custom=0 unknown=0",
+            "UnsupportedDraftLabels",
+        ),
+        (
+            serde_json::json!(["Label_private", "private"]),
+            "draft_present=false total=2 system=[] custom=1 unknown=1",
+            "UnsupportedDraftLabels",
+        ),
+    ] {
+        let detail = serde_json::json!({"id":"draft-1","message":{"id":"private-message","threadId":"private-thread","labelIds":labels}}).to_string();
+        let error = draft_listing_error(vec![
+            ("200 OK", r#"{"drafts":[{"id":"draft-1"}]}"#.into()),
+            ("200 OK", detail),
+        ]);
+        let diagnostic = error
+            .downcast_ref::<crate::gmail::DraftListError>()
+            .unwrap();
+        assert_eq!(
+            diagnostic.temporary_label_line().unwrap(),
+            format!("arqen TEMPORARY_draft_label_failure {expected}")
+        );
+        assert!(diagnostic.diagnostic_line().ends_with(reason));
+        assert!(
+            matches!(map_draft_error(&error, "list drafts"), BrokerResponse::Error { code: BrokerErrorCode::GmailUnavailable, message } if message == "Gmail returned an invalid draft page. No partial page was returned; retry list_drafts")
+        );
+    }
 }
 
 #[test]
@@ -259,6 +394,7 @@ fn assert_listing_diagnostic(
     assert_eq!(diagnostic.stage, stage);
     assert_eq!(diagnostic.category, category);
     assert_eq!(diagnostic.status, status);
+    assert!(diagnostic.temporary_label_line().is_none());
     for rendered in [
         format!("{error}"),
         format!("{error:#}"),
