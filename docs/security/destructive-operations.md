@@ -110,3 +110,11 @@ error mapping. Do not delete a real account resource during testing unless the
 user explicitly authorized that exact target and consequence. Report mocked and
 live evidence separately, and verify provider state after an authorized live
 delete when possible.
+
+Bulk operations follow the same rules per explicit resource. Bulk marks create
+one account-bound, one-use marker per resource and do not themselves authorize
+Trash, permanent draft deletion, or sending. Marker sets are validated and
+consumed all-or-none; execution is still per-resource and is not a Gmail
+transaction. An uncertain send/delete must be surfaced as `unknown`, never
+silently retried. Bulk label deletion preflights the entire set and aborts
+before any delete if a system label is present.
