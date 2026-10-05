@@ -34,3 +34,6 @@ client_secret_*.json
 # Repository-local codebase-memory runtime state
 /.codex/mcp/codebase-memory/state/
 /.codebase-memory/
+
+# Repository-local Hermes workspace state and plans
+/.hermes/
