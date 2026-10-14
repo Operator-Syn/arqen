@@ -27,6 +27,11 @@ else
     wayland_socket="${XDG_RUNTIME_DIR:-/run/user/$ARQEN_WAYLAND_UID}/wayland-0"
 fi
 export ARQEN_WAYLAND_SOCKET="$wayland_socket"
+# The overlay binds the session runtime directory rather than the socket leaf,
+# so Docker's boot restore has nothing to create. WAYLAND_DISPLAY is therefore
+# the socket's basename relative to that directory.
+export ARQEN_WAYLAND_RUNTIME_DIR="$(dirname -- "$wayland_socket")"
+export ARQEN_WAYLAND_DISPLAY_NAME="$(basename -- "$wayland_socket")"
 
 compose() {
     docker compose \
@@ -56,6 +61,17 @@ case "${1:-}" in
         exit
         ;;
     up)
+        # A directory here is the signature of a container bind mount that
+        # created the missing socket path as root before the session existed.
+        # The compositor then cannot bind its socket and login fails.
+        if [ -d "$ARQEN_WAYLAND_SOCKET" ]; then
+            printf 'Wayland socket path is a directory, not a socket: %s\n' \
+                "$ARQEN_WAYLAND_SOCKET" >&2
+            printf 'A container bind mount created it before your session started.\n' >&2
+            printf 'Remove it, then log out and back in so the compositor recreates it:\n' >&2
+            printf '    sudo rmdir -- %s\n' "$ARQEN_WAYLAND_SOCKET" >&2
+            exit 1
+        fi
         if [ ! -S "$ARQEN_WAYLAND_SOCKET" ]; then
             printf 'Wayland socket is not available: %s\n' "$ARQEN_WAYLAND_SOCKET" >&2
             exit 1
