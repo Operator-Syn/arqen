@@ -39,8 +39,8 @@ Gmail operation. An image update alone does not verify Gmail behavior.
 Keep these files together in the deployment directory:
 
 - `compose.yaml`: published-image services, network ports, secrets, and volumes.
-- `compose.wayland.yaml`: desktop identities, clipboard socket mount, and
-  one-shot data/runtime volume ownership helper.
+- `compose.wayland.yaml`: desktop identities, the clipboard runtime-directory
+  bind, and a one-shot data/runtime volume ownership helper.
 - `compose-wayland.sh`: supplies the desktop environment and invokes both files.
 - `.secrets/google-client-secret.json`: private Google OAuth client configuration
   referenced by the base Compose file. Never commit or share this file.
@@ -55,6 +55,16 @@ The wrapper accepts an absolute `WAYLAND_DISPLAY` socket or resolves a relative
 name under `XDG_RUNTIME_DIR`. When `WAYLAND_DISPLAY` is unset, it tries
 `${XDG_RUNTIME_DIR:-/run/user/<desktop-uid>}/wayland-0`. Startup requires the
 resolved socket to exist.
+
+`arqen-control` binds that socket's **parent directory**, not the socket itself.
+The directory exists from boot (the lingering user manager creates it), so Docker
+always has a valid bind source: the container may start before you log in, and the
+socket appears inside it as soon as your session creates it. A directory bind is
+also live, so a compositor restart needs no container restart. Never change this
+to a socket-leaf bind while a Docker restart policy applies to `arqen-control`:
+Docker starts `unless-stopped` containers before any login, Compose would create
+the missing leaf as a root-owned directory, and the compositor could then no
+longer bind its socket, leaving the machine stuck at the login screen.
 
 ## Start and use the stack
 
@@ -79,11 +89,11 @@ sign in to the control UI, connect your Google account, and select the MCP targe
 in Arqen. At the Google authorization prompt, `c` copies through the desktop
 clipboard. Routine image updates should not require reconnecting accounts.
 
-Only `arqen-control` receives the host Wayland socket. App services use the desktop
-UID/GID to share the private broker socket. The ownership helper changes ownership
-of existing data/runtime volumes; it does not clear their contents. The base
-Compose file remains responsible for its OAuth secret mounts or staging services;
-do not replace it with an unrelated stack's configuration.
+Only `arqen-control` receives the host display runtime directory. App services use
+the desktop UID/GID to share the private broker socket. The ownership helper changes
+ownership of existing data/runtime volumes; it does not clear their contents. The
+base Compose file remains responsible for its OAuth secret mounts or staging
+services; do not replace it with an unrelated stack's configuration.
 
 ## Latest versus a pinned release
 
@@ -169,6 +179,17 @@ options are not automatically blocked.
 
 Common failures:
 
+- **Cannot get past the login screen after a reboot:** check whether the socket
+  path became a directory (`test -d "$XDG_RUNTIME_DIR/wayland-0"`). A root-owned
+  directory there means something bind-mounted the socket *leaf* at boot, before
+  your session existed; the compositor then cannot bind its socket and the session
+  dies with "Could not create wayland socket". Remove the directory and log out
+  and back in, then confirm `arqen-control` binds the runtime directory rather
+  than the socket leaf.
+- **Clipboard copy in the control UI does nothing:** the container reads the
+  clipboard through the session runtime directory. Confirm it is mounted
+  (`./compose-wayland.sh exec arqen-control ls -la /run/arqen-display`) and that
+  you are in the desktop session that owns that directory.
 - **Wayland socket unavailable:** run from the logged-in desktop session and
   check `WAYLAND_DISPLAY` / `XDG_RUNTIME_DIR`. Do not expose unrelated host
   directories or run as root to bypass the check.
