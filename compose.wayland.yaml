@@ -46,13 +46,31 @@ services:
       - "0"
     environment:
       XDG_RUNTIME_DIR: /run/arqen-display
-      WAYLAND_DISPLAY: wayland-0
+      WAYLAND_DISPLAY: "${ARQEN_WAYLAND_DISPLAY_NAME:-wayland-0}"
       ARQEN_GMAIL_BROKER_SOCKET: /run/arqen/gmail-broker.sock
     volumes:
       - arqen-runtime:/run/arqen:ro
+      # Bind the session runtime DIRECTORY, never the Wayland socket leaf.
+      #   * the directory exists from boot (lingering user manager), so Docker
+      #     always has a valid bind source and creates nothing;
+      #     create_host_path:false enforces that even if it is absent
+      #   * a directory bind is a live view, so the socket appears once the
+      #     session starts; a leaf bind pins the socket inode and goes stale
+      #     whenever the compositor recreates it
+      #   * control-gateway does not use Wayland at startup - only the in-TUI
+      #     wl-copy/wl-paste helpers do - so a pre-session start is harmless
+      # Binding the leaf with a Docker restart policy is a login-breaking bug:
+      # Docker starts unless-stopped containers before any login, Compose then
+      # creates the missing leaf as a root-owned directory, and the compositor
+      # can no longer bind its socket ("Could not create wayland socket"), so
+      # the user cannot get past the login screen.
       - type: bind
-        source: "${ARQEN_WAYLAND_SOCKET}"
-        target: /run/arqen-display/wayland-0
+        source: "${ARQEN_WAYLAND_RUNTIME_DIR}"
+        target: /run/arqen-display
+        bind:
+          create_host_path: false
     depends_on:
       arqen-wayland-permissions:
         condition: service_completed_successfully
+    # Safe to auto-start because the bind source always exists.
+    restart: unless-stopped
