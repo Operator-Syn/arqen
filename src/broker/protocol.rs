@@ -138,6 +138,12 @@ fn handle_readiness(state: &BrokerState) -> BrokerResponse {
     if let Err(error) = check_google_refresh_token(account.token_key.as_deref(), &account.subject) {
         return map_credential_error(&error);
     }
+    // A stored refresh token is not enough: the broker must also be able to
+    // resolve and reach the token endpoint. Without this probe a container with
+    // a broken resolver reports ready and the next real refresh fails instead.
+    if let Err(error) = probe_token_endpoint(&state.credentials_path) {
+        return map_credential_error(&error);
+    }
     BrokerResponse::Ready
 }
 
