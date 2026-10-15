@@ -29,7 +29,9 @@ loopback ports and a temporary Unix socket. `make docker-setup` and
 `make docker-up` exercise the Docker-native profile; its clean-slate smoke
 includes OpenBao initialization, unseal recovery, streamed TUI HTTP access,
 broker/MCP readiness, and role policy checks. These protocol paths do not call
-Google. Add `--call` (`make smoke-local-call`) only for an intentional live
+Google APIs. Readiness resolves and connects to the configured OAuth token
+endpoint but sends no request and uses no credential. Add `--call`
+(`make smoke-local-call`) only for an intentional live
 `list_emails` request using the selected account and configured protected
 credential store.
 
