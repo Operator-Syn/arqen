@@ -47,7 +47,8 @@ detected Wayland or X11 clipboard interface only into the developer Compose
 control container. The user Compose path runs without a host display mount.
 In both paths,
 `/healthz` reports HTTP liveness and `/readyz` reports broker/database/target
-readiness without calling Gmail. The native `arqen-mcp.service` remains an
+readiness, including whether the broker can resolve and reach the OAuth token
+endpoint, without calling Gmail. The native `arqen-mcp.service` remains an
 alternative for non-Docker hosts.
 
 For a headless VPS login, the TUI can bind a configured loopback callback port
