@@ -37,7 +37,9 @@ linked.
 6. Headless VPS OAuth uses an SSH local port forward to a loopback callback;
    the OAuth callback listener is never bound to a public interface.
 7. `/healthz` and `/readyz` require the same bearer gate as `/mcp`; readiness
-   does not call Google or return credential state beyond stable failure codes.
+   does not call Google and returns only stable failure codes. Its
+   reachability probe resolves and connects to the configured token endpoint
+   host without sending a request or using a credential.
 8. Docker-native clipboard access is limited to the local control container.
    The broker, MCP, and OpenBao containers receive neither the host display
    socket nor clipboard access. The app containers use the invoking non-root
