@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use super::*;
+use std::net::{TcpStream, ToSocketAddrs};
 
 pub(crate) fn refresh_google_access_token(
     credentials_path: impl AsRef<Path>,
@@ -75,4 +76,63 @@ pub(crate) fn is_missing_refresh_token(error: &anyhow::Error) -> bool {
 
 pub(crate) fn check_google_refresh_token(token_key: Option<&str>, subject: &str) -> Result<()> {
     load_refresh_token(token_key, subject).map(|_| ())
+}
+
+/// Bound for the synthetic token-endpoint probe. Short enough that readiness
+/// stays a fast probe; long enough for a cold lookup and connect.
+const TOKEN_ENDPOINT_PROBE_TIMEOUT: Duration = Duration::from_secs(4);
+
+/// Upper bound on resolved addresses tried before the endpoint is reported
+/// unreachable, so a long address list cannot stretch a readiness probe.
+const TOKEN_ENDPOINT_PROBE_ATTEMPTS: usize = 4;
+
+/// Confirm the OAuth token endpoint a real refresh would use is reachable.
+///
+/// Readiness used to stop at "a refresh token is stored", which is a purely
+/// local check: a broker whose container could not resolve DNS still reported
+/// ready, and the next real refresh then failed with a transport error. This
+/// probe resolves and connects to the configured `token_uri`, so that failure
+/// class fails readiness instead of surfacing later as a failed tool call.
+///
+/// It deliberately sends no request and uses no credential. A real refresh on
+/// every readiness poll would rotate the refresh token, mint throwaway access
+/// tokens, and risk Google-side rate limiting; resolution plus the TCP connect
+/// exercises the same DNS and egress path the refresh depends on.
+pub(crate) fn probe_token_endpoint(credentials_path: impl AsRef<Path>) -> Result<()> {
+    let credentials = read_credentials(credentials_path.as_ref())?;
+    let endpoint =
+        Url::parse(&credentials.token_uri).context("parse the configured OAuth token endpoint")?;
+    let host = endpoint
+        .host_str()
+        .context("the configured OAuth token endpoint has no host")?;
+    let port = endpoint
+        .port_or_known_default()
+        .context("the configured OAuth token endpoint has no port")?;
+    let target = format!("{host}:{port}");
+
+    let addresses = (host, port).to_socket_addrs().map_err(|error| {
+        anyhow::Error::new(TokenEndpointUnreachable::new(
+            target.clone(),
+            format!("name resolution failed: {error}"),
+        ))
+    })?;
+
+    let mut last_error = None;
+    for address in addresses.take(TOKEN_ENDPOINT_PROBE_ATTEMPTS) {
+        match TcpStream::connect_timeout(&address, TOKEN_ENDPOINT_PROBE_TIMEOUT) {
+            Ok(_) => return Ok(()),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    let cause = match last_error {
+        Some(error) => format!("connection failed: {error}"),
+        None => "the endpoint resolved to no usable address".to_owned(),
+    };
+    Err(anyhow::Error::new(TokenEndpointUnreachable::new(
+        target, cause,
+    )))
+}
+
+pub(crate) fn is_token_endpoint_unreachable(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<TokenEndpointUnreachable>().is_some()
 }
