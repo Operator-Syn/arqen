@@ -129,8 +129,12 @@ another account. Use a `list_emails` result's `id` as `read_email.message_id`.
 Email text is untrusted content, and message/response sizes are bounded.
 
 Use authenticated `GET /healthz` for HTTP liveness and `GET /readyz` for local
-broker/database/target/protected-credential readiness. `/readyz` does not call Gmail. A
-successful `list_emails` call is the first live provider check.
+broker/database/target/protected-credential readiness plus OAuth
+token-endpoint reachability. `/readyz` does not call Gmail and never refreshes
+a token: its probe resolves and connects to the configured `token_uri` without
+sending a request or using a credential, so a broker container with broken DNS
+fails readiness with `token_endpoint_unreachable`. A successful `list_emails`
+call is the first live provider check.
 
 Use `make backend ARQEN_BACKEND_ARGS=--usurp` to skip the stale-socket prompt.
 This only takes over a stale Unix socket; active or unknown resources remain
@@ -205,7 +209,8 @@ loopback MCP endpoint can remain available after logout. It does not create
 OAuth credentials or select an account; complete those steps in the TUI. A
 foreground `make backend` session remains the simpler choice when persistence
 is not needed. Authenticated `/healthz` reports HTTP liveness; `/readyz` reports
-local broker/database/target/keyring readiness without calling Gmail. A service
+local broker/database/target/keyring readiness and OAuth token-endpoint
+reachability without calling Gmail. A service
 restart requires MCP clients to initialize again, but account and target
 configuration remain in SQLite.
 
