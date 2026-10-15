@@ -121,3 +121,97 @@ fn uses_current_keyring_coordinates_for_missing_or_malformed_references() {
         ("arqen".into(), "fallback".into())
     );
 }
+
+fn probe_directory() -> std::path::PathBuf {
+    let directory =
+        std::env::temp_dir().join(format!("arqen-probe-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&directory).unwrap();
+    directory
+}
+
+fn write_client_credentials(directory: &std::path::Path, token_uri: &str) -> std::path::PathBuf {
+    let path = directory.join("google-client-secret.json");
+    std::fs::write(
+        &path,
+        format!(
+            r#"{{"installed":{{"client_id":"client","client_secret":"secret","auth_uri":"https://accounts.google.com/o/oauth2/v2/auth","token_uri":"{token_uri}"}}}}"#
+        ),
+    )
+    .unwrap();
+    path
+}
+
+#[test]
+fn token_endpoint_probe_accepts_a_reachable_endpoint() {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let directory = probe_directory();
+    let credentials =
+        write_client_credentials(&directory, &format!("http://127.0.0.1:{port}/token"));
+
+    assert!(super::probe_token_endpoint(&credentials).is_ok());
+
+    // Hold the listener until after the probe so the port cannot be reused.
+    drop(listener);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn token_endpoint_probe_reports_a_refused_connection_as_unreachable() {
+    let reserved = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = reserved.local_addr().unwrap().port();
+    drop(reserved);
+    let directory = probe_directory();
+    let credentials =
+        write_client_credentials(&directory, &format!("http://127.0.0.1:{port}/token"));
+
+    let error = super::probe_token_endpoint(&credentials).unwrap_err();
+
+    assert!(super::is_token_endpoint_unreachable(&error));
+    assert!(error.to_string().contains("could not be reached"));
+    assert!(!error.to_string().contains("secret"));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn token_endpoint_probe_reports_a_failed_lookup_as_unreachable() {
+    // This host's resolver wildcards and search-suffixes unknown names, so a
+    // short bogus host still resolves. An over-long label is rejected by
+    // resolution itself, which makes the lookup-failure branch deterministic
+    // whatever the network's resolver does.
+    let unresolvable = format!("https://{}.invalid/token", "a".repeat(300));
+    let directory = probe_directory();
+    let credentials = write_client_credentials(&directory, &unresolvable);
+
+    let error = super::probe_token_endpoint(&credentials).unwrap_err();
+
+    assert!(super::is_token_endpoint_unreachable(&error));
+    assert!(error.to_string().contains("name resolution failed"));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn token_endpoint_probe_rejects_a_malformed_token_endpoint() {
+    let directory = probe_directory();
+    let credentials = write_client_credentials(&directory, "not-a-url");
+
+    let error = super::probe_token_endpoint(&credentials).unwrap_err();
+
+    // A misconfigured client JSON is a configuration error, not a reachability
+    // failure, so readiness keeps reporting it as an unavailable credential.
+    assert!(!super::is_token_endpoint_unreachable(&error));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn token_endpoint_probe_fails_closed_when_client_credentials_are_missing() {
+    let directory = probe_directory();
+
+    let error = super::probe_token_endpoint(directory.join("absent.json")).unwrap_err();
+
+    // A missing client secret is not a reachability failure: readiness must keep
+    // reporting it as an unavailable credential instead.
+    assert!(!super::is_token_endpoint_unreachable(&error));
+    assert!(error.to_string().contains("absent.json"));
+    std::fs::remove_dir_all(directory).unwrap();
+}
