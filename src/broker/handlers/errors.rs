@@ -308,6 +308,13 @@ pub(crate) fn map_credential_error(error: &anyhow::Error) -> BrokerResponse {
             "reauthenticate the selected MCP target account in Arqen",
         );
     }
+    if is_token_endpoint_unreachable(error) {
+        return BrokerResponse::error(
+            BrokerErrorCode::TokenEndpointUnreachable,
+            "the credential broker cannot reach the Google token endpoint; \
+             check DNS and network egress for the broker",
+        );
+    }
     BrokerResponse::error(
         BrokerErrorCode::CredentialUnavailable,
         "the selected account credential is temporarily unavailable",
