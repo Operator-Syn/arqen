@@ -120,6 +120,40 @@ impl std::fmt::Display for GoogleTokenError {
 
 impl std::error::Error for GoogleTokenError {}
 
+/// A token-endpoint reachability failure raised by the synthetic readiness
+/// probe.
+///
+/// Distinct from [`GoogleTokenError`], which always describes an HTTP response:
+/// here the endpoint never answered, so no status exists. Unresolvable DNS and
+/// blocked egress both surface this way, which is the failure class readiness
+/// previously could not see. The struct never carries credential material.
+#[derive(Debug)]
+pub(crate) struct TokenEndpointUnreachable {
+    endpoint: String,
+    cause: String,
+}
+
+impl TokenEndpointUnreachable {
+    pub(crate) fn new(endpoint: impl Into<String>, cause: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            cause: cause.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for TokenEndpointUnreachable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the OAuth token endpoint {} could not be reached: {}",
+            self.endpoint, self.cause
+        )
+    }
+}
+
+impl std::error::Error for TokenEndpointUnreachable {}
+
 #[derive(Debug, Deserialize)]
 struct RevocationError {
     error: Option<String>,
@@ -156,7 +190,7 @@ pub use scopes::token_key;
 use scopes::{ensure_expected_subject, granted_scopes};
 pub(crate) use tokens::{
     check_google_refresh_token, is_invalid_grant, is_missing_refresh_token,
-    refresh_google_access_token,
+    is_token_endpoint_unreachable, probe_token_endpoint, refresh_google_access_token,
 };
 #[cfg(test)]
 #[path = "../../tests/unit/auth.rs"]
