@@ -23,7 +23,8 @@ KiB, and the serialized MCP result at 1 MiB. Oversized messages fail with
 `message_too_large`, never as a claimed-complete truncation. The broker maps
 provider failures to stable codes (`invalid_message_id`, `message_not_found`,
 `message_too_large`, `gmail_rate_limited`, `gmail_unavailable`,
-`credential_unavailable`, or `reauthentication_required`) without forwarding
+`credential_unavailable`, `token_endpoint_unreachable`, or
+`reauthentication_required`) without forwarding
 upstream secrets, raw provider response bodies, or token contents. Credential
 acquisition failures are kept distinct from Gmail API failures.
 
