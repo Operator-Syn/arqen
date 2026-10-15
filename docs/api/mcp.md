@@ -16,10 +16,14 @@ specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/tr
 - Liveness: `GET /healthz` with the same bearer token returns `204 No Content`
   when the HTTP process is running.
 - Readiness: `GET /readyz` with the same bearer token returns `204 No Content`
-  only when the broker, account database, selected target, and configured
-  protected credential are usable. It returns `503` with a stable
-  `{code,message}` JSON body otherwise. It does not call Gmail or refresh a
-  token.
+  only when the broker, account database, selected target, configured
+  protected credential, and the OAuth token endpoint are usable. It returns
+  `503` with a stable `{code,message}` JSON body otherwise. It does not call
+  Gmail and never refreshes a token: the reachability probe resolves and
+  connects to the configured `token_uri` without sending a request or using a
+  credential, so an unresolvable name or blocked egress in the broker container
+  fails readiness with `token_endpoint_unreachable` instead of surfacing later
+  as a failed refresh.
 
 The MCP SDK negotiates the protocol version and may return JSON or a
 request-scoped SSE stream according to the request and response needs. Clients
@@ -297,7 +301,8 @@ not a particular client's validation behavior.
 The broker uses these stable codes: `invalid_request`, `invalid_message_id`,
 `message_not_found`, `message_too_large`, `target_not_configured`,
 `target_unavailable`, `reauthentication_required`,
-`credential_unavailable`, `insufficient_scope`, `gmail_rate_limited`,
+`credential_unavailable`, `token_endpoint_unreachable`, `insufficient_scope`,
+`gmail_rate_limited`,
 `gmail_unavailable`, `action_in_progress`, `action_mark_required`,
 `action_mark_limit`, `invalid_action_marker`, `invalid_label_name`, `label_already_exists`,
 `invalid_label_id`, `label_not_found`, `system_label`,
