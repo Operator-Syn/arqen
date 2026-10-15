@@ -6,7 +6,8 @@
 SDK’s Streamable HTTP server. The current deployment mode uses JSON responses
 and retains the SDK’s request-scoped streaming capability for responses that
 need SSE. `/healthz` is an authenticated liveness probe; `/readyz` is an
-authenticated local-dependency probe.
+authenticated local-dependency probe that also checks token-endpoint
+reachability on the broker side.
 
 For the Docker-native local deployment this process runs in its own Compose
 container and connects to the broker through a read-only Unix-socket mount. It
