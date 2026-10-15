@@ -3,7 +3,7 @@ use crate::{
     Account, AccountStore, ConnectionState,
     auth::{
         check_google_refresh_token, is_invalid_grant, is_missing_refresh_token,
-        refresh_google_access_token,
+        is_token_endpoint_unreachable, probe_token_endpoint, refresh_google_access_token,
     },
     gmail::{EmailListResponse, GmailApi, GmailApiError, is_read_email_too_large, is_unauthorized},
     mcp::{BrokerErrorCode, BrokerFailure, BrokerRequest, BrokerResponse},
