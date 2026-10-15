@@ -912,3 +912,52 @@ fn socket_setup_reclaims_a_stale_unix_socket() {
     prepare_socket_path(&path).unwrap();
     assert!(!path.exists());
 }
+
+#[test]
+fn unreachable_token_endpoints_keep_a_stable_reachability_code() {
+    use crate::mcp::{BrokerErrorCode, BrokerResponse};
+
+    let reserved = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = reserved.local_addr().unwrap().port();
+    drop(reserved);
+    let directory = std::env::temp_dir().join(format!(
+        "arqen-broker-probe-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let credentials = directory.join("google-client-secret.json");
+    std::fs::write(
+        &credentials,
+        format!(
+            r#"{{"installed":{{"client_id":"client","client_secret":"client-secret-value","auth_uri":"https://accounts.google.com/o/oauth2/v2/auth","token_uri":"http://127.0.0.1:{port}/token"}}}}"#
+        ),
+    )
+    .unwrap();
+
+    let unreachable = crate::auth::probe_token_endpoint(&credentials).unwrap_err();
+    let response = super::map_credential_error(&unreachable);
+    assert!(matches!(
+        response,
+        BrokerResponse::Error {
+            code: BrokerErrorCode::TokenEndpointUnreachable,
+            ..
+        }
+    ));
+    let encoded = serde_json::to_string(&response).unwrap();
+    assert!(encoded.contains("token_endpoint_unreachable"));
+    assert!(!encoded.contains("127.0.0.1"));
+    assert!(!encoded.contains("client-secret-value"));
+
+    // Missing client credentials are not a reachability failure, so readiness
+    // keeps failing closed with the existing credential code.
+    let missing = crate::auth::probe_token_endpoint(directory.join("absent.json")).unwrap_err();
+    let response = super::map_credential_error(&missing);
+    assert!(matches!(
+        response,
+        BrokerResponse::Error {
+            code: BrokerErrorCode::CredentialUnavailable,
+            ..
+        }
+    ));
+    std::fs::remove_dir_all(directory).unwrap();
+}
