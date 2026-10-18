@@ -62,5 +62,5 @@ docker compose \
 
 printf '\nDocker-native setup is ready for make docker-up.\n'
 printf '  TUI URL after startup: http://127.0.0.1:%s\n' "${ARQEN_CONTROL_HOST_PORT:-7681}"
-printf '  MCP URL after startup: http://127.0.0.1:%s/mcp\n' "${ARQEN_MCP_HOST_PORT:-8787}"
+printf '  MCP URL after startup: http://127.0.0.1:%s/mcp\n' "${ARQEN_MCP_HOST_PORT:-8789}"
 printf '  TUI credentials: %s (value not printed)\n' "$secrets_directory/arqen-control-password"
