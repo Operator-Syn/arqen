@@ -63,7 +63,7 @@ else
 fi
 
 token="$(arqen_read_token)"
-base_url="http://127.0.0.1:${ARQEN_MCP_HOST_PORT:-8787}"
+base_url="http://127.0.0.1:${ARQEN_MCP_HOST_PORT:-8789}"
 printf '\nMCP liveness: '
 curl -sS --max-time 2 -o /dev/null -w '%{http_code}\n' \
     -H "Authorization: Bearer $token" "$base_url/healthz" 2>/dev/null || true
