@@ -129,12 +129,12 @@ services:
     pull_policy: always
     environment:
       ARQEN_MCP_LISTEN_ADDR: 0.0.0.0:8787
-      ARQEN_MCP_ALLOWED_HOSTS: "${ARQEN_MCP_ALLOWED_HOSTS:-127.0.0.1:8787}"
-      ARQEN_MCP_ALLOWED_ORIGINS: "${ARQEN_MCP_ALLOWED_ORIGINS:-http://127.0.0.1:8787}"
+      ARQEN_MCP_ALLOWED_HOSTS: "${ARQEN_MCP_ALLOWED_HOSTS:-127.0.0.1:8789}"
+      ARQEN_MCP_ALLOWED_ORIGINS: "${ARQEN_MCP_ALLOWED_ORIGINS:-http://127.0.0.1:8789}"
       ARQEN_GMAIL_BROKER_SOCKET: /run/arqen/gmail-broker.sock
       ARQEN_MCP_BEARER_TOKEN_FILE: /run/arqen-mcp/mcp-bearer-token
     ports:
-      - "127.0.0.1:${ARQEN_MCP_HOST_PORT:-8787}:8787"
+      - "127.0.0.1:${ARQEN_MCP_HOST_PORT:-8789}:8787"
     volumes:
       - arqen-runtime:/run/arqen:ro
       - arqen-mcp-secret:/run/arqen-mcp:ro
