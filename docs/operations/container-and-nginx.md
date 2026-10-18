@@ -21,7 +21,7 @@ for setup, image modes, and lifecycle commands.
 
 ## Remote MCP access
 
-The user stack publishes MCP on loopback port 8787. To connect from another
+The user stack publishes MCP on loopback port 8789. To connect from another
 machine, put a TLS reverse proxy on the Docker host. The
 [`deploy/nginx/arqen-mcp.conf`](../../deploy/nginx/arqen-mcp.conf) file is an
 example. Replace its domain and certificate paths, set matching
