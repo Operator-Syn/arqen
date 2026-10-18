@@ -50,8 +50,8 @@ arqen_resolve_path() {
 }
 
 arqen_load_defaults() {
-    : "${ARQEN_MCP_LISTEN_ADDR:=127.0.0.1:8787}"
-    : "${ARQEN_MCP_HOST_PORT:=8787}"
+    : "${ARQEN_MCP_LISTEN_ADDR:=127.0.0.1:8789}"
+    : "${ARQEN_MCP_HOST_PORT:=8789}"
     : "${ARQEN_MCP_ALLOWED_HOSTS:=127.0.0.1:${ARQEN_MCP_HOST_PORT}}"
     : "${ARQEN_MCP_ALLOWED_ORIGINS:=http://127.0.0.1:${ARQEN_MCP_HOST_PORT}}"
     : "${ARQEN_MCP_BEARER_TOKEN_FILE:=${XDG_CONFIG_HOME:-${HOME:-}/.config}/arqen/mcp-bearer-token}"
