@@ -88,7 +88,7 @@ Use these connection details in an MCP-compatible client:
 
 | Setting | Value |
 | --- | --- |
-| MCP URL | `http://127.0.0.1:8787/mcp` |
+| MCP URL | `http://127.0.0.1:8789/mcp` |
 | Authorization header | `Bearer <your MCP token>` |
 
 Get the generated token with:
