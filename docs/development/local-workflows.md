@@ -113,11 +113,11 @@ by that command. If a broker was already running, it is reused and is not
 stopped by the supervisor.
 
 Native local agents connect to the shared endpoint at
-`http://127.0.0.1:8787/mcp` with an `Authorization: Bearer` header whose value
+`http://127.0.0.1:8789/mcp` with an `Authorization: Bearer` header whose value
 comes from `.secrets/mcp-bearer-token`. The default Host allowlist is exactly
-`127.0.0.1:8787`; a supplied Origin must be
-`http://127.0.0.1:8787`, while an omitted Origin is accepted by the MCP
-transport. If a client uses `localhost:8787`, add matching host and origin
+`127.0.0.1:8789`; a supplied Origin must be
+`http://127.0.0.1:8789`, while an omitted Origin is accepted by the MCP
+transport. If a client uses `localhost:8789`, add matching host and origin
 values to `.env` explicitly.
 
 The native broker and TUI must run under the same user so the broker can use the
@@ -165,7 +165,7 @@ The Compose startup wrapper uses the same classification and refuses to start
 against a stale or unknown broker path; it never kills a process to reclaim a
 TCP port or Compose project.
 
-The example listener is `127.0.0.1:8787`. The MCP process reads the bearer
+The example listener is `127.0.0.1:8789`. The MCP process reads the bearer
 token from `.secrets/mcp-bearer-token`; the broker uses the default
 `${XDG_RUNTIME_DIR}/arqen/gmail-broker.sock`. The TUI's `t` action must have
 already selected one eligible connected account before `list_emails` or
@@ -268,7 +268,7 @@ three package visibilities to public. Details and setup requirements are in
 
 The stack runs OpenBao, the credential broker, the control gateway/TUI, and the
 MCP server in Docker. OpenBao is internal-only; only loopback ports for the
-control gateway (`7681`), OAuth callback (`8765`), and MCP (`8787`) are
+control gateway (`7681`), OAuth callback (`8765`), and MCP (`8789`) are
 published. ttyd stays on the control container's loopback port `7682`.
 OpenBao refresh-token references use separate control and broker AppRoles. Open
 `http://127.0.0.1:7681`, enter username `arqen` and the generated control
