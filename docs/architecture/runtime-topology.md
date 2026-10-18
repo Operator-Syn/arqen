@@ -38,7 +38,7 @@ public TLS boundary. The service templates do not create certificates, DNS,
 firewall rules, users, or secret files.
 
 Both Compose paths publish only loopback ports 7681 (Arqen control
-gateway), 8765 (OAuth callback), and 8787 (MCP); ttyd stays on control-container
+gateway), 8765 (OAuth callback), and 8789 (MCP); ttyd stays on control-container
 loopback port 7682, and OpenBao is internal-only. The gateway owns the generated
 control-password check and forwards an internal auth header to ttyd; it keeps
 browser sessions in memory and does not persist credentials. The MCP container
