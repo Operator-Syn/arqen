@@ -8,7 +8,7 @@ StartLimitBurst=5
 Type=simple
 ExecStart=%h/.local/bin/arqen mcp-server
 Environment=ARQEN_GMAIL_BROKER_SOCKET=%t/arqen/gmail-broker.sock
-Environment=ARQEN_MCP_LISTEN_ADDR=127.0.0.1:8787
+Environment=ARQEN_MCP_LISTEN_ADDR=127.0.0.1:8789
 EnvironmentFile=-%h/.config/arqen/arqen.env
 Environment=RUST_BACKTRACE=1
 UMask=0077
