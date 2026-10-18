@@ -81,7 +81,7 @@ Default endpoints are:
 | --- | --- |
 | Control UI | `http://127.0.0.1:7681` |
 | OAuth callback | `http://127.0.0.1:8765/oauth2/callback` |
-| MCP | `http://127.0.0.1:8787/mcp` |
+| MCP | `http://127.0.0.1:8789/mcp` |
 
 The base Compose file supports host-port overrides; the launcher prints the
 actual control/MCP addresses. The control username is `arqen`. On first use,
