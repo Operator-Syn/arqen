@@ -118,8 +118,8 @@ if [[ ! -e "$env_file" ]]; then
     {
         printf 'GOOGLE_CLIENT_SECRET=%s\n' "$client_secret"
         printf 'ARQEN_MCP_BEARER_TOKEN_FILE=%s\n' "$token_file"
-        printf 'ARQEN_MCP_ALLOWED_HOSTS=127.0.0.1:8787\n'
-        printf 'ARQEN_MCP_ALLOWED_ORIGINS=http://127.0.0.1:8787\n'
+        printf 'ARQEN_MCP_ALLOWED_HOSTS=127.0.0.1:8789\n'
+        printf 'ARQEN_MCP_ALLOWED_ORIGINS=http://127.0.0.1:8789\n'
     } >"$env_file"
     chmod 600 "$env_file"
 fi
