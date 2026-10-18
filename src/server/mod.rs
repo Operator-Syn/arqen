@@ -36,7 +36,7 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 use subtle::ConstantTimeEq;
 use tokio_util::sync::CancellationToken;
 
-const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:8787";
+const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:8789";
 const MAX_MCP_REQUEST_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone)]
