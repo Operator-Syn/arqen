@@ -1,0 +1,37 @@
+{
+  "version": "0.1.16",
+  "channel": "stable",
+  "source_commit": "a4aec736f532d99071c3672b02cdbc15d5ba46f4",
+  "images": {
+    "mcp": {
+      "reference": "ghcr.io/operator-syn/arqen-mcp:0.1.16",
+      "digest": "sha256:7ad4413f32683574ee2a50e30ebbf20aac93c2ebf68bddfcfa6e02b3502a2223",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ]
+    },
+    "runtime": {
+      "reference": "ghcr.io/operator-syn/arqen-runtime:0.1.16",
+      "digest": "sha256:1681363f9cce972d1a44410c03cf9f135c8fa92855c28ea2007f9284757fc873",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ]
+    },
+    "openbao": {
+      "reference": "ghcr.io/operator-syn/arqen-openbao:0.1.16",
+      "digest": "sha256:6a51be767bef3a53e688aa4977f9507b03a54577fb761f0e0641e365c6a5d890",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ]
+    }
+  },
+  "pull": [
+    "docker pull ghcr.io/operator-syn/arqen-mcp:0.1.16",
+    "docker pull ghcr.io/operator-syn/arqen-runtime:0.1.16",
+    "docker pull ghcr.io/operator-syn/arqen-openbao:0.1.16"
+  ],
+  "source_tag": "v0.1.16"
+}
