@@ -169,7 +169,7 @@ done
 [[ "$broker_ready" == true ]] || arqen_die 'credential broker did not create its Unix socket'
 
 token="$(arqen_read_token)"
-base_url="http://127.0.0.1:${ARQEN_MCP_HOST_PORT:-8787}"
+base_url="http://127.0.0.1:${ARQEN_MCP_HOST_PORT:-8789}"
 health_status=''
 for _attempt in $(seq 1 120); do
     health_status="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' \
